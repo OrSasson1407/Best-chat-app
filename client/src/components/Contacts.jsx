@@ -4,7 +4,7 @@ import styled from "styled-components";
 export default function Contacts({ contacts, changeChat }) {
   const [currentUserName, setCurrentUserName] = useState(undefined);
   const [currentSelected, setCurrentSelected] = useState(undefined);
-
+//dd
   useEffect(() => {
     const data = JSON.parse(sessionStorage.getItem("chat-app-user"));
     if (data) {
