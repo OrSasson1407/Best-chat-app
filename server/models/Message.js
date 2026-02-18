@@ -11,6 +11,11 @@ const MessageSchema = mongoose.Schema(
       ref: "User",
       required: true,
     },
+    // NEW: Field to track if message is "text", "image", or "audio"
+    type: {
+      type: String,
+      default: "text",
+    },
   },
   {
     timestamps: true,

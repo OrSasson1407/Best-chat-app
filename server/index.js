@@ -8,23 +8,27 @@ const socket = require("socket.io");
 require("dotenv").config();
 
 app.use(cors());
-app.use(express.json());
+
+// INCREASED LIMIT: Essential for sending Base64 Images/Audio
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
 // Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/messages", messageRoutes);
 
-// DB Connection
+// Database Connection
 mongoose
   .connect(process.env.MONGO_URI)
   .then(() => console.log("DB Connection Successful"))
   .catch((err) => console.log(err.message));
 
+// Server Setup
 const server = app.listen(process.env.PORT, () =>
   console.log(`Server started on Port ${process.env.PORT}`)
 );
 
-// --- SOCKET.IO REAL-TIME LOGIC ---
+// Socket.io Setup
 const io = socket(server, {
   cors: {
     origin: "http://localhost:3000",
@@ -32,30 +36,52 @@ const io = socket(server, {
   },
 });
 
-// Map to store online users: { "userId": "socketId" }
+// Global Map: UserId -> SocketId
 global.onlineUsers = new Map();
 
 io.on("connection", (socket) => {
-  // When a user logs in, store their socket ID mapped to their MongoDB ID
+  
+  // 1. User Online Status
   socket.on("add-user", (userId) => {
     onlineUsers.set(userId, socket.id);
+    io.emit("get-online-users", Array.from(onlineUsers.keys()));
   });
 
-  // When a message is sent
+  // 2. Send Message (Text, Image, Audio)
   socket.on("send-msg", (data) => {
     const receiverSocket = onlineUsers.get(data.to);
     if (receiverSocket) {
-      // Send the message AND the sender's ID to the recipient
       socket.to(receiverSocket).emit("msg-recieve", {
         msg: data.msg,
         from: data.from,
+        type: data.type, // Broadcast the type (text/image/audio)
+        createdAt: new Date().toISOString(), // Server-side timestamp
       });
     }
   });
 
+  // 3. Typing Indicator
+  socket.on("typing", (data) => {
+    const receiverSocket = onlineUsers.get(data.to);
+    if (receiverSocket) {
+      socket.to(receiverSocket).emit("typing-status", {
+        from: data.from,
+        isTyping: data.isTyping,
+      });
+    }
+  });
+
+  // 4. Disconnect
   socket.on("disconnect", () => {
+    let disconnectedUser = null;
     onlineUsers.forEach((value, key) => {
-      if (value === socket.id) onlineUsers.delete(key);
+      if (value === socket.id) {
+        disconnectedUser = key;
+        onlineUsers.delete(key);
+      }
     });
+    if (disconnectedUser) {
+      io.emit("get-online-users", Array.from(onlineUsers.keys()));
+    }
   });
 });

@@ -14,6 +14,8 @@ module.exports.getMessages = async (req, res, next) => {
       return {
         fromSelf: msg.sender.toString() === from,
         message: msg.message.text,
+        type: msg.type, // Return the type to the frontend
+        createdAt: msg.createdAt, // Return timestamp
       };
     });
     res.json(projectedMessages);
@@ -24,11 +26,12 @@ module.exports.getMessages = async (req, res, next) => {
 
 module.exports.addMessage = async (req, res, next) => {
   try {
-    const { from, to, message } = req.body;
+    const { from, to, message, type } = req.body; // Destructure "type"
     const data = await Messages.create({
       message: { text: message },
       users: [from, to],
       sender: from,
+      type: type || "text", // Default to text if not provided
     });
 
     if (data) return res.json({ msg: "Message added successfully." });
