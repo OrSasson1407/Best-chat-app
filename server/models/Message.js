@@ -11,11 +11,25 @@ const MessageSchema = mongoose.Schema(
       ref: "User",
       required: true,
     },
-    // NEW: Field to track if message is "text", "image", or "audio"
+    // Supports: "text", "image", "audio", "code"
     type: {
       type: String,
       default: "text",
     },
+    // NEW: For message replies (quoting)
+    replyTo: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Messages",
+      default: null,
+    },
+    // NEW: For emoji reactions
+    reactions: [
+      {
+        emoji: String,
+        by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        username: String, // Store username for easy frontend display
+      },
+    ],
   },
   {
     timestamps: true,

@@ -23,7 +23,6 @@ mongoose
   .then(() => console.log("DB Connection Successful"))
   .catch((err) => console.log(err.message));
 
-// FIXED: Add '|| 5000' to ensure it runs on 5000 even if .env is missing
 const PORT = process.env.PORT || 5000;
 
 const server = app.listen(PORT, () =>
@@ -57,23 +56,27 @@ io.on("connection", (socket) => {
     // If it is a group message, broadcast to the Room
     if (data.isGroup) {
         socket.to(data.to).emit("msg-recieve", {
+            id: data.id,             // UPDATED: Pass message ID for reactions
             msg: data.msg,
             from: data.from,
-            username: data.username, // Send sender name
+            username: data.username, 
             type: data.type,
             createdAt: new Date().toISOString(),
-            isGroup: true
+            isGroup: true,
+            replyTo: data.replyTo    // UPDATED: Pass reply payload
         });
     } else {
         // Direct Message Logic
         const receiverSocket = onlineUsers.get(data.to);
         if (receiverSocket) {
             socket.to(receiverSocket).emit("msg-recieve", {
+                id: data.id,         // UPDATED: Pass message ID for reactions
                 msg: data.msg,
                 from: data.from,
                 type: data.type,
                 createdAt: new Date().toISOString(),
-                isGroup: false
+                isGroup: false,
+                replyTo: data.replyTo // UPDATED: Pass reply payload
             });
         }
     }
@@ -99,7 +102,20 @@ io.on("connection", (socket) => {
     }
   });
 
-  // 5. Disconnect
+  // 5. NEW: Real-time Emoji Reactions
+  socket.on("send-reaction", (data) => {
+      // Data contains: messageId, reactions array, to (receiver/group ID), isGroup boolean
+      if (data.isGroup) {
+          socket.to(data.to).emit("receive-reaction", data);
+      } else {
+          const receiverSocket = onlineUsers.get(data.to);
+          if (receiverSocket) {
+              socket.to(receiverSocket).emit("receive-reaction", data);
+          }
+      }
+  });
+
+  // 6. Disconnect
   socket.on("disconnect", () => {
     let disconnectedUser = null;
     onlineUsers.forEach((value, key) => {

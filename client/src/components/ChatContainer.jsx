@@ -6,15 +6,17 @@ import {
     sendMessageRoute, 
     receiveMessageRoute, 
     getGroupMessagesRoute, 
-    addGroupMemberRoute 
+    addGroupMemberRoute,
+    reactMessageRoute 
 } from "../utils/APIRoutes";
 import { v4 as uuidv4 } from "uuid";
 import { toast } from "react-toastify";
-import { FaUserPlus, FaShieldAlt } from "react-icons/fa";
+import { FaUserPlus, FaShieldAlt, FaReply, FaSmile } from "react-icons/fa";
 
 export default function ChatContainer({ currentChat, currentUser, socket, isTyping }) {
   const [messages, setMessages] = useState([]);
   const [arrivalMessage, setArrivalMessage] = useState(null);
+  const [replyingTo, setReplyingTo] = useState(null);
   const scrollRef = useRef();
 
   // 1. Fetch History (Group vs Direct)
@@ -24,17 +26,14 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
         let response;
         try {
             if (currentChat.admin) { 
-                // It's a Group (has 'admin' field)
                 response = await axios.post(getGroupMessagesRoute, {
                     from: currentUser._id,
                     groupId: currentChat._id,
                 });
-                // Join Socket Room for this Group
                 if (socket.current) {
                     socket.current.emit("join-group", currentChat._id);
                 }
             } else {
-                // It's a Direct Message
                 response = await axios.post(receiveMessageRoute, {
                     from: currentUser._id,
                     to: currentChat._id,
@@ -53,21 +52,35 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
   useEffect(() => {
     if (socket.current) {
       const s = socket.current;
-      // Setup listener
+      
       const handleMsgRecieve = (data) => {
         setArrivalMessage({ 
+            id: data.id,
             fromSelf: false, 
             message: data.msg, 
             type: data.type, 
             createdAt: data.createdAt,
-            username: data.username // Group chats need sender name
+            username: data.username,
+            replyTo: data.replyTo,
+            reactions: []
         });
       };
 
+      const handleReactionReceive = (data) => {
+          setMessages(prev => prev.map(msg => {
+              if (msg.id === data.messageId) {
+                  return { ...msg, reactions: data.reactions };
+              }
+              return msg;
+          }));
+      };
+
       s.on("msg-recieve", handleMsgRecieve);
+      s.on("receive-reaction", handleReactionReceive);
 
       return () => {
           s.off("msg-recieve", handleMsgRecieve);
+          s.off("receive-reaction", handleReactionReceive);
       };
     }
   }, [socket]);
@@ -75,63 +88,77 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
   // 3. Update State on Arrival
   useEffect(() => {
     if (arrivalMessage) {
-      // For direct chats: Only add if from current chatter
-      // For groups: Handled by room logic, but safe to add
       setMessages((prev) => [...prev, arrivalMessage]);
     }
   }, [arrivalMessage]);
 
   // 4. Send Message Handler
-  const handleSendMsg = async (msg, type = "text") => {
+  const handleSendMsg = async (msg, type = "text", replyToId = null) => {
     const time = new Date().toISOString();
     
     try {
-        if (currentChat.admin) {
-            // --- SENDING TO GROUP ---
-            await axios.post(sendMessageRoute, { 
-                from: currentUser._id, 
-                to: currentChat._id, // Group ID 
-                message: msg, 
-                type 
-            });
-            
-            socket.current.emit("send-msg", {
-                to: currentChat._id, 
-                from: currentUser._id, 
-                msg, 
-                type,
-                isGroup: true, 
-                username: currentUser.username
-            });
-        } else {
-            // --- SENDING DIRECT ---
-            await axios.post(sendMessageRoute, { 
-                from: currentUser._id, 
-                to: currentChat._id, 
-                message: msg, 
-                type 
-            });
-            
-            socket.current.emit("send-msg", {
-                to: currentChat._id, 
-                from: currentUser._id, 
-                msg, 
-                type,
-                isGroup: false
-            });
-        }
+        const payload = {
+            from: currentUser._id, 
+            to: currentChat._id, 
+            message: msg, 
+            type,
+            replyTo: replyToId
+        };
 
-        // Update Local UI
+        const res = await axios.post(sendMessageRoute, payload);
+        const newMessageId = res.data.data?._id || uuidv4();
+
+        const socketData = {
+            id: newMessageId,
+            to: currentChat._id, 
+            from: currentUser._id, 
+            msg, 
+            type,
+            isGroup: !!currentChat.admin, 
+            username: currentUser.username,
+            replyTo: replyingTo ? { text: replyingTo.text, type: replyingTo.type, isSelfQuote: replyingTo.isSelfQuote } : null
+        };
+        
+        socket.current.emit("send-msg", socketData);
+
         setMessages((prev) => [
             ...prev, 
-            { fromSelf: true, message: msg, type: type, createdAt: time }
+            { 
+              id: newMessageId, 
+              fromSelf: true, 
+              message: msg, 
+              type: type, 
+              createdAt: time, 
+              replyTo: socketData.replyTo, 
+              reactions: [] 
+            }
         ]);
+        setReplyingTo(null); 
     } catch (error) {
         toast.error("Failed to send message");
     }
   };
 
-  // 5. Typing Handler
+  // 5. Reaction Handler
+  const handleReaction = async (messageId, emoji) => {
+      try {
+          const res = await axios.post(reactMessageRoute, {
+              messageId, emoji, userId: currentUser._id, username: currentUser.username
+          });
+          
+          const updatedReactions = res.data.reactions;
+          
+          setMessages(prev => prev.map(msg => msg.id === messageId ? { ...msg, reactions: updatedReactions } : msg));
+
+          socket.current.emit("send-reaction", {
+              messageId, reactions: updatedReactions, to: currentChat._id, isGroup: !!currentChat.admin
+          });
+      } catch (e) {
+          console.error("Failed to react", e);
+      }
+  };
+
+  // 6. Typing Handler
   const handleTyping = (typing) => {
     socket.current.emit("typing", {
       to: currentChat._id, 
@@ -142,7 +169,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
     });
   };
 
-  // 6. Admin Action: Add Member
+  // 7. Admin Action: Add Member
   const handleAddMember = async () => {
       const userId = prompt("Enter the User ID to add to this group:");
       if (userId) {
@@ -155,7 +182,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
       }
   };
 
-  // 7. Auto Scroll
+  // 8. Auto Scroll
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isTyping]);
@@ -169,6 +196,11 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
   const renderMessageContent = (msg) => {
     if (msg.type === "image") return <img src={msg.message} alt="sent" className="msg-image" />;
     if (msg.type === "audio") return <audio controls src={msg.message} className="msg-audio" />;
+    if (msg.type === "code") return (
+        <pre className="code-snippet">
+            <code>{msg.message}</code>
+        </pre>
+    );
     return <p>{msg.message}</p>;
   };
 
@@ -190,9 +222,18 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
       
       <div className="chat-messages">
         {messages.map((message) => (
-          <div ref={scrollRef} key={uuidv4()}>
+          <div ref={scrollRef} key={message.id || uuidv4()}>
             <div className={`message ${message.fromSelf ? "sended" : "recieved"}`}>
               <div className="content">
+                
+                {/* Quoted Reply UI */}
+                {message.replyTo && (
+                    <div className="quoted-message">
+                        <span>{message.replyTo.isSelfQuote ? "You" : "Them"}: </span>
+                        {message.replyTo.type === "image" ? "[Image]" : message.replyTo.text.substring(0,40)}
+                    </div>
+                )}
+
                 {/* Show Sender Name in Groups (if not self) */}
                 {!message.fromSelf && currentChat.admin && (
                     <span className="sender-name">{message.username}</span>
@@ -204,6 +245,26 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
                   <span>{formatTime(message.createdAt)}</span>
                   {message.fromSelf && <span className="read-status">✓✓</span>}
                 </div>
+
+                {/* Message Actions (Hover to reveal) */}
+                <div className="message-actions">
+                    <button onClick={() => setReplyingTo({ id: message.id, text: message.message, type: message.type, isSelfQuote: message.fromSelf })} title="Reply"><FaReply /></button>
+                    <div className="reaction-trigger">
+                        <FaSmile title="React"/>
+                        <div className="reaction-menu">
+                            {['👍', '❤️', '😂', '😮', '😢'].map(emoji => (
+                                <span key={emoji} onClick={() => handleReaction(message.id, emoji)}>{emoji}</span>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Render Reactions */}
+                {message.reactions?.length > 0 && (
+                    <div className="reactions-display">
+                        {message.reactions.map((r, i) => <span key={i} title={r.username}>{r.emoji}</span>)}
+                    </div>
+                )}
               </div>
             </div>
           </div>
@@ -216,7 +277,12 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
         )}
       </div>
       
-      <ChatInput handleSendMsg={handleSendMsg} handleTyping={handleTyping} />
+      <ChatInput 
+          handleSendMsg={handleSendMsg} 
+          handleTyping={handleTyping} 
+          replyingTo={replyingTo} 
+          setReplyingTo={setReplyingTo} 
+      />
     </Container>
   );
 }
@@ -270,7 +336,9 @@ const Container = styled.div`
     &::-webkit-scrollbar-thumb { background-color: rgba(255, 255, 255, 0.1); border-radius: 1rem; }
 
     .message {
-      display: flex; align-items: center;
+      display: flex; align-items: center; position: relative;
+      
+      &:hover .message-actions { opacity: 1; visibility: visible; }
       
       .content {
         max-width: 60%;
@@ -291,6 +359,22 @@ const Container = styled.div`
             text-transform: capitalize;
         }
 
+        /* Quoted Message Styling */
+        .quoted-message {
+            background: rgba(0,0,0,0.2); border-left: 4px solid #00ff88;
+            padding: 0.5rem; border-radius: 0.3rem; font-size: 0.8rem; margin-bottom: 0.5rem;
+            color: #ddd; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            span { font-weight: bold; color: #00ff88; }
+        }
+
+        /* Code Snippet Styling */
+        .code-snippet {
+            background: #1e1e1e; padding: 1rem; border-radius: 0.5rem;
+            overflow-x: auto; font-family: 'Courier New', Courier, monospace;
+            color: #00ff88; border: 1px solid #333; margin: 0.5rem 0;
+            code { white-space: pre-wrap; word-break: break-all; }
+        }
+
         /* Media */
         .msg-image { max-width: 100%; border-radius: 0.8rem; margin-top: 5px; }
         .msg-audio { max-width: 220px; margin-top: 5px; height: 40px; }
@@ -299,6 +383,40 @@ const Container = styled.div`
             display: flex; justify-content: flex-end; align-items: center;
             gap: 5px; font-size: 0.65rem; opacity: 0.7; margin-top: 5px;
             .read-status { color: #00ff88; font-weight: bold; font-size: 0.8rem; }
+        }
+
+        /* Message Actions (Reply, React) */
+        .message-actions {
+            position: absolute; top: -15px; right: 10px;
+            background: #2a2a35; padding: 0.3rem 0.5rem; border-radius: 1rem;
+            display: flex; gap: 0.5rem; opacity: 0; visibility: hidden; transition: 0.2s;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+            z-index: 5;
+            
+            button, .reaction-trigger {
+                background: none; border: none; color: #aaa; cursor: pointer;
+                display: flex; align-items: center; justify-content: center;
+                &:hover { color: #fff; }
+            }
+
+            .reaction-trigger {
+                position: relative;
+                &:hover .reaction-menu { display: flex; }
+                .reaction-menu {
+                    display: none; position: absolute; bottom: 120%; left: 50%;
+                    transform: translateX(-50%); background: #1a1a25; padding: 0.5rem;
+                    border-radius: 2rem; gap: 0.5rem; box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+                    span { cursor: pointer; transition: 0.2s; font-size: 1.2rem; &:hover { transform: scale(1.3); } }
+                }
+            }
+        }
+
+        /* Displaying Reactions */
+        .reactions-display {
+            position: absolute; bottom: -12px; right: 10px;
+            background: #1a1a25; padding: 0.2rem 0.4rem; border-radius: 1rem;
+            font-size: 0.8rem; display: flex; gap: 0.2rem;
+            border: 1px solid rgba(255,255,255,0.1);
         }
       }
     }
@@ -310,6 +428,8 @@ const Container = styled.div`
         border-bottom-right-radius: 0.2rem;
         box-shadow: 0 4px 15px rgba(78, 14, 255, 0.3);
       }
+      .message-actions { right: auto; left: 10px; } /* Flip action menu for sent messages */
+      .reactions-display { right: auto; left: 10px; }
     }
 
     .recieved {

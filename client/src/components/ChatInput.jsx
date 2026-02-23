@@ -1,13 +1,14 @@
 import React, { useState, useRef } from "react";
 import styled from "styled-components";
 import EmojiPicker, { Theme } from "emoji-picker-react";
-import { IoMdSend } from "react-icons/io";
-import { BsEmojiSmileFill, BsImage, BsMicFill, BsStopCircleFill } from "react-icons/bs";
+import { IoMdSend, IoMdClose } from "react-icons/io";
+import { BsEmojiSmileFill, BsImage, BsMicFill, BsStopCircleFill, BsCodeSlash } from "react-icons/bs";
 
-export default function ChatInput({ handleSendMsg, handleTyping }) {
+export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, setReplyingTo }) {
   const [msg, setMsg] = useState("");
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [isCodeMode, setIsCodeMode] = useState(false);
   
   // Refs for handling file and audio inputs
   const fileInputRef = useRef(null);
@@ -22,12 +23,14 @@ export default function ChatInput({ handleSendMsg, handleTyping }) {
     handleTyping(true); // Notify server user is typing
   };
 
-  // --- TEXT SEND HANDLER ---
+  // --- TEXT/CODE SEND HANDLER ---
   const sendChat = (event) => {
     event.preventDefault();
     if (msg.length > 0) {
-      handleSendMsg(msg, "text"); // Send as 'text'
+      handleSendMsg(msg, isCodeMode ? "code" : "text", replyingTo?.id); 
       setMsg("");
+      setIsCodeMode(false);
+      setReplyingTo(null);
       handleTyping(false);
       setShowEmojiPicker(false);
     }
@@ -44,7 +47,8 @@ export default function ChatInput({ handleSendMsg, handleTyping }) {
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
-        handleSendMsg(reader.result, "image"); // Send Base64 string as 'image'
+        handleSendMsg(reader.result, "image", replyingTo?.id); 
+        setReplyingTo(null);
       };
       reader.readAsDataURL(file);
     }
@@ -69,7 +73,8 @@ export default function ChatInput({ handleSendMsg, handleTyping }) {
         const reader = new FileReader();
         reader.readAsDataURL(audioBlob);
         reader.onloadend = () => {
-           handleSendMsg(reader.result, "audio"); // Send Base64 string as 'audio'
+           handleSendMsg(reader.result, "audio", replyingTo?.id); 
+           setReplyingTo(null);
         };
       };
 
@@ -88,68 +93,108 @@ export default function ChatInput({ handleSendMsg, handleTyping }) {
   };
 
   return (
-    <Container>
-      <div className="button-container">
-        
-        {/* Emoji Toggle */}
-        <div className="emoji">
-          <BsEmojiSmileFill onClick={() => setShowEmojiPicker(!showEmojiPicker)} />
-          {showEmojiPicker && (
-             <div className="emoji-picker-react">
-               <EmojiPicker theme={Theme.DARK} onEmojiClick={handleEmojiClick} />
-             </div>
+    <Wrapper>
+      {/* Reply Banner */}
+      {replyingTo && (
+        <div className="reply-banner">
+            <span>Replying to: <strong>{replyingTo.text.substring(0, 30)}...</strong></span>
+            <IoMdClose onClick={() => setReplyingTo(null)} className="close-btn" />
+        </div>
+      )}
+
+      <Container>
+        <div className="button-container">
+          
+          {/* Emoji Toggle */}
+          <div className="emoji">
+            <BsEmojiSmileFill onClick={() => setShowEmojiPicker(!showEmojiPicker)} />
+            {showEmojiPicker && (
+               <div className="emoji-picker-react">
+                 <EmojiPicker theme={Theme.DARK} onEmojiClick={handleEmojiClick} />
+               </div>
+            )}
+          </div>
+
+          {/* Image Upload Trigger */}
+          <div className="upload" onClick={() => fileInputRef.current.click()}>
+            <BsImage />
+            <input 
+              type="file" 
+              ref={fileInputRef} 
+              style={{ display: "none" }} 
+              accept="image/*"
+              onChange={handleImageUpload}
+            />
+          </div>
+
+          {/* Voice Record Trigger */}
+          <div className="mic" onClick={isRecording ? stopRecording : startRecording}>
+            {isRecording ? <BsStopCircleFill className="recording-active" /> : <BsMicFill />}
+          </div>
+
+          {/* Code Mode Toggle */}
+          <div className={`code-toggle ${isCodeMode ? 'active' : ''}`} onClick={() => setIsCodeMode(!isCodeMode)}>
+             <BsCodeSlash />
+          </div>
+
+        </div>
+
+        {/* Main Input Field */}
+        <form className="input-container" onSubmit={(event) => sendChat(event)}>
+          {isCodeMode ? (
+            <textarea 
+               placeholder="Paste your code snippet here..." 
+               onChange={handleChange} 
+               value={msg} 
+               rows="2"
+            />
+          ) : (
+            <input
+              type="text"
+              placeholder={isRecording ? "Recording audio..." : "Type your message here..."}
+              onChange={handleChange}
+              value={msg}
+              disabled={isRecording} 
+              onBlur={() => handleTyping(false)}
+            />
           )}
-        </div>
-
-        {/* Image Upload Trigger */}
-        <div className="upload" onClick={() => fileInputRef.current.click()}>
-          <BsImage />
-          <input 
-            type="file" 
-            ref={fileInputRef} 
-            style={{ display: "none" }} 
-            accept="image/*"
-            onChange={handleImageUpload}
-          />
-        </div>
-
-        {/* Voice Record Trigger */}
-        <div className="mic" onClick={isRecording ? stopRecording : startRecording}>
-          {isRecording ? <BsStopCircleFill className="recording-active" /> : <BsMicFill />}
-        </div>
-
-      </div>
-
-      {/* Main Input Field */}
-      <form className="input-container" onSubmit={(event) => sendChat(event)}>
-        <input
-          type="text"
-          placeholder={isRecording ? "Recording audio..." : "Type your message here..."}
-          onChange={handleChange}
-          value={msg}
-          disabled={isRecording} // Disable typing while recording
-          onBlur={() => handleTyping(false)}
-        />
-        <button type="submit">
-          <IoMdSend />
-        </button>
-      </form>
-    </Container>
+          <button type="submit">
+            <IoMdSend />
+          </button>
+        </form>
+      </Container>
+    </Wrapper>
   );
 }
 
+const Wrapper = styled.div`
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  
+  .reply-banner {
+      background: rgba(154, 65, 254, 0.2);
+      padding: 0.5rem 2rem;
+      display: flex; justify-content: space-between; align-items: center;
+      color: #ccc; font-size: 0.85rem;
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+      .close-btn { cursor: pointer; color: white; font-size: 1.2rem; }
+  }
+`;
+
 const Container = styled.div`
   display: grid;
-  grid-template-columns: 15% 85%;
+  grid-template-columns: 20% 80%;
   align-items: center;
   background-color: rgba(255, 255, 255, 0.02); /* Glass effect */
   padding: 0 2rem;
+  min-height: 10%;
   border-top: 1px solid rgba(255, 255, 255, 0.05);
 
   @media screen and (max-width: 720px) {
     padding: 0 1rem;
     gap: 1rem;
-    grid-template-columns: 20% 80%;
+    grid-template-columns: 25% 75%;
   }
   
   .button-container {
@@ -158,7 +203,7 @@ const Container = styled.div`
     color: white;
     gap: 1rem;
     
-    .emoji, .upload, .mic {
+    .emoji, .upload, .mic, .code-toggle {
       position: relative;
       cursor: pointer;
       svg {
@@ -173,6 +218,9 @@ const Container = styled.div`
     
     .mic svg { color: #ffffff; }
     .mic .recording-active { color: #ff0000; animation: pulse 1s infinite; }
+    
+    .code-toggle.active svg { color: #00ff88; }
+    .code-toggle svg { color: #aaa; }
 
     .emoji-picker-react {
       position: absolute;
@@ -197,6 +245,8 @@ const Container = styled.div`
     align-items: center;
     gap: 2rem;
     background-color: rgba(255, 255, 255, 0.1);
+    padding: 0.3rem 0;
+    
     input {
       width: 90%;
       height: 60%;
@@ -208,6 +258,19 @@ const Container = styled.div`
       &::selection { background-color: #9a86f3; }
       &:focus { outline: none; }
     }
+    
+    textarea { 
+      width: 90%; 
+      background-color: transparent; 
+      color: #00ff88; 
+      border: none; 
+      padding-left: 1rem; 
+      font-size: 1rem; 
+      resize: none; 
+      font-family: monospace; 
+      &:focus { outline: none; } 
+    }
+    
     button {
       padding: 0.3rem 2rem;
       border-radius: 2rem;
