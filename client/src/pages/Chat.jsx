@@ -13,7 +13,7 @@ export default function Chat() {
   const socket = useRef();
   
   // State Initialization
-  const [contacts, setContacts] = useState([]); // Init as empty array for safety
+  const [contacts, setContacts] = useState([]); 
   const [currentChat, setCurrentChat] = useState(undefined);
   const [currentUser, setCurrentUser] = useState(undefined);
   const [isLoaded, setIsLoaded] = useState(false);
@@ -34,28 +34,37 @@ export default function Chat() {
     checkAuth();
   }, [navigate]);
 
-  // 2. Socket Connection & Listeners
+  // 2. Socket Connection & Global Listeners
   useEffect(() => {
     if (currentUser) {
       socket.current = io(host);
       socket.current.emit("add-user", currentUser._id);
       
-      // Listen for online users update
+      // Listen for online users
       socket.current.on("get-online-users", (users) => {
         setOnlineUsers(users);
       });
       
-      // Listen for typing status
+      // Listen for typing events
       socket.current.on("typing-status", (data) => {
-        // Only show typing if it's from the person currently selected
-        if (currentChat && currentChat._id === data.from) {
-          setIsTyping(data.isTyping);
+        // Logic to determine if the typing event belongs to the active chat
+        if (currentChat) {
+            if (data.isGroup) {
+                // For groups, we receive events because we joined the room in ChatContainer.
+                // We assume if we receive it, it's for the active group.
+                setIsTyping(data.isTyping);
+            } else {
+                // For 1-on-1, check if the sender matches the current chat ID
+                if (currentChat._id === data.from) {
+                    setIsTyping(data.isTyping);
+                }
+            }
         }
       });
     }
   }, [currentUser, currentChat]);
 
-  // 3. Fetch Contacts
+  // 3. Fetch Contacts (Initial 1-on-1 list)
   useEffect(() => {
     async function fetchContacts() {
       if (currentUser) {
@@ -73,7 +82,7 @@ export default function Chat() {
   // Handlers
   const handleChatChange = (chat) => {
     setCurrentChat(chat);
-    setIsTyping(false); // Reset typing when switching chats
+    setIsTyping(false); // Reset typing status when switching chats
   };
 
   const handleLogout = () => {
@@ -87,14 +96,16 @@ export default function Chat() {
       <div className="bg-orb orb-1"></div>
       <div className="bg-orb orb-2"></div>
       
-      {/* Glassmorphism Main Interface */}
+      {/* Main Glassmorphism Interface */}
       <div className="glass-container">
         <Contacts 
           contacts={contacts} 
+          currentUser={currentUser} 
           changeChat={handleChatChange} 
           onlineUsers={onlineUsers}
           handleLogout={handleLogout}
         />
+        
         {isLoaded && currentChat === undefined ? (
           <Welcome />
         ) : (
@@ -130,7 +141,7 @@ const Container = styled.div`
   overflow: hidden;
   position: relative;
 
-  /* Floating Orbs for Background */
+  /* Floating Background Orbs */
   .bg-orb {
     position: absolute;
     border-radius: 50%;
@@ -158,9 +169,9 @@ const Container = styled.div`
   .glass-container {
     height: 85vh;
     width: 85vw;
-    background: rgba(255, 255, 255, 0.03); /* Translucent background */
-    backdrop-filter: blur(15px); /* Frosted glass effect */
-    border: 1px solid rgba(255, 255, 255, 0.1); /* Subtle border */
+    background: rgba(255, 255, 255, 0.03); /* Translucent */
+    backdrop-filter: blur(15px); /* Blur effect */
+    border: 1px solid rgba(255, 255, 255, 0.1); /* Thin border */
     border-radius: 2rem;
     display: grid;
     grid-template-columns: 25% 75%;
