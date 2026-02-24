@@ -10,22 +10,22 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
   const [isRecording, setIsRecording] = useState(false);
   const [isCodeMode, setIsCodeMode] = useState(false);
   
-  // Refs for handling file and audio inputs
+  // Image Preview State
+  const [imagePreview, setImagePreview] = useState(null);
+  
   const fileInputRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
 
-  // --- EMOJI HANDLER ---
   const handleEmojiClick = (emojiData) => {
     let message = msg;
     message += emojiData.emoji;
     setMsg(message);
-    handleTyping(true); // Notify server user is typing
+    handleTyping(true); 
   };
 
-  // --- TEXT/CODE SEND HANDLER ---
   const sendChat = (event) => {
-    event.preventDefault();
+    event?.preventDefault();
     if (msg.length > 0) {
       handleSendMsg(msg, isCodeMode ? "code" : "text", replyingTo?.id); 
       setMsg("");
@@ -41,20 +41,29 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
     handleTyping(e.target.value.length > 0);
   };
 
-  // --- IMAGE UPLOAD (Base64) ---
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
-        handleSendMsg(reader.result, "image", replyingTo?.id); 
-        setReplyingTo(null);
+        setImagePreview(reader.result); // Show preview overlay
       };
       reader.readAsDataURL(file);
     }
+    e.target.value = null; // reset input
   };
 
-  // --- VOICE RECORDER (MediaRecorder) ---
+  const confirmSendImage = () => {
+      handleSendMsg(imagePreview, "image", replyingTo?.id);
+      setImagePreview(null);
+      setReplyingTo(null);
+      
+      // If user typed a caption, send it as a follow-up text message
+      if (msg.length > 0) {
+          setTimeout(() => sendChat(), 200); 
+      }
+  };
+
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -94,7 +103,6 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
 
   return (
     <Wrapper>
-      {/* Reply Banner */}
       {replyingTo && (
         <div className="reply-banner">
             <span>Replying to: <strong>{replyingTo.text.substring(0, 30)}...</strong></span>
@@ -102,10 +110,29 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
         </div>
       )}
 
+      {imagePreview && (
+          <PreviewOverlay>
+              <div className="preview-container">
+                  <div className="preview-header">
+                      <span>Preview Image</span>
+                      <IoMdClose onClick={() => setImagePreview(null)} className="close-btn" />
+                  </div>
+                  <img src={imagePreview} alt="Preview" />
+                  <div className="preview-actions">
+                      <input 
+                         type="text" 
+                         placeholder="Add a caption..." 
+                         value={msg} 
+                         onChange={(e) => setMsg(e.target.value)}
+                      />
+                      <button onClick={confirmSendImage}><IoMdSend /></button>
+                  </div>
+              </div>
+          </PreviewOverlay>
+      )}
+
       <Container>
         <div className="button-container">
-          
-          {/* Emoji Toggle */}
           <div className="emoji">
             <BsEmojiSmileFill onClick={() => setShowEmojiPicker(!showEmojiPicker)} />
             {showEmojiPicker && (
@@ -115,7 +142,6 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
             )}
           </div>
 
-          {/* Image Upload Trigger */}
           <div className="upload" onClick={() => fileInputRef.current.click()}>
             <BsImage />
             <input 
@@ -127,27 +153,18 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
             />
           </div>
 
-          {/* Voice Record Trigger */}
           <div className="mic" onClick={isRecording ? stopRecording : startRecording}>
             {isRecording ? <BsStopCircleFill className="recording-active" /> : <BsMicFill />}
           </div>
 
-          {/* Code Mode Toggle */}
           <div className={`code-toggle ${isCodeMode ? 'active' : ''}`} onClick={() => setIsCodeMode(!isCodeMode)}>
              <BsCodeSlash />
           </div>
-
         </div>
 
-        {/* Main Input Field */}
         <form className="input-container" onSubmit={(event) => sendChat(event)}>
           {isCodeMode ? (
-            <textarea 
-               placeholder="Paste your code snippet here..." 
-               onChange={handleChange} 
-               value={msg} 
-               rows="2"
-            />
+            <textarea placeholder="Paste your code snippet here..." onChange={handleChange} value={msg} rows="2" />
           ) : (
             <input
               type="text"
@@ -167,10 +184,48 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
   );
 }
 
+const PreviewOverlay = styled.div`
+    position: absolute; bottom: 80px; left: 0; right: 0;
+    display: flex; justify-content: center;
+    z-index: 100;
+    
+    .preview-container {
+        background: #1a1a25; border-radius: 1rem; padding: 1rem;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+        border: 1px solid rgba(255,255,255,0.1);
+        display: flex; flex-direction: column; gap: 1rem;
+        width: 350px;
+        
+        .preview-header {
+            display: flex; justify-content: space-between; color: white;
+            font-weight: bold;
+            .close-btn { cursor: pointer; font-size: 1.5rem; transition: 0.2s; &:hover { color: #ff4e4e; } }
+        }
+
+        img { width: 100%; max-height: 250px; object-fit: contain; border-radius: 0.5rem; background: black; }
+
+        .preview-actions {
+            display: flex; gap: 0.5rem;
+            input {
+                flex: 1; padding: 0.8rem; border-radius: 2rem; border: none;
+                background: rgba(255,255,255,0.1); color: white;
+                &:focus { outline: none; }
+            }
+            button {
+                background: #4e0eff; border: none; border-radius: 50%; width: 40px; height: 40px;
+                display: flex; align-items: center; justify-content: center; cursor: pointer;
+                color: white; font-size: 1.2rem; transition: 0.2s;
+                &:hover { background: #9a86f3; }
+            }
+        }
+    }
+`;
+
 const Wrapper = styled.div`
   display: flex;
   flex-direction: column;
   width: 100%;
+  position: relative; 
   
   .reply-banner {
       background: rgba(154, 65, 254, 0.2);
@@ -186,7 +241,7 @@ const Container = styled.div`
   display: grid;
   grid-template-columns: 20% 80%;
   align-items: center;
-  background-color: rgba(255, 255, 255, 0.02); /* Glass effect */
+  background-color: rgba(255, 255, 255, 0.02);
   padding: 0 2rem;
   min-height: 10%;
   border-top: 1px solid rgba(255, 255, 255, 0.05);

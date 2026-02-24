@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import styled from "styled-components";
-import { FaUserFriends, FaPlus } from "react-icons/fa";
+import { FaUserFriends, FaPlus, FaSearch } from "react-icons/fa";
 import { BsChatDotsFill } from "react-icons/bs";
 import axios from "axios";
 import { createGroupRoute, getUserGroupsRoute } from "../utils/APIRoutes";
@@ -10,41 +10,41 @@ import "react-toastify/dist/ReactToastify.css";
 export default function Contacts({ contacts, changeChat, onlineUsers, handleLogout, currentUser }) {
   const [currentUserName, setCurrentUserName] = useState(undefined);
   const [currentSelected, setCurrentSelected] = useState(undefined);
-  const [view, setView] = useState("contacts"); // Toggle: "contacts" or "groups"
+  const [view, setView] = useState("contacts"); 
   const [groups, setGroups] = useState([]);
+  
+  // Search State
+  const [searchTerm, setSearchTerm] = useState("");
   
   // Modal State for Creating Groups
   const [showModal, setShowModal] = useState(false);
   const [groupName, setGroupName] = useState("");
   const [selectedMembers, setSelectedMembers] = useState([]);
 
-  // 1. Initialize User
   useEffect(() => {
+    // Moved fetchGroups inside useEffect to fix exhaustive-deps warning
+    const fetchGroups = async () => {
+      if(currentUser) {
+          try {
+              const { data } = await axios.get(`${getUserGroupsRoute}/${currentUser._id}`);
+              setGroups(data);
+          } catch (error) {
+              console.error("Error fetching groups:", error);
+          }
+      }
+    };
+
     if (currentUser) {
       setCurrentUserName(currentUser.username);
       fetchGroups();
     }
   }, [currentUser]);
 
-  // 2. Fetch User's Groups
-  const fetchGroups = async () => {
-    if(currentUser) {
-        try {
-            const { data } = await axios.get(`${getUserGroupsRoute}/${currentUser._id}`);
-            setGroups(data);
-        } catch (error) {
-            console.error("Error fetching groups:", error);
-        }
-    }
-  };
-
-  // 3. Handle Chat Selection
   const changeCurrentChat = (index, contact, isGroup = false) => {
     setCurrentSelected(index);
     changeChat(contact, isGroup); 
   };
 
-  // 4. Create Group Logic
   const handleCreateGroup = async () => {
     if (groupName.length < 3) {
         return toast.error("Group name must be > 3 characters", { position: "bottom-right", theme: "dark" });
@@ -72,7 +72,6 @@ export default function Contacts({ contacts, changeChat, onlineUsers, handleLogo
     }
   };
 
-  // 5. Toggle Member Selection for New Group
   const toggleMemberSelection = (id) => {
     if (selectedMembers.includes(id)) {
         setSelectedMembers(selectedMembers.filter(m => m !== id));
@@ -80,6 +79,10 @@ export default function Contacts({ contacts, changeChat, onlineUsers, handleLogo
         setSelectedMembers([...selectedMembers, id]);
     }
   };
+
+  // Filter Logic based on Search Term
+  const filteredContacts = contacts.filter(c => c.username.toLowerCase().includes(searchTerm.toLowerCase()));
+  const filteredGroups = groups.filter(g => g.name.toLowerCase().includes(searchTerm.toLowerCase()));
 
   return (
     <>
@@ -89,33 +92,31 @@ export default function Contacts({ contacts, changeChat, onlineUsers, handleLogo
             <h3>Snappy</h3>
           </div>
           
-          {/* TABS: Contacts vs Groups */}
           <div className="tabs">
-            <button 
-                className={view === "contacts" ? "active" : ""} 
-                onClick={() => setView("contacts")}
-            >
+            <button className={view === "contacts" ? "active" : ""} onClick={() => {setView("contacts"); setSearchTerm("");}}>
                 <BsChatDotsFill /> Contacts
             </button>
-            <button 
-                className={view === "groups" ? "active" : ""} 
-                onClick={() => setView("groups")}
-            >
+            <button className={view === "groups" ? "active" : ""} onClick={() => {setView("groups"); setSearchTerm("");}}>
                 <FaUserFriends /> Groups
             </button>
           </div>
 
+          <div className="search-bar">
+             <FaSearch className="search-icon"/>
+             <input 
+                type="text" 
+                placeholder={`Search ${view}...`} 
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+             />
+          </div>
+
           <div className="contacts">
             {view === "contacts" ? (
-                // --- RENDER CONTACTS LIST ---
-                contacts.map((contact, index) => {
+                filteredContacts.map((contact, index) => {
                     const isOnline = onlineUsers.includes(contact._id);
                     return (
-                        <div 
-                            key={contact._id} 
-                            className={`contact ${index === currentSelected ? "selected" : ""}`}
-                            onClick={() => changeCurrentChat(index, contact, false)}
-                        >
+                        <div key={contact._id} className={`contact ${index === currentSelected ? "selected" : ""}`} onClick={() => changeCurrentChat(index, contact, false)}>
                             <div className="avatar">
                                 {contact.username[0].toUpperCase()}
                             </div>
@@ -127,17 +128,12 @@ export default function Contacts({ contacts, changeChat, onlineUsers, handleLogo
                     );
                 })
             ) : (
-                // --- RENDER GROUPS LIST ---
                 <>
                     <div className="create-group-btn" onClick={() => setShowModal(true)}>
                         <FaPlus /> Create New Group
                     </div>
-                    {groups.map((group, index) => (
-                        <div 
-                            key={group._id} 
-                            className={`contact ${index === currentSelected ? "selected" : ""}`}
-                            onClick={() => changeCurrentChat(index, group, true)}
-                        >
+                    {filteredGroups.map((group, index) => (
+                        <div key={group._id} className={`contact ${index === currentSelected ? "selected" : ""}`} onClick={() => changeCurrentChat(index, group, true)}>
                             <div className="avatar group-avatar">#</div>
                             <div className="username">
                                 <h3>{group.name}</h3>
@@ -148,7 +144,6 @@ export default function Contacts({ contacts, changeChat, onlineUsers, handleLogo
             )}
           </div>
 
-          {/* CURRENT USER FOOTER */}
           <div className="current-user">
              <div className="user-info">
                  <h2>{currentUserName}</h2>
@@ -156,25 +151,15 @@ export default function Contacts({ contacts, changeChat, onlineUsers, handleLogo
              </div>
           </div>
 
-          {/* --- CREATE GROUP MODAL --- */}
           {showModal && (
               <Modal>
                   <div className="modal-content">
                       <h3>Create Group</h3>
-                      <input 
-                          type="text" 
-                          placeholder="Group Name" 
-                          value={groupName} 
-                          onChange={(e) => setGroupName(e.target.value)} 
-                      />
+                      <input type="text" placeholder="Group Name" value={groupName} onChange={(e) => setGroupName(e.target.value)} />
                       <div className="member-select">
                           <h4>Select Members:</h4>
                           {contacts.map(contact => (
-                              <div 
-                                  key={contact._id} 
-                                  className={`select-item ${selectedMembers.includes(contact._id) ? "selected" : ""}`}
-                                  onClick={() => toggleMemberSelection(contact._id)}
-                              >
+                              <div key={contact._id} className={`select-item ${selectedMembers.includes(contact._id) ? "selected" : ""}`} onClick={() => toggleMemberSelection(contact._id)}>
                                   {contact.username}
                               </div>
                           ))}
@@ -192,8 +177,6 @@ export default function Contacts({ contacts, changeChat, onlineUsers, handleLogo
     </>
   );
 }
-
-// --- STYLES ---
 
 const Modal = styled.div`
     position: fixed;
@@ -249,10 +232,27 @@ const Modal = styled.div`
 
 const Container = styled.div`
   display: grid;
-  grid-template-rows: 10% 10% 65% 15%;
+  grid-template-rows: 10% 8% 7% 60% 15%; 
   overflow: hidden;
   background: rgba(0, 0, 0, 0.2);
   border-right: 1px solid rgba(255, 255, 255, 0.05);
+
+  .search-bar {
+      display: flex; align-items: center; justify-content: center;
+      padding: 0 1rem;
+      position: relative;
+      
+      .search-icon {
+          position: absolute; left: 1.5rem; color: #ccc; font-size: 0.9rem;
+      }
+      
+      input {
+          width: 100%; background: rgba(255, 255, 255, 0.05); border: none;
+          padding: 0.5rem 1rem 0.5rem 2.5rem; border-radius: 1rem; color: white;
+          outline: none; transition: 0.3s;
+          &:focus { background: rgba(255, 255, 255, 0.1); box-shadow: 0 0 5px #4e0eff; }
+      }
+  }
 
   .brand {
     display: flex; align-items: center; justify-content: center;
