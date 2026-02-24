@@ -40,6 +40,18 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
                 });
             }
             setMessages(response.data);
+
+            // NEW: Mark unread messages as read when opening the chat
+            response.data.forEach((msg) => {
+                if (!msg.fromSelf && msg.status !== "read" && socket.current) {
+                    socket.current.emit("mark-as-read", { 
+                        messageId: msg.id, 
+                        from: currentUser._id, 
+                        to: currentChat._id 
+                    });
+                }
+            });
+
         } catch (error) {
             console.error("Error fetching messages:", error);
         }
@@ -48,7 +60,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
     fetchHistory();
   }, [currentChat, currentUser, socket]);
 
-  // 2. Real-time Message Listener
+  // 2. Real-time Message Listeners
   useEffect(() => {
     if (socket.current) {
       const s = socket.current;
@@ -62,7 +74,15 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
             createdAt: data.createdAt,
             username: data.username,
             replyTo: data.replyTo,
-            reactions: []
+            reactions: [],
+            status: "delivered" // Defaults to delivered when received
+        });
+
+        // Immediately notify sender that we read it (since chat is open)
+        s.emit("mark-as-read", { 
+            messageId: data.id, 
+            from: currentUser._id, 
+            to: data.from 
         });
       };
 
@@ -75,15 +95,24 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
           }));
       };
 
+      // NEW: Handle incoming read receipt updates
+      const handleMsgReadUpdate = ({ messageId }) => {
+          setMessages((prev) => 
+              prev.map(msg => msg.id === messageId ? { ...msg, status: "read" } : msg)
+          );
+      };
+
       s.on("msg-recieve", handleMsgRecieve);
       s.on("receive-reaction", handleReactionReceive);
+      s.on("msg-read-update", handleMsgReadUpdate);
 
       return () => {
           s.off("msg-recieve", handleMsgRecieve);
           s.off("receive-reaction", handleReactionReceive);
+          s.off("msg-read-update", handleMsgReadUpdate);
       };
     }
-  }, [socket]);
+  }, [socket, currentUser]);
 
   // 3. Update State on Arrival
   useEffect(() => {
@@ -130,7 +159,8 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
               type: type, 
               createdAt: time, 
               replyTo: socketData.replyTo, 
-              reactions: [] 
+              reactions: [],
+              status: "sent" // NEW: Initial status is sent
             }
         ]);
         setReplyingTo(null); 
@@ -193,6 +223,13 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
+  // NEW: Helper to render WhatsApp-style ticks
+  const renderStatusTicks = (status) => {
+    if (status === "read") return <span className="tick-read">✓✓</span>;
+    if (status === "delivered") return <span className="tick-delivered">✓✓</span>;
+    return <span className="tick-sent">✓</span>;
+  };
+
   const renderMessageContent = (msg) => {
     if (msg.type === "image") return <img src={msg.message} alt="sent" className="msg-image" />;
     if (msg.type === "audio") return <audio controls src={msg.message} className="msg-audio" />;
@@ -243,7 +280,12 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
                 
                 <div className="meta">
                   <span>{formatTime(message.createdAt)}</span>
-                  {message.fromSelf && <span className="read-status">✓✓</span>}
+                  {/* NEW: Display message status ticks for sent messages */}
+                  {message.fromSelf && (
+                    <span className="read-status">
+                      {renderStatusTicks(message.status)}
+                    </span>
+                  )}
                 </div>
 
                 {/* Message Actions (Hover to reveal) */}
@@ -382,7 +424,14 @@ const Container = styled.div`
         .meta {
             display: flex; justify-content: flex-end; align-items: center;
             gap: 5px; font-size: 0.65rem; opacity: 0.7; margin-top: 5px;
-            .read-status { color: #00ff88; font-weight: bold; font-size: 0.8rem; }
+            
+            /* NEW: Tick Styles */
+            .read-status { 
+                font-weight: bold; font-size: 0.8rem; display: flex; align-items: center;
+                .tick-sent { color: #ccc; }
+                .tick-delivered { color: #ccc; }
+                .tick-read { color: #34B7F1; /* WhatsApp Blue */ }
+            }
         }
 
         /* Message Actions (Reply, React) */

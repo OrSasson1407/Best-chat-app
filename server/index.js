@@ -3,9 +3,11 @@ const cors = require("cors");
 const mongoose = require("mongoose");
 const authRoutes = require("./routes/authRoutes");
 const messageRoutes = require("./routes/messagesRoute");
-const groupRoutes = require("./routes/groupRoutes"); // Include the group routes we added
+const groupRoutes = require("./routes/groupRoutes");
 const app = express();
 const socket = require("socket.io");
+const User = require("./models/User"); 
+const Message = require("./models/Message"); // FIX: Required Message model for DB updates
 require("dotenv").config();
 
 app.use(cors());
@@ -41,7 +43,7 @@ global.onlineUsers = new Map();
 
 io.on("connection", (socket) => {
   // 1. User Online Status
-  socket.on("add-user", (userId) => {
+  socket.on("add-user", async (userId) => {
     onlineUsers.set(userId, socket.id);
     io.emit("get-online-users", Array.from(onlineUsers.keys()));
   });
@@ -52,32 +54,39 @@ io.on("connection", (socket) => {
   });
 
   // 3. Send Message (Direct & Group)
-  socket.on("send-msg", (data) => {
-    // If it is a group message, broadcast to the Room
+  socket.on("send-msg", async (data) => {
     if (data.isGroup) {
         socket.to(data.to).emit("msg-recieve", {
-            id: data.id,             // UPDATED: Pass message ID for reactions
+            id: data.id,
             msg: data.msg,
             from: data.from,
             username: data.username, 
             type: data.type,
             createdAt: new Date().toISOString(),
             isGroup: true,
-            replyTo: data.replyTo    // UPDATED: Pass reply payload
+            replyTo: data.replyTo,
+            status: "delivered"
         });
     } else {
-        // Direct Message Logic
         const receiverSocket = onlineUsers.get(data.to);
         if (receiverSocket) {
             socket.to(receiverSocket).emit("msg-recieve", {
-                id: data.id,         // UPDATED: Pass message ID for reactions
+                id: data.id,
                 msg: data.msg,
                 from: data.from,
                 type: data.type,
                 createdAt: new Date().toISOString(),
                 isGroup: false,
-                replyTo: data.replyTo // UPDATED: Pass reply payload
+                replyTo: data.replyTo,
+                status: "delivered"
             });
+
+            // Optional: Automatically mark as delivered in DB if user is online
+            try {
+               await Message.findByIdAndUpdate(data.id, { status: "delivered" });
+            } catch (err) {
+               console.error("Error updating delivered status:", err);
+            }
         }
     }
   });
@@ -102,9 +111,8 @@ io.on("connection", (socket) => {
     }
   });
 
-  // 5. NEW: Real-time Emoji Reactions
+  // 5. Emoji Reactions
   socket.on("send-reaction", (data) => {
-      // Data contains: messageId, reactions array, to (receiver/group ID), isGroup boolean
       if (data.isGroup) {
           socket.to(data.to).emit("receive-reaction", data);
       } else {
@@ -115,8 +123,24 @@ io.on("connection", (socket) => {
       }
   });
 
-  // 6. Disconnect
-  socket.on("disconnect", () => {
+  // 6. Handle Read Receipts (Blue Ticks)
+  socket.on("mark-as-read", async ({ messageId, from, to }) => {
+    try {
+      // FIX: Save read status to database so it stays blue on refresh
+      await Message.findByIdAndUpdate(messageId, { status: "read" });
+    } catch (err) {
+      console.error("Error updating read status in DB:", err);
+    }
+
+    // Notify the sender that their message was read
+    const senderSocket = onlineUsers.get(from);
+    if (senderSocket) {
+      socket.to(senderSocket).emit("msg-read-update", { messageId });
+    }
+  });
+
+  // 7. Disconnect & Last Seen Update
+  socket.on("disconnect", async () => {
     let disconnectedUser = null;
     onlineUsers.forEach((value, key) => {
       if (value === socket.id) {
@@ -124,8 +148,18 @@ io.on("connection", (socket) => {
         onlineUsers.delete(key);
       }
     });
+
     if (disconnectedUser) {
+      const offlineTime = new Date();
+      
+      try {
+        await User.findByIdAndUpdate(disconnectedUser, { lastSeen: offlineTime });
+      } catch (err) {
+        console.error("Failed to update last seen:", err);
+      }
+
       io.emit("get-online-users", Array.from(onlineUsers.keys()));
+      io.emit("user-offline", { userId: disconnectedUser, lastSeen: offlineTime });
     }
   });
 });

@@ -11,29 +11,33 @@ const MessageSchema = mongoose.Schema(
       ref: "User",
       required: true,
     },
-    // Supports: "text", "image", "audio", "code"
     type: {
       type: String,
       default: "text",
     },
-    // NEW: For message replies (quoting)
     replyTo: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Messages",
+      ref: "Message", // This requires the model to be named exactly "Message"
       default: null,
     },
-    // NEW: For emoji reactions
     reactions: [
       {
         emoji: String,
         by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-        username: String, // Store username for easy frontend display
+        username: String,
       },
     ],
+    // WhatsApp-style status tracking
+    status: {
+      type: String,
+      enum: ["sent", "delivered", "read"],
+      default: "sent",
+    },
   },
   {
     timestamps: true,
   }
 );
 
-module.exports = mongoose.model("Messages", MessageSchema);
+// FIX: Exported as "Message" instead of "Messages" to prevent Mongoose crash!
+module.exports = mongoose.model("Message", MessageSchema);

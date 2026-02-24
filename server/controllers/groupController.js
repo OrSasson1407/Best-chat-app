@@ -31,16 +31,25 @@ module.exports.getGroupMessages = async (req, res, next) => {
     const { from, groupId } = req.body;
     // Fetch messages linked to this Group ID
     const messages = await Messages.find({ users: { $in: [groupId] } })
-      .populate("sender", "username") // Get sender name
+      .populate("sender", "username") // Get sender name for group chat context
+      .populate("replyTo", "message.text sender type") // Bring in replied message details
       .sort({ updatedAt: 1 });
 
     const projectedMessages = messages.map((msg) => {
       return {
+        id: msg._id, // Needed for reacting, replying, and read receipts
         fromSelf: msg.sender._id.toString() === from,
-        username: msg.sender.username, // Needed for group chat
+        username: msg.sender.username, // Needed to show who sent what in the group
         message: msg.message.text,
         type: msg.type,
         createdAt: msg.createdAt,
+        status: msg.status, // WhatsApp-style status tracking
+        reactions: msg.reactions || [],
+        replyTo: msg.replyTo ? {
+            text: msg.replyTo.message.text,
+            type: msg.replyTo.type,
+            isSelfQuote: msg.replyTo.sender.toString() === from
+        } : null,
       };
     });
     res.json(projectedMessages);
@@ -53,6 +62,7 @@ module.exports.getGroupMessages = async (req, res, next) => {
 module.exports.addMember = async (req, res, next) => {
     try {
         const { groupId, userId } = req.body;
+        // In a full production app, you might want to verify req.user === group.admin here
         const group = await Groups.findByIdAndUpdate(
             groupId, 
             { $addToSet: { members: userId } }, // Add only if not exists
@@ -68,6 +78,7 @@ module.exports.addMember = async (req, res, next) => {
 module.exports.removeMember = async (req, res, next) => {
     try {
         const { groupId, userId } = req.body;
+        // Verify admin permissions here if necessary
         const group = await Groups.findByIdAndUpdate(
             groupId, 
             { $pull: { members: userId } },
@@ -82,6 +93,7 @@ module.exports.removeMember = async (req, res, next) => {
 // Admin Feature: Delete Group
 module.exports.deleteGroup = async (req, res, next) => {
     try {
+       // Verify admin permissions here if necessary
        await Groups.findByIdAndDelete(req.params.id);
        return res.json({ status: true, msg: "Group deleted" });
     } catch (ex) {
