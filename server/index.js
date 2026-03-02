@@ -7,7 +7,7 @@ const groupRoutes = require("./routes/groupRoutes");
 const app = express();
 const socket = require("socket.io");
 const User = require("./models/User"); 
-const Message = require("./models/Message"); // FIX: Required Message model for DB updates
+const Message = require("./models/Message"); // Required Message model for DB updates
 require("dotenv").config();
 
 app.use(cors());
@@ -81,7 +81,7 @@ io.on("connection", (socket) => {
                 status: "delivered"
             });
 
-            // Optional: Automatically mark as delivered in DB if user is online
+            // Automatically mark as delivered in DB if user is online
             try {
                await Message.findByIdAndUpdate(data.id, { status: "delivered" });
             } catch (err) {
@@ -126,7 +126,7 @@ io.on("connection", (socket) => {
   // 6. Handle Read Receipts (Blue Ticks)
   socket.on("mark-as-read", async ({ messageId, from, to }) => {
     try {
-      // FIX: Save read status to database so it stays blue on refresh
+      // Save read status to database so it stays blue on refresh
       await Message.findByIdAndUpdate(messageId, { status: "read" });
     } catch (err) {
       console.error("Error updating read status in DB:", err);
@@ -139,7 +139,31 @@ io.on("connection", (socket) => {
     }
   });
 
-  // 7. Disconnect & Last Seen Update
+  // 7. NEW: Delete Message (Real-time)
+  socket.on("delete-msg", (data) => {
+    if (data.isGroup) {
+      socket.to(data.to).emit("msg-deleted", { messageId: data.messageId });
+    } else {
+      const receiverSocket = onlineUsers.get(data.to);
+      if (receiverSocket) {
+        socket.to(receiverSocket).emit("msg-deleted", { messageId: data.messageId });
+      }
+    }
+  });
+
+  // 8. NEW: Edit Message (Real-time)
+  socket.on("edit-msg", (data) => {
+    if (data.isGroup) {
+      socket.to(data.to).emit("msg-edited", { messageId: data.messageId, newText: data.newText });
+    } else {
+      const receiverSocket = onlineUsers.get(data.to);
+      if (receiverSocket) {
+        socket.to(receiverSocket).emit("msg-edited", { messageId: data.messageId, newText: data.newText });
+      }
+    }
+  });
+
+  // 9. Disconnect & Last Seen Update
   socket.on("disconnect", async () => {
     let disconnectedUser = null;
     onlineUsers.forEach((value, key) => {

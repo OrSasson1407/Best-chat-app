@@ -7,8 +7,12 @@ export const sendMessageRoute = `${host}/api/messages/addmsg`;
 export const receiveMessageRoute = `${host}/api/messages/getmsg`;
 export const setAvatarRoute = `${host}/api/auth/setavatar`;
 
-// NEW: Added route for emoji reactions
+// Added route for emoji reactions
 export const reactMessageRoute = `${host}/api/messages/react`;
+
+// NEW: Routes for Edit and Delete
+export const deleteMessageRoute = `${host}/api/messages/deletemsg`;
+export const editMessageRoute = `${host}/api/messages/editmsg`;
 
 // Group Routes
 export const createGroupRoute = `${host}/api/groups/create`;

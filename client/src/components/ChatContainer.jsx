@@ -7,16 +7,19 @@ import {
     receiveMessageRoute, 
     getGroupMessagesRoute, 
     addGroupMemberRoute,
-    reactMessageRoute 
+    reactMessageRoute,
+    deleteMessageRoute, 
+    editMessageRoute 
 } from "../utils/APIRoutes";
 import { v4 as uuidv4 } from "uuid";
 import { toast } from "react-toastify";
-import { FaUserPlus, FaShieldAlt, FaReply, FaSmile } from "react-icons/fa";
+import { FaUserPlus, FaShieldAlt, FaReply, FaSmile, FaTrash, FaPen } from "react-icons/fa";
 
 export default function ChatContainer({ currentChat, currentUser, socket, isTyping }) {
   const [messages, setMessages] = useState([]);
   const [arrivalMessage, setArrivalMessage] = useState(null);
   const [replyingTo, setReplyingTo] = useState(null);
+  const [editingMessage, setEditingMessage] = useState(null);
   const scrollRef = useRef();
 
   // 1. Fetch History (Group vs Direct)
@@ -41,7 +44,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
             }
             setMessages(response.data);
 
-            // NEW: Mark unread messages as read when opening the chat
+            // Mark unread messages as read when opening the chat
             response.data.forEach((msg) => {
                 if (!msg.fromSelf && msg.status !== "read" && socket.current) {
                     socket.current.emit("mark-as-read", { 
@@ -75,10 +78,12 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
             username: data.username,
             replyTo: data.replyTo,
             reactions: [],
-            status: "delivered" // Defaults to delivered when received
+            status: "delivered",
+            isDeleted: false,
+            isEdited: false
         });
 
-        // Immediately notify sender that we read it (since chat is open)
+        // Immediately notify sender that we read it
         s.emit("mark-as-read", { 
             messageId: data.id, 
             from: currentUser._id, 
@@ -95,21 +100,33 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
           }));
       };
 
-      // NEW: Handle incoming read receipt updates
       const handleMsgReadUpdate = ({ messageId }) => {
           setMessages((prev) => 
               prev.map(msg => msg.id === messageId ? { ...msg, status: "read" } : msg)
           );
       };
 
+      // Handle incoming message edits and deletes
+      const handleMsgDeleted = ({ messageId }) => {
+          setMessages((prev) => prev.map(msg => msg.id === messageId ? { ...msg, isDeleted: true, message: "🚫 This message was deleted", reactions: [] } : msg));
+      };
+
+      const handleMsgEdited = ({ messageId, newText }) => {
+          setMessages((prev) => prev.map(msg => msg.id === messageId ? { ...msg, isEdited: true, message: newText } : msg));
+      };
+
       s.on("msg-recieve", handleMsgRecieve);
       s.on("receive-reaction", handleReactionReceive);
       s.on("msg-read-update", handleMsgReadUpdate);
+      s.on("msg-deleted", handleMsgDeleted);
+      s.on("msg-edited", handleMsgEdited);
 
       return () => {
           s.off("msg-recieve", handleMsgRecieve);
           s.off("receive-reaction", handleReactionReceive);
           s.off("msg-read-update", handleMsgReadUpdate);
+          s.off("msg-deleted", handleMsgDeleted);
+          s.off("msg-edited", handleMsgEdited);
       };
     }
   }, [socket, currentUser]);
@@ -145,7 +162,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
             type,
             isGroup: !!currentChat.admin, 
             username: currentUser.username,
-            replyTo: replyingTo ? { text: replyingTo.text, type: replyingTo.type, isSelfQuote: replyingTo.isSelfQuote } : null
+            replyTo: replyingTo ? { id: replyingTo.id, text: replyingTo.text, type: replyingTo.type, isSelfQuote: replyingTo.isSelfQuote } : null
         };
         
         socket.current.emit("send-msg", socketData);
@@ -160,13 +177,44 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
               createdAt: time, 
               replyTo: socketData.replyTo, 
               reactions: [],
-              status: "sent" // NEW: Initial status is sent
+              status: "sent",
+              isDeleted: false,
+              isEdited: false
             }
         ]);
         setReplyingTo(null); 
     } catch (error) {
         toast.error("Failed to send message");
     }
+  };
+
+  // Handle Editing Submit
+  const handleEditMsgSubmit = async (messageId, newText) => {
+      try {
+          await axios.post(editMessageRoute, { messageId, newText }); 
+          
+          socket.current.emit("edit-msg", { messageId, newText, to: currentChat._id, isGroup: !!currentChat.admin });
+          
+          setMessages((prev) => prev.map(msg => msg.id === messageId ? { ...msg, message: newText, isEdited: true } : msg));
+          setEditingMessage(null);
+      } catch (error) {
+          toast.error("Failed to edit message");
+      }
+  };
+
+  // Handle Deleting
+  const handleDeleteMsg = async (messageId) => {
+      if(window.confirm("Delete message for everyone?")) {
+          try {
+              await axios.post(deleteMessageRoute, { messageId }); 
+
+              socket.current.emit("delete-msg", { messageId, to: currentChat._id, isGroup: !!currentChat.admin });
+              
+              setMessages((prev) => prev.map(msg => msg.id === messageId ? { ...msg, isDeleted: true, message: "🚫 This message was deleted", reactions: [] } : msg));
+          } catch (error) {
+              toast.error("Failed to delete message");
+          }
+      }
   };
 
   // 5. Reaction Handler
@@ -212,6 +260,16 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
       }
   };
 
+  // Scroll to Original Message
+  const scrollToMessage = (msgId) => {
+      const element = document.getElementById(`msg-${msgId}`);
+      if (element) {
+          element.scrollIntoView({ behavior: "smooth", block: "center" });
+          element.classList.add("highlight-flash");
+          setTimeout(() => element.classList.remove("highlight-flash"), 1500);
+      }
+  };
+
   // 8. Auto Scroll
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -223,7 +281,6 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
-  // NEW: Helper to render WhatsApp-style ticks
   const renderStatusTicks = (status) => {
     if (status === "read") return <span className="tick-read">✓✓</span>;
     if (status === "delivered") return <span className="tick-delivered">✓✓</span>;
@@ -231,6 +288,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
   };
 
   const renderMessageContent = (msg) => {
+    if (msg.isDeleted) return <p className="deleted-text">{msg.message}</p>;
     if (msg.type === "image") return <img src={msg.message} alt="sent" className="msg-image" />;
     if (msg.type === "audio") return <audio controls src={msg.message} className="msg-audio" />;
     if (msg.type === "code") return (
@@ -259,13 +317,13 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
       
       <div className="chat-messages">
         {messages.map((message) => (
-          <div ref={scrollRef} key={message.id || uuidv4()}>
-            <div className={`message ${message.fromSelf ? "sended" : "recieved"}`}>
+          <div ref={scrollRef} key={message.id || uuidv4()} id={`msg-${message.id}`}>
+            <div className={`message ${message.fromSelf ? "sended" : "recieved"} ${message.isDeleted ? "deleted-msg" : ""}`}>
               <div className="content">
                 
                 {/* Quoted Reply UI */}
                 {message.replyTo && (
-                    <div className="quoted-message">
+                    <div className="quoted-message" onClick={() => scrollToMessage(message.replyTo.id)}>
                         <span>{message.replyTo.isSelfQuote ? "You" : "Them"}: </span>
                         {message.replyTo.type === "image" ? "[Image]" : message.replyTo.text.substring(0,40)}
                     </div>
@@ -280,29 +338,37 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
                 
                 <div className="meta">
                   <span>{formatTime(message.createdAt)}</span>
-                  {/* NEW: Display message status ticks for sent messages */}
-                  {message.fromSelf && (
+                  {message.isEdited && <span className="edited-tag">(edited)</span>}
+                  {message.fromSelf && !message.isDeleted && (
                     <span className="read-status">
                       {renderStatusTicks(message.status)}
                     </span>
                   )}
                 </div>
 
-                {/* Message Actions (Hover to reveal) */}
-                <div className="message-actions">
-                    <button onClick={() => setReplyingTo({ id: message.id, text: message.message, type: message.type, isSelfQuote: message.fromSelf })} title="Reply"><FaReply /></button>
-                    <div className="reaction-trigger">
-                        <FaSmile title="React"/>
-                        <div className="reaction-menu">
-                            {['👍', '❤️', '😂', '😮', '😢'].map(emoji => (
-                                <span key={emoji} onClick={() => handleReaction(message.id, emoji)}>{emoji}</span>
-                            ))}
+                {/* Message Actions - Now ALWAYS VISIBLE */}
+                {!message.isDeleted && (
+                    <div className="message-actions">
+                        <button onClick={() => setReplyingTo({ id: message.id, text: message.message, type: message.type, isSelfQuote: message.fromSelf })} title="Reply"><FaReply /></button>
+                        <div className="reaction-trigger">
+                            <FaSmile title="React"/>
+                            <div className="reaction-menu">
+                                {['👍', '❤️', '😂', '😮', '😢'].map(emoji => (
+                                    <span key={emoji} onClick={() => handleReaction(message.id, emoji)}>{emoji}</span>
+                                ))}
+                            </div>
                         </div>
+                        {message.fromSelf && message.type === "text" && (
+                            <button onClick={() => setEditingMessage({ id: message.id, text: message.message })} title="Edit"><FaPen size={12}/></button>
+                        )}
+                        {message.fromSelf && (
+                            <button onClick={() => handleDeleteMsg(message.id)} title="Delete"><FaTrash size={12}/></button>
+                        )}
                     </div>
-                </div>
+                )}
 
                 {/* Render Reactions */}
-                {message.reactions?.length > 0 && (
+                {message.reactions?.length > 0 && !message.isDeleted && (
                     <div className="reactions-display">
                         {message.reactions.map((r, i) => <span key={i} title={r.username}>{r.emoji}</span>)}
                     </div>
@@ -324,6 +390,9 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
           handleTyping={handleTyping} 
           replyingTo={replyingTo} 
           setReplyingTo={setReplyingTo} 
+          editingMessage={editingMessage}
+          setEditingMessage={setEditingMessage}
+          handleEditMsgSubmit={handleEditMsgSubmit}
       />
     </Container>
   );
@@ -377,10 +446,16 @@ const Container = styled.div`
     &::-webkit-scrollbar { width: 4px; }
     &::-webkit-scrollbar-thumb { background-color: rgba(255, 255, 255, 0.1); border-radius: 1rem; }
 
+    .highlight-flash {
+        animation: flashBg 1.5s ease-out;
+    }
+    @keyframes flashBg {
+        0% { background-color: rgba(255, 255, 255, 0.2); border-radius: 10px; }
+        100% { background-color: transparent; }
+    }
+
     .message {
       display: flex; align-items: center; position: relative;
-      
-      &:hover .message-actions { opacity: 1; visibility: visible; }
       
       .content {
         max-width: 60%;
@@ -401,11 +476,16 @@ const Container = styled.div`
             text-transform: capitalize;
         }
 
+        .deleted-text { font-style: italic; color: rgba(255,255,255,0.5); font-size: 0.9rem; }
+        .edited-tag { font-size: 0.6rem; opacity: 0.5; margin-left: 5px; font-style: italic; }
+
         /* Quoted Message Styling */
         .quoted-message {
             background: rgba(0,0,0,0.2); border-left: 4px solid #00ff88;
             padding: 0.5rem; border-radius: 0.3rem; font-size: 0.8rem; margin-bottom: 0.5rem;
             color: #ddd; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            cursor: pointer; transition: 0.2s;
+            &:hover { background: rgba(0,0,0,0.4); }
             span { font-weight: bold; color: #00ff88; }
         }
 
@@ -425,7 +505,7 @@ const Container = styled.div`
             display: flex; justify-content: flex-end; align-items: center;
             gap: 5px; font-size: 0.65rem; opacity: 0.7; margin-top: 5px;
             
-            /* NEW: Tick Styles */
+            /* Tick Styles */
             .read-status { 
                 font-weight: bold; font-size: 0.8rem; display: flex; align-items: center;
                 .tick-sent { color: #ccc; }
@@ -434,11 +514,14 @@ const Container = styled.div`
             }
         }
 
-        /* Message Actions (Reply, React) */
+        /* FIX: Made the buttons ALWAYS VISIBLE so you can see them clearly */
         .message-actions {
             position: absolute; top: -15px; right: 10px;
             background: #2a2a35; padding: 0.3rem 0.5rem; border-radius: 1rem;
-            display: flex; gap: 0.5rem; opacity: 0; visibility: hidden; transition: 0.2s;
+            display: flex; gap: 0.5rem; 
+            opacity: 1; /* Was 0 */
+            visibility: visible; /* Was hidden */
+            transition: 0.2s;
             box-shadow: 0 2px 5px rgba(0,0,0,0.5);
             z-index: 5;
             
@@ -468,6 +551,12 @@ const Container = styled.div`
             border: 1px solid rgba(255,255,255,0.1);
         }
       }
+    }
+
+    .deleted-msg .content {
+        background: transparent !important;
+        border: 1px dashed rgba(255,255,255,0.2) !important;
+        box-shadow: none !important;
     }
 
     .sended {

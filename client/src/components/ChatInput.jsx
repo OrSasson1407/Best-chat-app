@@ -1,33 +1,42 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import styled from "styled-components";
 import EmojiPicker, { Theme } from "emoji-picker-react";
-import { IoMdSend, IoMdClose } from "react-icons/io";
+import { IoMdSend, IoMdClose, IoMdCheckmark } from "react-icons/io";
 import { BsEmojiSmileFill, BsImage, BsMicFill, BsStopCircleFill, BsCodeSlash } from "react-icons/bs";
 
-export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, setReplyingTo }) {
+export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, setReplyingTo, editingMessage, setEditingMessage, handleEditMsgSubmit }) {
   const [msg, setMsg] = useState("");
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isCodeMode, setIsCodeMode] = useState(false);
-  
-  // Image Preview State
   const [imagePreview, setImagePreview] = useState(null);
   
   const fileInputRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
 
+  // Populate input when editing
+  useEffect(() => {
+      if (editingMessage) {
+          setMsg(editingMessage.text);
+          setReplyingTo(null); // Clear reply if starting to edit
+      }
+  }, [editingMessage, setReplyingTo]);
+
   const handleEmojiClick = (emojiData) => {
-    let message = msg;
-    message += emojiData.emoji;
-    setMsg(message);
+    setMsg((prev) => prev + emojiData.emoji);
     handleTyping(true); 
   };
 
   const sendChat = (event) => {
     event?.preventDefault();
     if (msg.length > 0) {
-      handleSendMsg(msg, isCodeMode ? "code" : "text", replyingTo?.id); 
+      if (editingMessage) {
+          handleEditMsgSubmit(editingMessage.id, msg);
+          setEditingMessage(null);
+      } else {
+          handleSendMsg(msg, isCodeMode ? "code" : "text", replyingTo?.id); 
+      }
       setMsg("");
       setIsCodeMode(false);
       setReplyingTo(null);
@@ -103,13 +112,23 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
 
   return (
     <Wrapper>
-      {replyingTo && (
+      {/* Reply Banner */}
+      {replyingTo && !editingMessage && (
         <div className="reply-banner">
             <span>Replying to: <strong>{replyingTo.text.substring(0, 30)}...</strong></span>
             <IoMdClose onClick={() => setReplyingTo(null)} className="close-btn" />
         </div>
       )}
 
+      {/* Edit Banner */}
+      {editingMessage && (
+        <div className="reply-banner edit-banner">
+            <span>Editing message...</span>
+            <IoMdClose onClick={() => { setEditingMessage(null); setMsg(""); }} className="close-btn" />
+        </div>
+      )}
+
+      {/* Image Preview Overlay */}
       {imagePreview && (
           <PreviewOverlay>
               <div className="preview-container">
@@ -176,7 +195,7 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
             />
           )}
           <button type="submit">
-            <IoMdSend />
+            {editingMessage ? <IoMdCheckmark /> : <IoMdSend />}
           </button>
         </form>
       </Container>
@@ -234,6 +253,10 @@ const Wrapper = styled.div`
       color: #ccc; font-size: 0.85rem;
       border-top: 1px solid rgba(255, 255, 255, 0.05);
       .close-btn { cursor: pointer; color: white; font-size: 1.2rem; }
+  }
+
+  .edit-banner {
+      background: rgba(0, 255, 136, 0.2); /* Greenish for edit mode */
   }
 `;
 

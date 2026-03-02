@@ -17,7 +17,7 @@ const MessageSchema = mongoose.Schema(
     },
     replyTo: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Message", // This requires the model to be named exactly "Message"
+      ref: "Message", 
       default: null,
     },
     reactions: [
@@ -33,11 +33,20 @@ const MessageSchema = mongoose.Schema(
       enum: ["sent", "delivered", "read"],
       default: "sent",
     },
+    // NEW: WhatsApp style Edit and Delete flags
+    isDeleted: {
+      type: Boolean,
+      default: false,
+    },
+    isEdited: {
+      type: Boolean,
+      default: false,
+    }
   },
   {
     timestamps: true,
   }
 );
 
-// FIX: Exported as "Message" instead of "Messages" to prevent Mongoose crash!
+// Exported as "Message" instead of "Messages" to prevent Mongoose crash
 module.exports = mongoose.model("Message", MessageSchema);
