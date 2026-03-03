@@ -13,7 +13,7 @@ import {
 } from "../utils/APIRoutes";
 import { v4 as uuidv4 } from "uuid";
 import { toast } from "react-toastify";
-import { FaUserPlus, FaShieldAlt, FaReply, FaSmile, FaTrash, FaPen, FaInfoCircle } from "react-icons/fa";
+import { FaUserPlus, FaShieldAlt, FaReply, FaSmile, FaTrash, FaPen, FaInfoCircle, FaFileDownload } from "react-icons/fa";
 
 export default function ChatContainer({ currentChat, currentUser, socket, isTyping }) {
   const [messages, setMessages] = useState([]);
@@ -289,8 +289,24 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
 
   const renderMessageContent = (msg) => {
     if (msg.isDeleted) return <p className="deleted-text">{msg.message}</p>;
+    
     if (msg.type === "image") return <img src={msg.message} alt="sent" className="msg-image" />;
+    
+    if (msg.type === "video") return (
+        <video controls className="msg-video">
+            <source src={msg.message} />
+            Your browser does not support video playback.
+        </video>
+    );
+
+    if (msg.type === "file") return (
+        <a href={msg.message} target="_blank" rel="noreferrer" className="msg-file-link">
+            <FaFileDownload /> Download Attachment
+        </a>
+    );
+
     if (msg.type === "audio") return <audio controls src={msg.message} className="msg-audio" />;
+    
     if (msg.type === "code") return (
         <pre className="code-snippet">
             <code>{msg.message}</code>
@@ -335,7 +351,10 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
                 {message.replyTo && (
                     <div className="quoted-message" onClick={() => scrollToMessage(message.replyTo.id)}>
                         <span>{message.replyTo.isSelfQuote ? "You" : "Them"}: </span>
-                        {message.replyTo.type === "image" ? "[Image]" : message.replyTo.text.substring(0,40)}
+                        {["text", "code"].includes(message.replyTo.type) 
+                            ? message.replyTo.text.substring(0,40) 
+                            : `[${message.replyTo.type.toUpperCase()}]`
+                        }
                     </div>
                 )}
 
@@ -518,7 +537,14 @@ const Container = styled.div`
 
         /* Media */
         .msg-image { max-width: 100%; border-radius: 0.8rem; margin-top: 5px; }
+        .msg-video { max-width: 100%; border-radius: 0.8rem; margin-top: 5px; outline: none; }
         .msg-audio { max-width: 220px; margin-top: 5px; height: 40px; }
+        .msg-file-link { 
+            display: flex; align-items: center; gap: 0.5rem; background: rgba(255,255,255,0.1); 
+            padding: 0.5rem 1rem; border-radius: 0.5rem; color: #00ff88; text-decoration: none; 
+            margin-top: 5px; font-weight: bold; font-size: 0.9rem; transition: 0.2s;
+            &:hover { background: rgba(255,255,255,0.2); color: #fff;}
+        }
 
         .meta {
             display: flex; justify-content: flex-end; align-items: center;

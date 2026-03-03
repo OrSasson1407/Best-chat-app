@@ -72,10 +72,15 @@ export default function Contacts({ contacts, changeChat, onlineUsers, handleLogo
 
   const handleUpdateProfile = async () => {
       try {
-          const interestsArray = profileData.interests.split(",").map(i => i.trim());
+          // Fixed: Prevent saving an array with an empty string if interests are blank
+          const interestsArray = profileData.interests 
+            ? profileData.interests.split(",").map(i => i.trim()).filter(i => i !== "") 
+            : [];
+            
           const { data } = await axios.post(`${updateProfileRoute}/${currentUser._id}`, {
               ...profileData, interests: interestsArray
           });
+          
           if(data.status) {
               sessionStorage.setItem("chat-app-user", JSON.stringify(data.user));
               toast.success("Profile updated!");
@@ -93,10 +98,18 @@ export default function Contacts({ contacts, changeChat, onlineUsers, handleLogo
   const filteredContacts = contacts.filter(c => c.username.toLowerCase().includes(searchTerm.toLowerCase()));
   const filteredGroups = groups.filter(g => g.name.toLowerCase().includes(searchTerm.toLowerCase()));
 
-  // Fallback API URL for old users, absolutely no local package dependencies required
+  // FIX: Safely handles Liara strings, Base64 strings, Full URLs, AND generates DiceBear fallbacks.
   const getAvatarUrl = (user) => {
-      if (user?.avatarImage) return user.avatarImage;
+      if (user?.avatarImage) {
+          // If the avatar is the broken Liara format, fix it by attaching the domain
+          if (!user.avatarImage.startsWith("http") && !user.avatarImage.startsWith("data:")) {
+              return `https://avatar.iran.liara.run/public/${user.avatarImage}`;
+          }
+          // Otherwise it's a valid Base64 or URL, return it
+          return user.avatarImage; 
+      }
       
+      // Fallback API URL for old users without an avatarImage
       const seed = user?.username || 'default';
       const isFemale = user?.gender === 'female';
       const tops = isFemale ? femaleTops : maleTops;

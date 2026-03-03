@@ -1,3 +1,5 @@
+require("dotenv").config(); // This must be at the very top!
+
 const express = require("express");
 const cors = require("cors");
 const mongoose = require("mongoose");
@@ -8,7 +10,6 @@ const app = express();
 const socket = require("socket.io");
 const User = require("./models/User"); 
 const Message = require("./models/Message"); // Required Message model for DB updates
-require("dotenv").config();
 
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));

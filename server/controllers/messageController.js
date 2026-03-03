@@ -1,4 +1,12 @@
-const Message = require("../models/Message"); // Updated to match the model export name
+const Message = require("../models/Message"); 
+const cloudinary = require("cloudinary").v2;
+
+// Configure Cloudinary using environment variables
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_NAME,
+  api_key: process.env.CLOUDINARY_KEY,
+  api_secret: process.env.CLOUDINARY_SECRET,
+});
 
 module.exports.getMessages = async (req, res, next) => {
   try {
@@ -14,16 +22,14 @@ module.exports.getMessages = async (req, res, next) => {
       return {
         id: msg._id,
         fromSelf: msg.sender.toString() === from,
-        // Mask the message text if it was deleted
         message: msg.isDeleted ? "🚫 This message was deleted" : msg.message.text,
         type: msg.type,
         createdAt: msg.createdAt,
-        status: msg.status || "sent", // Pull status from DB so ticks survive refresh
+        status: msg.status || "sent", 
         isDeleted: msg.isDeleted,
         isEdited: msg.isEdited,
         replyTo: msg.replyTo ? {
             id: msg.replyTo._id,
-            // Mask the quoted text if the original was deleted
             text: msg.replyTo.isDeleted ? "🚫 This message was deleted" : msg.replyTo.message.text,
             type: msg.replyTo.type,
             isSelfQuote: msg.replyTo.sender.toString() === from
@@ -40,13 +46,24 @@ module.exports.getMessages = async (req, res, next) => {
 module.exports.addMessage = async (req, res, next) => {
   try {
     const { from, to, message, type, replyTo } = req.body;
+    let finalContent = message;
+
+    // INTERCEPT: If the message type is media and it comes as a base64 string, upload to Cloudinary
+    if (["image", "video", "audio", "file"].includes(type) && message.startsWith("data:")) {
+      const uploadRes = await cloudinary.uploader.upload(message, {
+        resource_type: "auto", // Automatically detect if it's an image, video, or raw file
+        folder: "best_chat_app_media", // Keeps your Cloudinary dashboard organized
+      });
+      finalContent = uploadRes.secure_url; // Overwrite base64 string with the public URL
+    }
+
     const data = await Message.create({
-      message: { text: message },
+      message: { text: finalContent },
       users: [from, to],
       sender: from,
       type: type || "text",
       replyTo: replyTo || null,
-      status: "sent" // New messages default to sent
+      status: "sent" 
     });
 
     if (data) return res.json({ msg: "Message added successfully.", data });
@@ -78,7 +95,6 @@ module.exports.reactToMessage = async (req, res, next) => {
   }
 };
 
-// NEW: Delete Message Controller
 module.exports.deleteMessage = async (req, res, next) => {
   try {
     const { messageId } = req.body;
@@ -97,7 +113,6 @@ module.exports.deleteMessage = async (req, res, next) => {
   }
 };
 
-// NEW: Edit Message Controller
 module.exports.editMessage = async (req, res, next) => {
   try {
     const { messageId, newText } = req.body;

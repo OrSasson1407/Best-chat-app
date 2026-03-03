@@ -2,14 +2,15 @@ import React, { useState, useRef, useEffect } from "react";
 import styled from "styled-components";
 import EmojiPicker, { Theme } from "emoji-picker-react";
 import { IoMdSend, IoMdClose, IoMdCheckmark } from "react-icons/io";
-import { BsEmojiSmileFill, BsImage, BsMicFill, BsStopCircleFill, BsCodeSlash } from "react-icons/bs";
+// Swapped BsImage for BsPaperclip to indicate it handles all file types now
+import { BsEmojiSmileFill, BsPaperclip, BsMicFill, BsStopCircleFill, BsCodeSlash } from "react-icons/bs";
 
 export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, setReplyingTo, editingMessage, setEditingMessage, handleEditMsgSubmit }) {
   const [msg, setMsg] = useState("");
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isCodeMode, setIsCodeMode] = useState(false);
-  const [imagePreview, setImagePreview] = useState(null);
+  const [mediaPreview, setMediaPreview] = useState(null); // { src: string, type: string }
   
   const fileInputRef = useRef(null);
   const mediaRecorderRef = useRef(null);
@@ -50,21 +51,26 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
     handleTyping(e.target.value.length > 0);
   };
 
-  const handleImageUpload = (e) => {
+  // Upgraded to handle images, videos, and general files
+  const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
-        setImagePreview(reader.result); // Show preview overlay
+        let type = "file";
+        if (file.type.startsWith("image/")) type = "image";
+        else if (file.type.startsWith("video/")) type = "video";
+
+        setMediaPreview({ src: reader.result, type }); // Show preview overlay
       };
       reader.readAsDataURL(file);
     }
     e.target.value = null; // reset input
   };
 
-  const confirmSendImage = () => {
-      handleSendMsg(imagePreview, "image", replyingTo?.id);
-      setImagePreview(null);
+  const confirmSendMedia = () => {
+      handleSendMsg(mediaPreview.src, mediaPreview.type, replyingTo?.id);
+      setMediaPreview(null);
       setReplyingTo(null);
       
       // If user typed a caption, send it as a follow-up text message
@@ -128,15 +134,19 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
         </div>
       )}
 
-      {/* Image Preview Overlay */}
-      {imagePreview && (
+      {/* Dynamic Media Preview Overlay */}
+      {mediaPreview && (
           <PreviewOverlay>
               <div className="preview-container">
                   <div className="preview-header">
-                      <span>Preview Image</span>
-                      <IoMdClose onClick={() => setImagePreview(null)} className="close-btn" />
+                      <span>Preview {mediaPreview.type}</span>
+                      <IoMdClose onClick={() => setMediaPreview(null)} className="close-btn" />
                   </div>
-                  <img src={imagePreview} alt="Preview" />
+                  
+                  {mediaPreview.type === "image" && <img src={mediaPreview.src} alt="Preview" />}
+                  {mediaPreview.type === "video" && <video src={mediaPreview.src} controls />}
+                  {mediaPreview.type === "file" && <div className="file-preview-icon">📄 Document attached</div>}
+
                   <div className="preview-actions">
                       <input 
                          type="text" 
@@ -144,7 +154,7 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
                          value={msg} 
                          onChange={(e) => setMsg(e.target.value)}
                       />
-                      <button onClick={confirmSendImage}><IoMdSend /></button>
+                      <button onClick={confirmSendMedia}><IoMdSend /></button>
                   </div>
               </div>
           </PreviewOverlay>
@@ -161,22 +171,22 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
             )}
           </div>
 
-          <div className="upload" onClick={() => fileInputRef.current.click()}>
-            <BsImage />
+          <div className="upload" onClick={() => fileInputRef.current.click()} title="Attach File">
+            <BsPaperclip />
             <input 
               type="file" 
               ref={fileInputRef} 
               style={{ display: "none" }} 
-              accept="image/*"
-              onChange={handleImageUpload}
+              accept="image/*,video/*,.pdf,.doc,.docx,.txt"
+              onChange={handleFileUpload}
             />
           </div>
 
-          <div className="mic" onClick={isRecording ? stopRecording : startRecording}>
+          <div className="mic" onClick={isRecording ? stopRecording : startRecording} title="Record Audio">
             {isRecording ? <BsStopCircleFill className="recording-active" /> : <BsMicFill />}
           </div>
 
-          <div className={`code-toggle ${isCodeMode ? 'active' : ''}`} onClick={() => setIsCodeMode(!isCodeMode)}>
+          <div className={`code-toggle ${isCodeMode ? 'active' : ''}`} onClick={() => setIsCodeMode(!isCodeMode)} title="Send Code Snippet">
              <BsCodeSlash />
           </div>
         </div>
@@ -221,7 +231,8 @@ const PreviewOverlay = styled.div`
             .close-btn { cursor: pointer; font-size: 1.5rem; transition: 0.2s; &:hover { color: #ff4e4e; } }
         }
 
-        img { width: 100%; max-height: 250px; object-fit: contain; border-radius: 0.5rem; background: black; }
+        img, video { width: 100%; max-height: 250px; object-fit: contain; border-radius: 0.5rem; background: black; }
+        .file-preview-icon { height: 100px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.05); color: white; border-radius: 0.5rem; }
 
         .preview-actions {
             display: flex; gap: 0.5rem;
@@ -256,7 +267,7 @@ const Wrapper = styled.div`
   }
 
   .edit-banner {
-      background: rgba(0, 255, 136, 0.2); /* Greenish for edit mode */
+      background: rgba(0, 255, 136, 0.2); 
   }
 `;
 
