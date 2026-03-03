@@ -18,6 +18,8 @@ export default function Chat() {
   const [currentUser, setCurrentUser] = useState(undefined);
   const [isLoaded, setIsLoaded] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState([]);
+  
+  // UPDATED: Now holds the username string instead of a boolean
   const [isTyping, setIsTyping] = useState(false);
 
   // 1. Authentication Check
@@ -45,18 +47,14 @@ export default function Chat() {
         setOnlineUsers(users);
       });
       
-      // Listen for typing events
+      // UPDATED: Listen for typing events and store the specific username
       socket.current.on("typing-status", (data) => {
-        // Logic to determine if the typing event belongs to the active chat
         if (currentChat) {
             if (data.isGroup) {
-                // For groups, we receive events because we joined the room in ChatContainer.
-                // We assume if we receive it, it's for the active group.
-                setIsTyping(data.isTyping);
+                setIsTyping(data.isTyping ? data.username : false);
             } else {
-                // For 1-on-1, check if the sender matches the current chat ID
                 if (currentChat._id === data.from) {
-                    setIsTyping(data.isTyping);
+                    setIsTyping(data.isTyping ? data.username : false);
                 }
             }
         }

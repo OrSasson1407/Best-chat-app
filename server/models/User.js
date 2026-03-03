@@ -19,6 +19,12 @@ const userSchema = new mongoose.Schema({
     required: true,
     min: 8,
   },
+  // NEW: Gender field added for avatar generation
+  gender: {
+    type: String,
+    enum: ["male", "female"],
+    default: "male",
+  },
   isAvatarImageSet: {
     type: Boolean,
     default: false,
@@ -27,7 +33,6 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: "",
   },
-  // NEW: Presence and Privacy features
   lastSeen: {
     type: Date,
     default: Date.now,
@@ -38,6 +43,24 @@ const userSchema = new mongoose.Schema({
       ref: "User",
     },
   ],
+  statusMessage: {
+    type: String,
+    default: "Available",
+    max: 50,
+  },
+  statusIcon: {
+    type: String,
+    default: "💬", 
+  },
+  bio: {
+    type: String,
+    default: "Hey there! I am using Snappy.",
+    max: 150,
+  },
+  interests: {
+    type: [String],
+    default: [],
+  }
 });
 
 module.exports = mongoose.model("User", userSchema);

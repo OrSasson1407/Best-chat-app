@@ -13,7 +13,7 @@ import {
 } from "../utils/APIRoutes";
 import { v4 as uuidv4 } from "uuid";
 import { toast } from "react-toastify";
-import { FaUserPlus, FaShieldAlt, FaReply, FaSmile, FaTrash, FaPen } from "react-icons/fa";
+import { FaUserPlus, FaShieldAlt, FaReply, FaSmile, FaTrash, FaPen, FaInfoCircle } from "react-icons/fa";
 
 export default function ChatContainer({ currentChat, currentUser, socket, isTyping }) {
   const [messages, setMessages] = useState([]);
@@ -303,7 +303,17 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
     <Container>
       <div className="chat-header">
         <div className="user-details">
-          <h3>{currentChat.name || currentChat.username}</h3>
+          
+          <div className="header-info">
+              <h3>{currentChat.name || currentChat.username}</h3>
+              
+              {/* NEW: Show bio and interests if it's a direct message */}
+              {!currentChat.admin && currentChat.bio && (
+                  <p className="chat-bio" title={currentChat.interests?.join(", ")}>
+                      <FaInfoCircle /> {currentChat.bio}
+                  </p>
+              )}
+          </div>
           
           {/* Admin Controls Badge */}
           {currentChat.admin === currentUser._id && (
@@ -378,9 +388,10 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
           </div>
         ))}
         
+        {/* UPDATED: Dynamic Typing Indicator */}
         {isTyping && (
             <div className="typing-indicator" ref={scrollRef}>
-                <span>Someone is typing...</span>
+                <span>{typeof isTyping === 'string' ? `${isTyping} is typing...` : "Someone is typing..."}</span>
             </div>
         )}
       </div>
@@ -412,8 +423,16 @@ const Container = styled.div`
     border-bottom: 1px solid rgba(255, 255, 255, 0.05);
     
     .user-details {
-      display: flex; align-items: center; gap: 1.5rem;
-      h3 { color: white; font-weight: 500; }
+      display: flex; align-items: center; justify-content: space-between; width: 100%;
+      
+      .header-info {
+          display: flex; flex-direction: column;
+          h3 { color: white; font-weight: 500; margin-bottom: 2px;}
+          .chat-bio { 
+              font-size: 0.75rem; color: #aaa; display: flex; align-items: center; gap: 0.3rem; 
+              cursor: help;
+          }
+      }
     }
     
     .admin-controls {

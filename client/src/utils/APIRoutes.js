@@ -10,7 +10,7 @@ export const setAvatarRoute = `${host}/api/auth/setavatar`;
 // Added route for emoji reactions
 export const reactMessageRoute = `${host}/api/messages/react`;
 
-// NEW: Routes for Edit and Delete
+// Routes for Edit and Delete
 export const deleteMessageRoute = `${host}/api/messages/deletemsg`;
 export const editMessageRoute = `${host}/api/messages/editmsg`;
 
@@ -20,3 +20,6 @@ export const getUserGroupsRoute = `${host}/api/groups/getgroups`;
 export const getGroupMessagesRoute = `${host}/api/groups/getmessages`;
 export const addGroupMemberRoute = `${host}/api/groups/addmember`;
 export const removeGroupMemberRoute = `${host}/api/groups/removemember`;
+
+// NEW: Profile Update Route
+export const updateProfileRoute = `${host}/api/auth/updateprofile`;
