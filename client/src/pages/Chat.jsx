@@ -99,7 +99,8 @@ export default function Chat() {
   };
 
   return (
-    <Container themeType={theme} isTyping={!!isTyping}>
+    // UPDATED: Used $ prefix for styled-components specific props to prevent DOM warnings
+    <Container $themeType={theme} $isTyping={!!isTyping}>
       {/* Animated Background Orbs */}
       <div className="bg-orb orb-1"></div>
       <div className="bg-orb orb-2"></div>
@@ -188,8 +189,8 @@ const Container = styled.div`
   position: relative;
   transition: background-color 0.5s ease;
 
-  /* Apply dynamic theme variables */
-  ${({ themeType }) => getThemeStyles(themeType)}
+  /* UPDATED: Apply dynamic theme variables using transient prop $themeType */
+  ${({ $themeType }) => getThemeStyles($themeType)}
 
   /* Floating Background Orbs */
   .bg-orb {
@@ -199,8 +200,8 @@ const Container = styled.div`
     z-index: 0;
     animation: ${float} 10s infinite ease-in-out;
     
-    /* Adaptive Background: Pulses when user is typing */
-    ${({ isTyping }) => isTyping && css` animation: ${pulseGlow} 2s infinite ease-in-out; `}
+    /* UPDATED: Adaptive Background: Pulses when user is typing */
+    ${({ $isTyping }) => $isTyping && css` animation: ${pulseGlow} 2s infinite ease-in-out; `}
   }
   
   .orb-1 {

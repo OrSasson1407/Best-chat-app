@@ -391,8 +391,8 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
   };
 
   return (
-    // FIXED: Passed hasPinned down so Grid knows to adjust
-    <Container themeType={theme} isCompact={isCompact} hasPinned={!!pinnedMessage}>
+    // UPDATED: Passed transient props down so Grid knows to adjust
+    <Container $themeType={theme} $isCompact={isCompact} $hasPinned={!!pinnedMessage}>
       <div className="chat-header">
         <div className="user-details">
           
@@ -547,13 +547,13 @@ const shimmer = keyframes`
 
 const Container = styled.div`
   display: grid; 
-  /* FIXED: 1fr expands to push the Input perfectly to the bottom */
-  grid-template-rows: ${({ hasPinned }) => hasPinned ? '10% auto 1fr 10%' : '10% 1fr 10%'}; 
+  /* UPDATED: $hasPinned expands to push the Input perfectly to the bottom */
+  grid-template-rows: ${({ $hasPinned }) => $hasPinned ? '10% auto 1fr 10%' : '10% 1fr 10%'}; 
   overflow: hidden;
   
-  /* Apply Compact Mode adjusting the grid layout */
-  ${({ isCompact, hasPinned }) => isCompact && css`
-      grid-template-rows: ${hasPinned ? '8% auto 1fr 10%' : '8% 1fr 10%'};
+  /* UPDATED: Apply Compact Mode adjusting the grid layout */
+  ${({ $isCompact, $hasPinned }) => $isCompact && css`
+      grid-template-rows: ${$hasPinned ? '8% auto 1fr 10%' : '8% 1fr 10%'};
   `}
 
   .pinned-banner {
@@ -572,9 +572,9 @@ const Container = styled.div`
     background: rgba(255, 255, 255, 0.02); 
     border-bottom: 1px solid rgba(255, 255, 255, 0.05);
     
-    /* Theme Border Overrides */
-    ${({ themeType }) => themeType === 'cyberpunk' && css`border-bottom: 1px solid #00ff88;`}
-    ${({ themeType }) => themeType === 'midnight' && css`border-bottom: 1px solid #333;`}
+    /* UPDATED: Theme Border Overrides */
+    ${({ $themeType }) => $themeType === 'cyberpunk' && css`border-bottom: 1px solid #00ff88;`}
+    ${({ $themeType }) => $themeType === 'midnight' && css`border-bottom: 1px solid #333;`}
     
     .user-details {
       display: flex; align-items: center; justify-content: space-between; width: 100%;
@@ -583,7 +583,7 @@ const Container = styled.div`
           display: flex; flex-direction: column;
           h3 { 
               color: white; font-weight: 500; margin-bottom: 2px;
-              ${({ isCompact }) => isCompact && css`font-size: 1rem;`} 
+              ${({ $isCompact }) => $isCompact && css`font-size: 1rem;`} 
           }
           .chat-bio { 
               font-size: 0.75rem; color: #aaa; display: flex; align-items: center; gap: 0.3rem; 
@@ -617,9 +617,9 @@ const Container = styled.div`
   }
 
   .chat-messages {
-    padding: ${({ isCompact }) => isCompact ? '1rem 1.5rem' : '1.5rem 2rem'};
+    padding: ${({ $isCompact }) => $isCompact ? '1rem 1.5rem' : '1.5rem 2rem'};
     display: flex; flex-direction: column; 
-    gap: ${({ isCompact }) => isCompact ? '0.5rem' : '1rem'};
+    gap: ${({ $isCompact }) => $isCompact ? '0.5rem' : '1rem'};
     overflow: auto;
     
     &::-webkit-scrollbar { width: 4px; }
@@ -651,8 +651,8 @@ const Container = styled.div`
       
       .content {
         max-width: 60%;
-        padding: ${({ isCompact }) => isCompact ? '0.5rem 0.8rem' : '0.8rem 1rem'};
-        font-size: ${({ isCompact }) => isCompact ? '0.9rem' : '1rem'};
+        padding: ${({ $isCompact }) => $isCompact ? '0.5rem 0.8rem' : '0.8rem 1rem'};
+        font-size: ${({ $isCompact }) => $isCompact ? '0.9rem' : '1rem'};
         border-radius: 1.2rem;
         color: #fff;
         line-height: 1.4;
@@ -784,11 +784,11 @@ const Container = styled.div`
         border-bottom-right-radius: 0.2rem;
         box-shadow: 0 4px 15px rgba(78, 14, 255, 0.3);
         
-        /* Theme Overrides */
-        ${({ themeType }) => themeType === 'cyberpunk' && css`
+        /* UPDATED: Theme Overrides */
+        ${({ $themeType }) => $themeType === 'cyberpunk' && css`
             background: transparent; border: 1px solid #00ff88; box-shadow: 0 0 10px rgba(0,255,136,0.2);
         `}
-        ${({ themeType }) => themeType === 'midnight' && css`
+        ${({ $themeType }) => $themeType === 'midnight' && css`
             background: #222; box-shadow: none; border: 1px solid #444;
         `}
       }
@@ -805,11 +805,11 @@ const Container = styled.div`
         backdrop-filter: blur(5px);
         border: 1px solid rgba(255,255,255,0.05);
         
-        /* Theme Overrides */
-        ${({ themeType }) => themeType === 'cyberpunk' && css`
+        /* UPDATED: Theme Overrides */
+        ${({ $themeType }) => $themeType === 'cyberpunk' && css`
             background: rgba(255,0,85,0.1); border-color: #ff0055;
         `}
-        ${({ themeType }) => themeType === 'midnight' && css`
+        ${({ $themeType }) => $themeType === 'midnight' && css`
             background: #111; border-color: #222;
         `}
       }

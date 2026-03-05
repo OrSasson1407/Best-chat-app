@@ -130,7 +130,8 @@ export default function Contacts({
   return (
     <>
       {currentUserName && (
-        <Container isCompact={isCompact} themeType={theme}>
+        // UPDATED: Used $ prefix for styled-components specific props to prevent DOM warnings
+        <Container $isCompact={isCompact} $themeType={theme}>
           <div className="brand"><h3>Snappy</h3></div>
           
           <div className="tabs">
@@ -326,9 +327,9 @@ const Container = styled.div`
   background: rgba(0, 0, 0, 0.2); 
   border-right: 1px solid rgba(255, 255, 255, 0.05);
   
-  /* Apply Dynamic Theme Border Colors */
-  ${({ themeType }) => themeType === 'cyberpunk' && css` border-right: 1px solid #00ff88; `}
-  ${({ themeType }) => themeType === 'midnight' && css` background: #000; border-right: 1px solid #333; `}
+  /* UPDATED: Apply Dynamic Theme Border Colors using transient prop */
+  ${({ $themeType }) => $themeType === 'cyberpunk' && css` border-right: 1px solid #00ff88; `}
+  ${({ $themeType }) => $themeType === 'midnight' && css` background: #000; border-right: 1px solid #333; `}
 
   .search-bar { 
       display: flex; align-items: center; justify-content: center; padding: 0 1rem; position: relative; 
@@ -336,17 +337,18 @@ const Container = styled.div`
       input { width: 100%; background: rgba(255, 255, 255, 0.05); border: none; padding: 0.5rem 1rem 0.5rem 2.5rem; border-radius: 1rem; color: white; outline: none; transition: 0.3s; &:focus { background: rgba(255, 255, 255, 0.1); box-shadow: 0 0 5px #4e0eff; } } 
   }
   
-  .brand { display: flex; align-items: center; justify-content: center; h3 { color: #fff; text-transform: uppercase; letter-spacing: 0.2rem; ${({ isCompact }) => isCompact && css`font-size: 1rem;`} } }
+  /* UPDATED: isCompact updated to $isCompact */
+  .brand { display: flex; align-items: center; justify-content: center; h3 { color: #fff; text-transform: uppercase; letter-spacing: 0.2rem; ${({ $isCompact }) => $isCompact && css`font-size: 1rem;`} } }
   
-  .tabs { display: flex; justify-content: space-around; align-items: center; padding-bottom: 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.05); button { background: transparent; border: none; color: #fff; font-size: ${({ isCompact }) => isCompact ? '0.8rem' : '1rem'}; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; opacity: 0.5; transition: 0.3s; padding: 0.5rem 1rem; &:hover { opacity: 1; } } .active { opacity: 1; color: #9a86f3; border-bottom: 2px solid #9a86f3; } }
+  .tabs { display: flex; justify-content: space-around; align-items: center; padding-bottom: 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.05); button { background: transparent; border: none; color: #fff; font-size: ${({ $isCompact }) => $isCompact ? '0.8rem' : '1rem'}; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; opacity: 0.5; transition: 0.3s; padding: 0.5rem 1rem; &:hover { opacity: 1; } } .active { opacity: 1; color: #9a86f3; border-bottom: 2px solid #9a86f3; } }
   
   .contacts {
     display: flex; flex-direction: column; align-items: center; overflow: auto; 
-    gap: ${({ isCompact }) => isCompact ? '0.3rem' : '0.8rem'}; /* Compact mode gap adjustment */
+    gap: ${({ $isCompact }) => $isCompact ? '0.3rem' : '0.8rem'}; /* Compact mode gap adjustment */
     padding: 1rem 0.5rem;
     &::-webkit-scrollbar { width: 3px; } &::-webkit-scrollbar-thumb { background-color: rgba(255, 255, 255, 0.1); border-radius: 10px; }
     
-    .create-group-btn { width: 90%; background: linear-gradient(90deg, #4e0eff, #9a86f3); padding: ${({ isCompact }) => isCompact ? '0.5rem' : '0.8rem'}; text-align: center; border-radius: 0.5rem; cursor: pointer; color: white; display: flex; align-items: center; justify-content: center; gap: 0.5rem; font-weight: bold; font-size: ${({ isCompact }) => isCompact ? '0.8rem' : '1rem'}; box-shadow: 0 4px 10px rgba(0,0,0,0.3); transition: 0.3s; &:hover { transform: translateY(-2px); } }
+    .create-group-btn { width: 90%; background: linear-gradient(90deg, #4e0eff, #9a86f3); padding: ${({ $isCompact }) => $isCompact ? '0.5rem' : '0.8rem'}; text-align: center; border-radius: 0.5rem; cursor: pointer; color: white; display: flex; align-items: center; justify-content: center; gap: 0.5rem; font-weight: bold; font-size: ${({ $isCompact }) => $isCompact ? '0.8rem' : '1rem'}; box-shadow: 0 4px 10px rgba(0,0,0,0.3); transition: 0.3s; &:hover { transform: translateY(-2px); } }
     
     /* Skeleton CSS */
     .skeleton-box { background: rgba(255,255,255,0.02) !important; border: none !important; cursor: default; }
@@ -356,31 +358,31 @@ const Container = styled.div`
 
     .contact {
       background: rgba(255, 255, 255, 0.03); 
-      padding: ${({ isCompact }) => isCompact ? '0.5rem' : '0.8rem'}; 
+      padding: ${({ $isCompact }) => $isCompact ? '0.5rem' : '0.8rem'}; 
       width: 90%; 
-      border-radius: ${({ isCompact }) => isCompact ? '0.5rem' : '1rem'};
+      border-radius: ${({ $isCompact }) => $isCompact ? '0.5rem' : '1rem'};
       display: flex; align-items: center; gap: 1rem; transition: 0.3s ease; cursor: pointer; border: 1px solid transparent; position: relative;
       &:hover { background: rgba(255, 255, 255, 0.08); transform: scale(1.02); }
 
       .avatar { height: 3rem; width: 3rem; background: #4e0eff; border-radius: 50%; overflow: hidden; display: flex; align-items: center; justify-content: center; font-weight: bold; color: white; background: #1a1a2e; img { width: 100%; height: 100%; object-fit: cover; } }
       .group-avatar { background: #ff0055; font-size: 1.5rem; overflow: visible;}
 
-      .username { display: flex; flex-direction: column; justify-content: center; h3 { color: #e0e0e0; font-size: ${({ isCompact }) => isCompact ? '0.85rem' : '0.95rem'}; margin-bottom: 2px;} .status-text { color: #aaa; font-size: 0.75rem; font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; } }
+      .username { display: flex; flex-direction: column; justify-content: center; h3 { color: #e0e0e0; font-size: ${({ $isCompact }) => $isCompact ? '0.85rem' : '0.95rem'}; margin-bottom: 2px;} .status-text { color: #aaa; font-size: 0.75rem; font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; } }
       .online-indicator { position: absolute; right: 15px; top: 50%; transform: translateY(-50%); height: 8px; width: 8px; background: #00ff88; border-radius: 50%; box-shadow: 0 0 10px #00ff88; }
     }
     
     .selected { 
         background: rgba(78, 14, 255, 0.2); border: 1px solid rgba(78, 14, 255, 0.4); 
-        ${({ themeType }) => themeType === 'cyberpunk' && css`background: rgba(0, 255, 136, 0.1); border-color: #00ff88;`}
+        ${({ $themeType }) => $themeType === 'cyberpunk' && css`background: rgba(0, 255, 136, 0.1); border-color: #00ff88;`}
     }
   }
 
   .current-user {
-      background: rgba(0, 0, 0, 0.3); padding: ${({ isCompact }) => isCompact ? '0.5rem' : '1rem'}; display: flex; justify-content: center; align-items: center;
+      background: rgba(0, 0, 0, 0.3); padding: ${({ $isCompact }) => $isCompact ? '0.5rem' : '1rem'}; display: flex; justify-content: center; align-items: center;
       .user-info {
           display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 10px;
           .current-user-avatar { height: 2.5rem; min-width: 2.5rem; width: 2.5rem; border-radius: 50%; overflow: hidden; background: #1a1a2e; img { width: 100%; height: 100%; object-fit: cover; } }
-          .details { display: flex; flex-direction: column; flex-grow: 1; h2 { color: white; font-size: ${({ isCompact }) => isCompact ? '0.9rem' : '1.1rem'}; } .status-text { color: #00ff88; font-size: 0.75rem; } }
+          .details { display: flex; flex-direction: column; flex-grow: 1; h2 { color: white; font-size: ${({ $isCompact }) => $isCompact ? '0.9rem' : '1.1rem'}; } .status-text { color: #00ff88; font-size: 0.75rem; } }
           .actions { display: flex; gap: 0.5rem; align-items: center; button { border: none; border-radius: 0.5rem; color: white; cursor: pointer; font-size: 0.8rem; font-weight: bold; padding: 0.4rem 0.8rem; display: flex; align-items: center; justify-content: center; transition: 0.2s; } .profile-btn { background: #4e0eff; &:hover { background: #6c38ff; } } .logout-btn { background: #ff4e4e; &:hover { background: #d32f2f; } } }
       }
   }
