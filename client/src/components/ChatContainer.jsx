@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import styled from "styled-components";
+import styled, { keyframes, css } from "styled-components";
 import ChatInput from "./ChatInput";
 import axios from "axios";
 import { 
@@ -15,17 +15,19 @@ import { v4 as uuidv4 } from "uuid";
 import { toast } from "react-toastify";
 import { FaUserPlus, FaShieldAlt, FaReply, FaSmile, FaTrash, FaPen, FaInfoCircle, FaFileDownload } from "react-icons/fa";
 
-export default function ChatContainer({ currentChat, currentUser, socket, isTyping }) {
+export default function ChatContainer({ currentChat, currentUser, socket, isTyping, theme, isCompact }) {
   const [messages, setMessages] = useState([]);
   const [arrivalMessage, setArrivalMessage] = useState(null);
   const [replyingTo, setReplyingTo] = useState(null);
   const [editingMessage, setEditingMessage] = useState(null);
+  const [isFetchingHistory, setIsFetchingHistory] = useState(true); // NEW: For Skeleton Loaders
   const scrollRef = useRef();
 
   // 1. Fetch History (Group vs Direct)
   useEffect(() => {
     async function fetchHistory() {
       if (currentChat && currentUser) {
+        setIsFetchingHistory(true);
         let response;
         try {
             if (currentChat.admin) { 
@@ -57,6 +59,8 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
 
         } catch (error) {
             console.error("Error fetching messages:", error);
+        } finally {
+            setIsFetchingHistory(false);
         }
       }
     }
@@ -106,7 +110,6 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
           );
       };
 
-      // Handle incoming message edits and deletes
       const handleMsgDeleted = ({ messageId }) => {
           setMessages((prev) => prev.map(msg => msg.id === messageId ? { ...msg, isDeleted: true, message: "🚫 This message was deleted", reactions: [] } : msg));
       };
@@ -282,7 +285,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
   };
 
   const renderStatusTicks = (status) => {
-    if (status === "read") return <span className="tick-read">✓✓</span>;
+    if (status === "read") return <span className="tick-read" style={{color: '#34B7F1'}}>✓✓</span>;
     if (status === "delivered") return <span className="tick-delivered">✓✓</span>;
     return <span className="tick-sent">✓</span>;
   };
@@ -316,14 +319,13 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
   };
 
   return (
-    <Container>
+    <Container themeType={theme} isCompact={isCompact}>
       <div className="chat-header">
         <div className="user-details">
           
           <div className="header-info">
               <h3>{currentChat.name || currentChat.username}</h3>
               
-              {/* NEW: Show bio and interests if it's a direct message */}
               {!currentChat.admin && currentChat.bio && (
                   <p className="chat-bio" title={currentChat.interests?.join(", ")}>
                       <FaInfoCircle /> {currentChat.bio}
@@ -331,7 +333,6 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
               )}
           </div>
           
-          {/* Admin Controls Badge */}
           {currentChat.admin === currentUser._id && (
               <div className="admin-controls">
                   <span className="admin-badge"><FaShieldAlt /> Admin</span>
@@ -342,72 +343,79 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
       </div>
       
       <div className="chat-messages">
-        {messages.map((message) => (
-          <div ref={scrollRef} key={message.id || uuidv4()} id={`msg-${message.id}`}>
-            <div className={`message ${message.fromSelf ? "sended" : "recieved"} ${message.isDeleted ? "deleted-msg" : ""}`}>
-              <div className="content">
-                
-                {/* Quoted Reply UI */}
-                {message.replyTo && (
-                    <div className="quoted-message" onClick={() => scrollToMessage(message.replyTo.id)}>
-                        <span>{message.replyTo.isSelfQuote ? "You" : "Them"}: </span>
-                        {["text", "code"].includes(message.replyTo.type) 
-                            ? message.replyTo.text.substring(0,40) 
-                            : `[${message.replyTo.type.toUpperCase()}]`
-                        }
-                    </div>
-                )}
-
-                {/* Show Sender Name in Groups (if not self) */}
-                {!message.fromSelf && currentChat.admin && (
-                    <span className="sender-name">{message.username}</span>
-                )}
-                
-                {renderMessageContent(message)}
-                
-                <div className="meta">
-                  <span>{formatTime(message.createdAt)}</span>
-                  {message.isEdited && <span className="edited-tag">(edited)</span>}
-                  {message.fromSelf && !message.isDeleted && (
-                    <span className="read-status">
-                      {renderStatusTicks(message.status)}
-                    </span>
-                  )}
+        {/* Render Skeletons or Messages */}
+        {isFetchingHistory ? (
+            Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className={`message skeleton-msg ${i % 2 === 0 ? 'sended' : 'recieved'}`}>
+                    <div 
+                        className="content skeleton-anim" 
+                        style={{width: `${Math.random() * 40 + 20}%`, height: '40px'}}
+                    />
                 </div>
-
-                {/* Message Actions - Now ALWAYS VISIBLE */}
-                {!message.isDeleted && (
-                    <div className="message-actions">
-                        <button onClick={() => setReplyingTo({ id: message.id, text: message.message, type: message.type, isSelfQuote: message.fromSelf })} title="Reply"><FaReply /></button>
-                        <div className="reaction-trigger">
-                            <FaSmile title="React"/>
-                            <div className="reaction-menu">
-                                {['👍', '❤️', '😂', '😮', '😢'].map(emoji => (
-                                    <span key={emoji} onClick={() => handleReaction(message.id, emoji)}>{emoji}</span>
-                                ))}
-                            </div>
+            ))
+        ) : (
+            messages.map((message) => (
+            <div ref={scrollRef} key={message.id || uuidv4()} id={`msg-${message.id}`} className="message-wrapper">
+                <div className={`message ${message.fromSelf ? "sended" : "recieved"} ${message.isDeleted ? "deleted-msg" : ""}`}>
+                <div className="content tail-physics">
+                    
+                    {message.replyTo && (
+                        <div className="quoted-message" onClick={() => scrollToMessage(message.replyTo.id)}>
+                            <span>{message.replyTo.isSelfQuote ? "You" : "Them"}: </span>
+                            {["text", "code"].includes(message.replyTo.type) 
+                                ? message.replyTo.text.substring(0,40) 
+                                : `[${message.replyTo.type.toUpperCase()}]`
+                            }
                         </div>
-                        {message.fromSelf && message.type === "text" && (
-                            <button onClick={() => setEditingMessage({ id: message.id, text: message.message })} title="Edit"><FaPen size={12}/></button>
-                        )}
-                        {message.fromSelf && (
-                            <button onClick={() => handleDeleteMsg(message.id)} title="Delete"><FaTrash size={12}/></button>
-                        )}
-                    </div>
-                )}
+                    )}
 
-                {/* Render Reactions */}
-                {message.reactions?.length > 0 && !message.isDeleted && (
-                    <div className="reactions-display">
-                        {message.reactions.map((r, i) => <span key={i} title={r.username}>{r.emoji}</span>)}
+                    {!message.fromSelf && currentChat.admin && (
+                        <span className="sender-name">{message.username}</span>
+                    )}
+                    
+                    {renderMessageContent(message)}
+                    
+                    <div className="meta">
+                        <span>{formatTime(message.createdAt)}</span>
+                        {message.isEdited && <span className="edited-tag">(edited)</span>}
+                        {message.fromSelf && !message.isDeleted && (
+                            <span className="read-status">
+                            {renderStatusTicks(message.status)}
+                            </span>
+                        )}
                     </div>
-                )}
-              </div>
+
+                    {!message.isDeleted && (
+                        <div className="message-actions">
+                            <button onClick={() => setReplyingTo({ id: message.id, text: message.message, type: message.type, isSelfQuote: message.fromSelf })} title="Reply"><FaReply /></button>
+                            <div className="reaction-trigger">
+                                <FaSmile title="React"/>
+                                <div className="reaction-menu">
+                                    {['👍', '❤️', '😂', '😮', '😢'].map(emoji => (
+                                        <span key={emoji} onClick={() => handleReaction(message.id, emoji)}>{emoji}</span>
+                                    ))}
+                                </div>
+                            </div>
+                            {message.fromSelf && message.type === "text" && (
+                                <button onClick={() => setEditingMessage({ id: message.id, text: message.message })} title="Edit"><FaPen size={12}/></button>
+                            )}
+                            {message.fromSelf && (
+                                <button onClick={() => handleDeleteMsg(message.id)} title="Delete"><FaTrash size={12}/></button>
+                            )}
+                        </div>
+                    )}
+
+                    {message.reactions?.length > 0 && !message.isDeleted && (
+                        <div className="reactions-display">
+                            {message.reactions.map((r, i) => <span key={i} title={r.username}>{r.emoji}</span>)}
+                        </div>
+                    )}
+                </div>
+                </div>
             </div>
-          </div>
-        ))}
+            ))
+        )}
         
-        {/* UPDATED: Dynamic Typing Indicator */}
         {isTyping && (
             <div className="typing-indicator" ref={scrollRef}>
                 <span>{typeof isTyping === 'string' ? `${isTyping} is typing...` : "Someone is typing..."}</span>
@@ -428,28 +436,48 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
   );
 }
 
-// --- STYLES ---
+// --- STYLES & ANIMATIONS ---
+
+const popIn = keyframes`
+  0% { transform: scale(0.9) translateY(10px); opacity: 0; }
+  100% { transform: scale(1) translateY(0); opacity: 1; }
+`;
+
+const shimmer = keyframes`
+  0% { background-position: -468px 0; }
+  100% { background-position: 468px 0; }
+`;
 
 const Container = styled.div`
-  display: grid;
-  grid-template-rows: 10% 80% 10%;
+  display: grid; 
+  grid-template-rows: 10% 80% 10%; 
   overflow: hidden;
+  
+  /* Apply Compact Mode adjusting the grid layout */
+  ${({ isCompact }) => isCompact && css`grid-template-rows: 8% 82% 10%;`}
 
   .chat-header {
-    display: flex; justify-content: space-between; align-items: center;
+    display: flex; justify-content: space-between; align-items: center; 
     padding: 0 2rem;
-    background: rgba(255, 255, 255, 0.02);
+    background: rgba(255, 255, 255, 0.02); 
     border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    
+    /* Theme Border Overrides */
+    ${({ themeType }) => themeType === 'cyberpunk' && css`border-bottom: 1px solid #00ff88;`}
+    ${({ themeType }) => themeType === 'midnight' && css`border-bottom: 1px solid #333;`}
     
     .user-details {
       display: flex; align-items: center; justify-content: space-between; width: 100%;
       
       .header-info {
           display: flex; flex-direction: column;
-          h3 { color: white; font-weight: 500; margin-bottom: 2px;}
+          h3 { 
+              color: white; font-weight: 500; margin-bottom: 2px;
+              ${({ isCompact }) => isCompact && css`font-size: 1rem;`} 
+          }
           .chat-bio { 
               font-size: 0.75rem; color: #aaa; display: flex; align-items: center; gap: 0.3rem; 
-              cursor: help;
+              cursor: help; 
           }
       }
     }
@@ -477,19 +505,33 @@ const Container = styled.div`
   }
 
   .chat-messages {
-    padding: 1.5rem 2rem;
-    display: flex; flex-direction: column; gap: 1rem;
+    padding: ${({ isCompact }) => isCompact ? '1rem 1.5rem' : '1.5rem 2rem'};
+    display: flex; flex-direction: column; 
+    gap: ${({ isCompact }) => isCompact ? '0.5rem' : '1rem'};
     overflow: auto;
     
     &::-webkit-scrollbar { width: 4px; }
     &::-webkit-scrollbar-thumb { background-color: rgba(255, 255, 255, 0.1); border-radius: 1rem; }
 
+    /* Skeleton CSS for Messages */
+    .skeleton-msg .content { background: #2a2a35; border: none !important; border-radius: 1rem; }
+    .skeleton-anim { 
+        background-image: linear-gradient(to right, #2a2a35 0%, #3a3a45 20%, #2a2a35 40%, #2a2a35 100%); 
+        background-repeat: no-repeat; background-size: 800px 100%; 
+        animation: ${shimmer} 1.5s infinite linear forwards; 
+    }
+
     .highlight-flash {
         animation: flashBg 1.5s ease-out;
     }
+    
     @keyframes flashBg {
         0% { background-color: rgba(255, 255, 255, 0.2); border-radius: 10px; }
         100% { background-color: transparent; }
+    }
+
+    .message-wrapper { 
+        animation: ${popIn} 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; 
     }
 
     .message {
@@ -497,14 +539,20 @@ const Container = styled.div`
       
       .content {
         max-width: 60%;
-        padding: 0.8rem 1rem;
-        font-size: 1rem;
+        padding: ${({ isCompact }) => isCompact ? '0.5rem 0.8rem' : '0.8rem 1rem'};
+        font-size: ${({ isCompact }) => isCompact ? '0.9rem' : '1rem'};
         border-radius: 1.2rem;
         color: #fff;
         line-height: 1.4;
         display: flex; flex-direction: column;
         position: relative;
         min-width: 120px;
+        transition: transform 0.2s ease;
+        
+        /* Tail Physics - Slight stretch/skew on hover to simulate fluid movement */
+        &.tail-physics:hover { 
+            transform: scale(1.02) skewX(1deg); 
+        }
 
         .sender-name {
             font-size: 0.75rem;
@@ -517,7 +565,6 @@ const Container = styled.div`
         .deleted-text { font-style: italic; color: rgba(255,255,255,0.5); font-size: 0.9rem; }
         .edited-tag { font-size: 0.6rem; opacity: 0.5; margin-left: 5px; font-style: italic; }
 
-        /* Quoted Message Styling */
         .quoted-message {
             background: rgba(0,0,0,0.2); border-left: 4px solid #00ff88;
             padding: 0.5rem; border-radius: 0.3rem; font-size: 0.8rem; margin-bottom: 0.5rem;
@@ -527,7 +574,6 @@ const Container = styled.div`
             span { font-weight: bold; color: #00ff88; }
         }
 
-        /* Code Snippet Styling */
         .code-snippet {
             background: #1e1e1e; padding: 1rem; border-radius: 0.5rem;
             overflow-x: auto; font-family: 'Courier New', Courier, monospace;
@@ -535,7 +581,6 @@ const Container = styled.div`
             code { white-space: pre-wrap; word-break: break-all; }
         }
 
-        /* Media */
         .msg-image { max-width: 100%; border-radius: 0.8rem; margin-top: 5px; }
         .msg-video { max-width: 100%; border-radius: 0.8rem; margin-top: 5px; outline: none; }
         .msg-audio { max-width: 220px; margin-top: 5px; height: 40px; }
@@ -549,23 +594,16 @@ const Container = styled.div`
         .meta {
             display: flex; justify-content: flex-end; align-items: center;
             gap: 5px; font-size: 0.65rem; opacity: 0.7; margin-top: 5px;
-            
-            /* Tick Styles */
             .read-status { 
                 font-weight: bold; font-size: 0.8rem; display: flex; align-items: center;
-                .tick-sent { color: #ccc; }
-                .tick-delivered { color: #ccc; }
-                .tick-read { color: #34B7F1; /* WhatsApp Blue */ }
             }
         }
 
-        /* FIX: Made the buttons ALWAYS VISIBLE so you can see them clearly */
         .message-actions {
             position: absolute; top: -15px; right: 10px;
             background: #2a2a35; padding: 0.3rem 0.5rem; border-radius: 1rem;
             display: flex; gap: 0.5rem; 
-            opacity: 1; /* Was 0 */
-            visibility: visible; /* Was hidden */
+            opacity: 1; visibility: visible; 
             transition: 0.2s;
             box-shadow: 0 2px 5px rgba(0,0,0,0.5);
             z-index: 5;
@@ -588,7 +626,6 @@ const Container = styled.div`
             }
         }
 
-        /* Displaying Reactions */
         .reactions-display {
             position: absolute; bottom: -12px; right: 10px;
             background: #1a1a25; padding: 0.2rem 0.4rem; border-radius: 1rem;
@@ -610,9 +647,18 @@ const Container = styled.div`
         background: linear-gradient(135deg, #4e0eff 0%, #9a41fe 100%);
         border-bottom-right-radius: 0.2rem;
         box-shadow: 0 4px 15px rgba(78, 14, 255, 0.3);
+        
+        /* Theme Overrides */
+        ${({ themeType }) => themeType === 'cyberpunk' && css`
+            background: transparent; border: 1px solid #00ff88; box-shadow: 0 0 10px rgba(0,255,136,0.2);
+        `}
+        ${({ themeType }) => themeType === 'midnight' && css`
+            background: #222; box-shadow: none; border: 1px solid #444;
+        `}
       }
-      .message-actions { right: auto; left: 10px; } /* Flip action menu for sent messages */
+      .message-actions { right: auto; left: 10px; } 
       .reactions-display { right: auto; left: 10px; }
+      .tail-physics { transform-origin: bottom right; }
     }
 
     .recieved {
@@ -622,7 +668,16 @@ const Container = styled.div`
         border-bottom-left-radius: 0.2rem;
         backdrop-filter: blur(5px);
         border: 1px solid rgba(255,255,255,0.05);
+        
+        /* Theme Overrides */
+        ${({ themeType }) => themeType === 'cyberpunk' && css`
+            background: rgba(255,0,85,0.1); border-color: #ff0055;
+        `}
+        ${({ themeType }) => themeType === 'midnight' && css`
+            background: #111; border-color: #222;
+        `}
       }
+      .tail-physics { transform-origin: bottom left; }
     }
     
     .typing-indicator {
