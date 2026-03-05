@@ -6,19 +6,55 @@ module.exports = (io) => {
   global.onlineUsers = new Map();
 
   io.on("connection", (socket) => {
+    
     // 1. User Online Status
     socket.on("add-user", async (userId) => {
-      onlineUsers.set(userId, socket.id);
-      io.emit("get-online-users", Array.from(onlineUsers.keys()));
+      global.onlineUsers.set(userId, socket.id);
+      socket.userId = userId; // Attach userId to the socket object for easy access on disconnect
+      
+      io.emit("get-online-users", Array.from(global.onlineUsers.keys()));
+
+      // --- NEW FEATURE: Broadcast real-time presence ---
+      socket.broadcast.emit("user-status-change", { 
+        userId, 
+        isOnline: true 
+      });
+
+      try {
+         // Update the database to reflect they are online
+         await User.findByIdAndUpdate(userId, { isOnline: true });
+      } catch (err) {
+         console.error("Failed to update online status:", err);
+      }
     });
 
-    // --- NEW FEATURE: Heartbeat System ---
-    // The client sends this periodically (e.g., every 30 seconds) to confirm they are still active
+    // --- NEW FEATURE: Client requests the current status of a specific chat ---
+    socket.on("check-presence", async (targetUserId) => {
+      const isOnline = global.onlineUsers.has(targetUserId);
+      if (isOnline) {
+        socket.emit("presence-response", { userId: targetUserId, isOnline: true });
+      } else {
+        try {
+            // If offline, fetch their last seen time from the database
+            const user = await User.findById(targetUserId).select("lastSeen");
+            socket.emit("presence-response", { 
+              userId: targetUserId, 
+              isOnline: false, 
+              lastSeen: user?.lastSeen || null 
+            });
+        } catch (err) {
+            console.error("Failed to fetch presence:", err);
+        }
+      }
+    });
+
+    // --- FEATURE: Heartbeat System ---
+    // The client sends this periodically to confirm they are still active
     socket.on("heartbeat", async (userId) => {
-       onlineUsers.set(userId, socket.id); // Refresh mapping
+       global.onlineUsers.set(userId, socket.id); // Refresh mapping
        try {
            // Update last seen in the database silently
-           await User.findByIdAndUpdate(userId, { lastSeen: new Date() });
+           await User.findByIdAndUpdate(userId, { lastSeen: new Date(), isOnline: true });
        } catch (err) { 
            console.error("Heartbeat update failed", err); 
        }
@@ -44,7 +80,7 @@ module.exports = (io) => {
               status: "delivered"
           });
       } else {
-          const receiverSocket = onlineUsers.get(data.to);
+          const receiverSocket = global.onlineUsers.get(data.to);
           if (receiverSocket) {
               socket.to(receiverSocket).emit("msg-recieve", {
                   id: data.id,
@@ -77,7 +113,7 @@ module.exports = (io) => {
              username: data.username 
          });
       } else {
-         const receiverSocket = onlineUsers.get(data.to);
+         const receiverSocket = global.onlineUsers.get(data.to);
          if (receiverSocket) {
            socket.to(receiverSocket).emit("typing-status", { 
                from: data.from, 
@@ -92,7 +128,7 @@ module.exports = (io) => {
         if (data.isGroup) {
             socket.to(data.to).emit("receive-reaction", data);
         } else {
-            const receiverSocket = onlineUsers.get(data.to);
+            const receiverSocket = global.onlineUsers.get(data.to);
             if (receiverSocket) {
                 socket.to(receiverSocket).emit("receive-reaction", data);
             }
@@ -109,7 +145,7 @@ module.exports = (io) => {
       }
 
       // Notify the sender that their message was read
-      const senderSocket = onlineUsers.get(from);
+      const senderSocket = global.onlineUsers.get(from);
       if (senderSocket) {
         socket.to(senderSocket).emit("msg-read-update", { messageId });
       }
@@ -120,7 +156,7 @@ module.exports = (io) => {
       if (data.isGroup) {
         socket.to(data.to).emit("msg-deleted", { messageId: data.messageId });
       } else {
-        const receiverSocket = onlineUsers.get(data.to);
+        const receiverSocket = global.onlineUsers.get(data.to);
         if (receiverSocket) {
           socket.to(receiverSocket).emit("msg-deleted", { messageId: data.messageId });
         }
@@ -132,7 +168,7 @@ module.exports = (io) => {
       if (data.isGroup) {
         socket.to(data.to).emit("msg-edited", { messageId: data.messageId, newText: data.newText });
       } else {
-        const receiverSocket = onlineUsers.get(data.to);
+        const receiverSocket = global.onlineUsers.get(data.to);
         if (receiverSocket) {
           socket.to(receiverSocket).emit("msg-edited", { messageId: data.messageId, newText: data.newText });
         }
@@ -141,25 +177,40 @@ module.exports = (io) => {
 
     // 9. Disconnect & Last Seen Update
     socket.on("disconnect", async () => {
-      let disconnectedUser = null;
-      onlineUsers.forEach((value, key) => {
-        if (value === socket.id) {
-          disconnectedUser = key;
-          onlineUsers.delete(key);
-        }
-      });
+      let disconnectedUser = socket.userId; // Prefer the explicitly attached ID
+      
+      // Fallback search if userId wasn't attached
+      if (!disconnectedUser) {
+        global.onlineUsers.forEach((value, key) => {
+          if (value === socket.id) {
+            disconnectedUser = key;
+          }
+        });
+      }
 
       if (disconnectedUser) {
+        global.onlineUsers.delete(disconnectedUser);
         const offlineTime = new Date();
         
         try {
-          await User.findByIdAndUpdate(disconnectedUser, { lastSeen: offlineTime });
+          // Record offline time and status in DB
+          await User.findByIdAndUpdate(disconnectedUser, { 
+              lastSeen: offlineTime,
+              isOnline: false
+          });
         } catch (err) {
           console.error("Failed to update last seen:", err);
         }
 
-        io.emit("get-online-users", Array.from(onlineUsers.keys()));
+        io.emit("get-online-users", Array.from(global.onlineUsers.keys()));
         io.emit("user-offline", { userId: disconnectedUser, lastSeen: offlineTime });
+
+        // --- NEW FEATURE: Tell active chats this user just went offline ---
+        socket.broadcast.emit("user-status-change", { 
+          userId: disconnectedUser, 
+          isOnline: false,
+          lastSeen: offlineTime.toISOString()
+        });
       }
     });
   });

@@ -4,7 +4,6 @@ const cloudinary = require("cloudinary").v2;
 const urlMetadata = require('url-metadata'); // For Rich Link Previews
 
 // --- LEVEL 4: ENTERPRISE BACKGROUND QUEUE ---
-// We no longer import Firebase directly here. The worker handles it!
 const { notificationQueue } = require("../workers/notificationWorker"); 
 
 // Configure Cloudinary using environment variables
@@ -36,15 +35,27 @@ module.exports.searchMessages = async (req, res, next) => {
   }
 };
 
+// --- NEW FEATURE: Infinite Scrolling (Cursor-Based Pagination) ---
 module.exports.getMessages = async (req, res, next) => {
   try {
-    const { from, to } = req.body;
+    // 1. Accept cursor and limit from the frontend
+    const { from, to, cursor, limit = 50 } = req.body; 
 
-    const messages = await Message.find({
-      users: { $all: [from, to] },
-    })
-      .sort({ updatedAt: 1 })
+    let query = { users: { $all: [from, to] } };
+
+    // 2. If the frontend provides a cursor, only look for messages older than that timestamp
+    if (cursor) {
+      query.createdAt = { $lt: new Date(cursor) }; 
+    }
+
+    // 3. Sort by newest first (-1), limit to the chunk size, then fetch
+    const messages = await Message.find(query)
+      .sort({ createdAt: -1 })
+      .limit(limit)
       .populate("replyTo", "message.text sender type isDeleted");
+
+    // 4. Reverse the array so they are back in chronological order (oldest to newest) for the UI
+    messages.reverse();
 
     const projectedMessages = messages.map((msg) => {
       // Hide content if it's a view-once media that was already viewed by the recipient
@@ -55,7 +66,7 @@ module.exports.getMessages = async (req, res, next) => {
         fromSelf: msg.sender.toString() === from,
         message: msg.isDeleted ? "🚫 This message was deleted" : isHiddenViewOnce ? "💣 Media Expired" : msg.message.text,
         type: msg.type,
-        createdAt: msg.createdAt,
+        createdAt: msg.createdAt, // Crucial: Frontend uses this as the next cursor
         status: msg.status || "sent", 
         isDeleted: msg.isDeleted,
         isEdited: msg.isEdited,
@@ -77,7 +88,13 @@ module.exports.getMessages = async (req, res, next) => {
         reactions: msg.reactions || [],
       };
     });
-    res.json(projectedMessages);
+
+    // 5. Send back the messages PLUS pagination metadata
+    res.json({
+        messages: projectedMessages,
+        hasMore: messages.length === limit, // If we got exactly the limit, there are probably more
+        nextCursor: messages.length > 0 ? messages[0].createdAt : null // The timestamp of the oldest message in this batch
+    });
   } catch (ex) {
     next(ex);
   }

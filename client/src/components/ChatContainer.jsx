@@ -17,7 +17,7 @@ import { toast } from "react-toastify";
 import { 
     FaUserPlus, FaShieldAlt, FaReply, FaSmile, FaTrash, FaPen, 
     FaInfoCircle, FaFileDownload, FaShare, FaStar, FaThumbtack, 
-    FaFire, FaMicrophoneAlt, FaPoll, FaSearch, FaUserSlash 
+    FaFire, FaMicrophoneAlt, FaPoll, FaSearch, FaUserSlash, FaSpinner
 } from "react-icons/fa";
 
 export default function ChatContainer({ currentChat, currentUser, socket, isTyping, theme, isCompact }) {
@@ -28,20 +28,29 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
   const [pinnedMessage, setPinnedMessage] = useState(null);
   const [isFetchingHistory, setIsFetchingHistory] = useState(true); 
   
+  // --- INFINITE SCROLL STATE ---
+  const [cursor, setCursor] = useState(null);
+  const [hasMore, setHasMore] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const chatContainerRef = useRef(); 
+
+  // --- NEW: PRESENCE STATE ---
+  const [isOnline, setIsOnline] = useState(false);
+  const [lastSeen, setLastSeen] = useState(null);
+
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [isBlocked, setIsBlocked] = useState(false);
 
   const scrollRef = useRef();
 
-  // Helper function to generate Authorization Headers
   const getAuthHeader = () => ({
     headers: {
       "x-auth-token": currentUser.token,
     },
   });
 
-  // 1. Fetch History (Secured with Headers)
+  // 1. Fetch History
   useEffect(() => {
     async function fetchHistory() {
       if (currentChat && currentUser) {
@@ -68,13 +77,22 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
                     setIsBlocked(false);
                 }
             }
-            setMessages(response.data);
 
-            const pinned = response.data.find(m => m.isPinned);
+            const fetchedMessages = response.data.messages ? response.data.messages : response.data;
+            setMessages(fetchedMessages);
+
+            if (response.data.nextCursor !== undefined) {
+                setCursor(response.data.nextCursor);
+                setHasMore(response.data.hasMore);
+            } else {
+                setHasMore(false); 
+            }
+
+            const pinned = fetchedMessages.find(m => m.isPinned);
             if(pinned) setPinnedMessage(pinned);
             else setPinnedMessage(null);
 
-            response.data.forEach((msg) => {
+            fetchedMessages.forEach((msg) => {
                 if (!msg.fromSelf && msg.status !== "read" && socket.current) {
                     socket.current.emit("mark-as-read", { 
                         messageId: msg.id, 
@@ -83,6 +101,10 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
                     });
                 }
             });
+
+            setTimeout(() => {
+                scrollRef.current?.scrollIntoView({ behavior: "smooth" });
+            }, 100);
 
         } catch (error) {
             console.error("Error fetching messages:", error);
@@ -97,6 +119,47 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
     fetchHistory();
   }, [currentChat, currentUser]);
 
+  // Infinite Scroll Logic
+  const handleScroll = async () => {
+    if (chatContainerRef.current.scrollTop === 0 && hasMore && !isLoadingMore) {
+      setIsLoadingMore(true);
+      const previousHeight = chatContainerRef.current.scrollHeight;
+
+      try {
+          let response;
+          if (currentChat.admin) {
+              response = await axios.post(getGroupMessagesRoute, {
+                  from: currentUser._id, groupId: currentChat._id, cursor
+              }, getAuthHeader());
+          } else {
+              response = await axios.post(receiveMessageRoute, {
+                  from: currentUser._id, to: currentChat._id, cursor
+              }, getAuthHeader());
+          }
+
+          const newMessages = response.data.messages ? response.data.messages : response.data;
+          
+          setMessages((prev) => [...newMessages, ...prev]);
+          if (response.data.nextCursor !== undefined) {
+              setCursor(response.data.nextCursor);
+              setHasMore(response.data.hasMore);
+          } else {
+              setHasMore(false);
+          }
+
+          setTimeout(() => {
+            if (chatContainerRef.current) {
+                chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight - previousHeight;
+            }
+          }, 0);
+      } catch (error) {
+          console.error("Failed to fetch older messages", error);
+      } finally {
+          setIsLoadingMore(false);
+      }
+    }
+  };
+
   // Heartbeat System
   useEffect(() => {
       if (socket.current && currentUser) {
@@ -108,10 +171,29 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
       }
   }, [socket, currentUser]);
 
-  // 2. Real-time Listeners
+  // 2. Real-time Listeners (Updated with Presence)
   useEffect(() => {
     if (socket.current) {
       const s = socket.current;
+      
+      // --- NEW: PRESENCE EVENT BINDING ---
+      if (currentChat && !currentChat.admin) {
+        s.emit("check-presence", currentChat._id);
+      }
+
+      const handlePresenceResponse = (data) => {
+        if (data.userId === currentChat._id) {
+          setIsOnline(data.isOnline);
+          setLastSeen(data.lastSeen);
+        }
+      };
+
+      const handleStatusChange = (data) => {
+        if (data.userId === currentChat._id) {
+          setIsOnline(data.isOnline);
+          setLastSeen(data.lastSeen);
+        }
+      };
       
       const handleMsgRecieve = (data) => {
         setArrivalMessage({ 
@@ -140,6 +222,9 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
           setMessages((prev) => prev.map(msg => msg.id === messageId ? { ...msg, isEdited: true, message: newText } : msg));
       };
 
+      // Listeners
+      s.on("presence-response", handlePresenceResponse);
+      s.on("user-status-change", handleStatusChange);
       s.on("msg-recieve", handleMsgRecieve);
       s.on("receive-reaction", handleReactionReceive);
       s.on("msg-read-update", handleMsgReadUpdate);
@@ -147,6 +232,8 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
       s.on("msg-edited", handleMsgEdited);
 
       return () => {
+          s.off("presence-response", handlePresenceResponse);
+          s.off("user-status-change", handleStatusChange);
           s.off("msg-recieve", handleMsgRecieve);
           s.off("receive-reaction", handleReactionReceive);
           s.off("msg-read-update", handleMsgReadUpdate);
@@ -154,13 +241,22 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
           s.off("msg-edited", handleMsgEdited);
       };
     }
-  }, [socket, currentUser]);
+  }, [socket, currentUser, currentChat]);
 
   useEffect(() => {
-    if (arrivalMessage) setMessages((prev) => [...prev, arrivalMessage]);
+    if (arrivalMessage) {
+        setMessages((prev) => [...prev, arrivalMessage]);
+        setTimeout(() => scrollRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+    }
   }, [arrivalMessage]);
 
-  // 4. Send Message Handler (Secured with Headers)
+  useEffect(() => {
+    if (isTyping) {
+        setTimeout(() => scrollRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+    }
+  }, [isTyping]);
+
+  // 4. Send Message Handler
   const handleSendMsg = async (msg, type = "text", replyToId = null, extraData = {}) => {
     const time = new Date().toISOString();
     try {
@@ -193,6 +289,8 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
             }
         ]);
         setReplyingTo(null); 
+        
+        setTimeout(() => scrollRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
     } catch (error) {
         if (error.response && error.response.status === 403) {
             toast.error(error.response.data.msg || "You are blocked by this user.");
@@ -266,13 +364,21 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
       }
   };
 
-  useEffect(() => {
-    scrollRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, isTyping]);
-
   const formatTime = (timeStr) => {
     const date = timeStr ? new Date(timeStr) : new Date();
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
+  // --- NEW: Helper for Last Seen Timestamp ---
+  const formatLastSeen = (dateString) => {
+    if (!dateString) return "Offline";
+    const date = new Date(dateString);
+    const today = new Date();
+    
+    if (date.toDateString() === today.toDateString()) {
+        return `Last seen today at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    }
+    return `Last seen ${date.toLocaleDateString()} at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
   };
 
   const renderStatusTicks = (status) => {
@@ -337,14 +443,32 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
     <Container $themeType={theme} $isCompact={isCompact} $hasPinned={!!pinnedMessage}>
       <div className="chat-header">
         <div className="user-details">
+          
+          {/* --- MODIFIED: HEADER INFO WITH PRESENCE --- */}
           <div className="header-info">
               <h3>{currentChat.name || currentChat.username} {isBlocked && <span style={{color: 'red', fontSize: '10px'}}>(Blocked)</span>}</h3>
+              
+              {/* Presence Indicator */}
+              {!currentChat.admin && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.75rem', marginTop: '-2px', marginBottom: '4px' }}>
+                      <div style={{
+                          width: '8px', height: '8px', borderRadius: '50%',
+                          backgroundColor: isOnline ? '#00ff88' : '#555',
+                          boxShadow: isOnline ? '0 0 5px #00ff88' : 'none'
+                      }}></div>
+                      <span style={{ color: isOnline ? '#00ff88' : '#aaa' }}>
+                          {isOnline ? "Online" : formatLastSeen(lastSeen)}
+                      </span>
+                  </div>
+              )}
+
               {!currentChat.admin && currentChat.bio && (
                   <p className="chat-bio" title={currentChat.interests?.join(", ")}>
                       <FaInfoCircle /> {currentChat.bio}
                   </p>
               )}
           </div>
+
           <div className="admin-controls">
               {showSearch && (
                   <input type="text" placeholder="Search chat..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="chat-search-input" />
@@ -374,7 +498,14 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
           </div>
       )}
 
-      <div className="chat-messages">
+      <div className="chat-messages" ref={chatContainerRef} onScroll={handleScroll}>
+        
+        {isLoadingMore && (
+            <div style={{ textAlign: 'center', padding: '1rem', color: '#00ff88' }}>
+                <FaSpinner className="fa-spin" /> Loading older messages...
+            </div>
+        )}
+
         {isFetchingHistory ? (
             Array.from({ length: 5 }).map((_, i) => (
                 <div key={i} className={`message skeleton-msg ${i % 2 === 0 ? 'sended' : 'recieved'}`}>
@@ -480,6 +611,9 @@ const Container = styled.div`
   ${({ $isCompact, $hasPinned }) => $isCompact && css`
       grid-template-rows: ${$hasPinned ? '8% auto 1fr 10%' : '8% 1fr 10%'};
   `}
+
+  .fa-spin { animation: spin 2s infinite linear; }
+  @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(359deg); } }
 
   .pinned-banner {
       background: rgba(0, 255, 136, 0.1); border-bottom: 1px solid rgba(0, 255, 136, 0.3);
