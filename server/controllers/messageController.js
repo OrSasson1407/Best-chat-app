@@ -2,7 +2,10 @@ const Message = require("../models/Message");
 const User = require("../models/User");
 const cloudinary = require("cloudinary").v2;
 const urlMetadata = require('url-metadata'); // For Rich Link Previews
-const admin = require("../config/firebase"); // Firebase setup for Push Notifications
+
+// --- LEVEL 4: ENTERPRISE BACKGROUND QUEUE ---
+// We no longer import Firebase directly here. The worker handles it!
+const { notificationQueue } = require("../workers/notificationWorker"); 
 
 // Configure Cloudinary using environment variables
 cloudinary.config({
@@ -84,7 +87,7 @@ module.exports.addMessage = async (req, res, next) => {
   try {
     const { from, to, message, type, replyTo, isForwarded, isViewOnce, pollData } = req.body;
 
-    // --- NEW FEATURE: BLOCK LOGIC ENFORCEMENT ---
+    // --- BLOCK LOGIC ENFORCEMENT ---
     const receiver = await User.findById(to);
     if (receiver && receiver.blockedUsers.includes(from)) {
       // Return 403 to indicate they are blocked and cannot send messages to this user
@@ -137,20 +140,27 @@ module.exports.addMessage = async (req, res, next) => {
       linkMetadata: linkMetadata
     });
 
-    // --- NEW FEATURE: OFFLINE PUSH NOTIFICATIONS (FCM) ---
-    // If user is not online via socket (tracked in global.onlineUsers), send a push notification
-    if (!global.onlineUsers.has(to) && receiver && receiver.fcmToken && admin.apps.length > 0) {
+    // --- LEVEL 4: OFFLINE PUSH NOTIFICATIONS VIA BACKGROUND QUEUE ---
+    // If user is not online via socket (tracked in global.onlineUsers), queue a push notification
+    if (!global.onlineUsers.has(to) && receiver && receiver.fcmToken) {
        try {
          const senderUser = await User.findById(from);
-         await admin.messaging().send({
-           token: receiver.fcmToken,
-           notification: {
-             title: `New message from ${senderUser.username}`,
-             body: finalType === "text" ? "Sent a message" : `Sent a ${finalType}`, // Hides actual text for privacy/E2EE
-           },
+         
+         // Dispatch the job to BullMQ instantly
+         await notificationQueue.add("send_fcm_message", {
+           userId: receiver._id,
+           fcmToken: receiver.fcmToken,
+           title: `New message from ${senderUser.username}`,
+           body: finalType === "text" ? "Sent a message" : `Sent a ${finalType}`,
+         }, {
+           attempts: 3, // Enterprise feature: Automatically retry 3 times if Firebase is down
+           backoff: {
+             type: 'exponential',
+             delay: 1000, // Wait 1s, 2s, 4s between retries
+           }
          });
        } catch (err) {
-         console.error("FCM Notification failed:", err.message);
+         console.error("Failed to queue FCM Notification:", err.message);
        }
     }
 

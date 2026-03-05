@@ -80,8 +80,17 @@ const MessageSchema = mongoose.Schema(
   }
 );
 
-// Performance & Search Indexes
-MessageSchema.index({ users: 1, createdAt: -1 }); // Fast conversation retrieval
-MessageSchema.index({ "message.text": "text" }); // Enables keyword search in chats
+// ==========================================
+// Performance & Search Indexes (LEVEL 2)
+// ==========================================
+
+// 1. Fast conversation retrieval (already perfectly implemented!)
+MessageSchema.index({ users: 1, createdAt: -1 }); 
+
+// 2. Enables fast keyword search in chats using MongoDB Atlas Search or text search
+MessageSchema.index({ "message.text": "text" }); 
+
+// 3. NEW: Speeds up queries when you need to find all messages sent by a specific user
+MessageSchema.index({ sender: 1 }); 
 
 module.exports = mongoose.model("Message", MessageSchema);

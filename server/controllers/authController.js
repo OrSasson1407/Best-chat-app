@@ -1,7 +1,12 @@
 const User = require("../models/User");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const { registerSchema, loginSchema } = require("../utils/validation"); // Path to your Joi schemas
+const { registerSchema, loginSchema } = require("../utils/validation"); 
+
+// --- LEVEL 2: REDIS CACHING SETUP ---
+const { createClient } = require("redis");
+const cacheClient = createClient({ url: process.env.REDIS_URI || "redis://localhost:6379" });
+cacheClient.connect().catch(err => console.error("Cache Client Error:", err));
 
 // Safe API constants for Fallback avatar generation
 const femaleTops = "longHairBob,longHairBun,longHairCurly,longHairCurvy,longHairStraight,longHairNotTooLong";
@@ -17,7 +22,6 @@ const generateTokens = (userId) => {
 
 module.exports.register = async (req, res, next) => {
   try {
-    // 1. Sanitize Input using Joi
     const { error } = registerSchema.validate(req.body);
     if (error) return res.status(400).json({ msg: error.details[0].message, status: false });
 
@@ -43,10 +47,8 @@ module.exports.register = async (req, res, next) => {
       isAvatarImageSet: true,
     });
 
-    // 2. Generate Tokens
     const { accessToken, refreshToken } = generateTokens(user._id);
 
-    // 3. Store Refresh Token in httpOnly Cookie for security
     res.cookie("refreshToken", refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
@@ -65,7 +67,6 @@ module.exports.register = async (req, res, next) => {
 
 module.exports.login = async (req, res, next) => {
   try {
-    // 1. Sanitize Input
     const { error } = loginSchema.validate(req.body);
     if (error) return res.status(400).json({ msg: error.details[0].message, status: false });
 
@@ -76,7 +77,6 @@ module.exports.login = async (req, res, next) => {
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) return res.json({ msg: "Incorrect Username or Password", status: false });
 
-    // 2. Refresh Token Pattern
     const { accessToken, refreshToken } = generateTokens(user._id);
 
     res.cookie("refreshToken", refreshToken, {
@@ -95,7 +95,6 @@ module.exports.login = async (req, res, next) => {
   }
 };
 
-// 4. NEW: Refresh Token Endpoint
 module.exports.refreshToken = async (req, res) => {
   const refreshToken = req.cookies.refreshToken;
   if (!refreshToken) return res.sendStatus(401);
@@ -107,12 +106,26 @@ module.exports.refreshToken = async (req, res) => {
   });
 };
 
+// --- LEVEL 2: CACHING IN ACTION ---
 module.exports.getAllUsers = async (req, res, next) => {
   try {
+    const cacheKey = `allusers_${req.params.id}`;
+    
+    // 1. Check Redis Cache
+    const cachedUsers = await cacheClient.get(cacheKey);
+    if (cachedUsers) {
+      return res.json(JSON.parse(cachedUsers));
+    }
+
+    // 2. Fallback to MongoDB
     const users = await User.find({ _id: { $ne: req.params.id } }).select([
       "email", "username", "avatarImage", "gender", "_id", 
       "statusMessage", "statusIcon", "bio", "interests"
     ]);
+
+    // 3. Save to Cache for 5 minutes (300 seconds)
+    await cacheClient.setEx(cacheKey, 300, JSON.stringify(users));
+
     return res.json(users);
   } catch (ex) {
     next(ex);
@@ -129,6 +142,11 @@ module.exports.updateProfile = async (req, res, next) => {
       { statusMessage, statusIcon, bio, interests },
       { new: true }
     );
+
+    // If profile is updated, invalidate the cache so fresh data is fetched next time
+    // This loops through all keys and deletes them (simplified cache invalidation)
+    const keys = await cacheClient.keys('allusers_*');
+    if (keys.length > 0) await cacheClient.del(keys);
 
     const userResponse = user.toObject();
     delete userResponse.password;

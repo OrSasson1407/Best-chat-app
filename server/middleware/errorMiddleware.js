@@ -1,6 +1,17 @@
 // server/middleware/errorMiddleware.js
+const logger = require("../utils/logger"); 
+const Joi = require("joi");
+
+// Global Error Handler
 module.exports.errorHandler = (err, req, res, next) => {
   const statusCode = res.statusCode === 200 ? 500 : res.statusCode;
+  
+  // Log the error centrally with request details
+  logger.error(`${statusCode} - ${err.message} - ${req.originalUrl} - ${req.method} - ${req.ip}`);
+  if (err.stack) {
+    logger.error(err.stack);
+  }
+
   res.status(statusCode).json({
     status: false,
     msg: err.message,
@@ -9,7 +20,6 @@ module.exports.errorHandler = (err, req, res, next) => {
 };
 
 // Validation Helper using Joi
-const Joi = require("joi");
 module.exports.validateRequest = (schema) => (req, res, next) => {
   const { error } = schema.validate(req.body);
   if (error) {
