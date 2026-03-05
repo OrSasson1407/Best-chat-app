@@ -13,7 +13,6 @@ const MessageSchema = mongoose.Schema(
     },
     type: {
       type: String,
-      // NEW: Added 'poll' and 'link' to the allowed types
       enum: ["text", "image", "video", "audio", "file", "code", "poll", "link"],
       default: "text",
     },
@@ -42,35 +41,25 @@ const MessageSchema = mongoose.Schema(
       type: Boolean,
       default: false,
     },
-
-    // --- NEW FEATURE FIELDS ---
-    
-    // 1. Message Forwarding
     isForwarded: { 
         type: Boolean, 
         default: false 
     },
-    
-    // 2. Self-Destructing Media (View Once)
     isViewOnce: { 
         type: Boolean, 
         default: false 
     },
     viewed: { 
         type: Boolean, 
-        default: false // Turns true after the recipient opens it
+        default: false 
     },
-    
-    // 3. Pinned and Starred
     isPinned: { 
         type: Boolean, 
         default: false 
     },
     starredBy: [
-        { type: mongoose.Schema.Types.ObjectId, ref: "User" } // Array of users who starred this
+        { type: mongoose.Schema.Types.ObjectId, ref: "User" }
     ], 
-    
-    // 4. Polls & Decisions
     pollData: {
       question: { type: String },
       options: [{ 
@@ -79,8 +68,6 @@ const MessageSchema = mongoose.Schema(
       }],
       multipleAnswers: { type: Boolean, default: false }
     },
-
-    // 5. Rich Link Previews
     linkMetadata: {
       title: String,
       description: String,
@@ -92,5 +79,9 @@ const MessageSchema = mongoose.Schema(
     timestamps: true,
   }
 );
+
+// Performance & Search Indexes
+MessageSchema.index({ users: 1, createdAt: -1 }); // Fast conversation retrieval
+MessageSchema.index({ "message.text": "text" }); // Enables keyword search in chats
 
 module.exports = mongoose.model("Message", MessageSchema);

@@ -39,7 +39,7 @@ module.exports.getMessages = async (req, res, next) => {
         isDeleted: msg.isDeleted,
         isEdited: msg.isEdited,
         
-        // --- NEW MAPPED FIELDS ---
+        // --- MAPPED FIELDS ---
         isForwarded: msg.isForwarded,
         isViewOnce: msg.isViewOnce,
         viewed: msg.viewed,
@@ -148,6 +148,11 @@ module.exports.deleteMessage = async (req, res, next) => {
     const message = await Message.findById(messageId);
     if (!message) return res.status(404).json({ msg: "Message not found" });
 
+    // SECURITY CHECK: Ensure only the original sender can delete the message
+    if (message.sender.toString() !== req.user.id) {
+        return res.status(403).json({ msg: "Unauthorized action: You can only delete your own messages." });
+    }
+
     // Mark as deleted, overwrite text, clear reactions/metadata
     message.isDeleted = true;
     message.message.text = "🚫 This message was deleted";
@@ -167,6 +172,11 @@ module.exports.editMessage = async (req, res, next) => {
     const { messageId, newText } = req.body;
     const message = await Message.findById(messageId);
     if (!message) return res.status(404).json({ msg: "Message not found" });
+
+    // SECURITY CHECK: Ensure only the original sender can edit the message
+    if (message.sender.toString() !== req.user.id) {
+        return res.status(403).json({ msg: "Unauthorized action: You can only edit your own messages." });
+    }
 
     // Prevent editing of deleted or view-once messages
     if (message.isDeleted) return res.status(400).json({ msg: "Cannot edit a deleted message" });

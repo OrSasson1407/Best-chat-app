@@ -12,8 +12,9 @@ module.exports = (req, res, next) => {
   // 3. Verify token
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded.user; // Add the user ID to the request object
-    next(); // Allow the request to proceed
+    // Attach the user object (containing the ID) to the request
+    req.user = decoded.user; 
+    next(); 
   } catch (err) {
     res.status(401).json({ msg: "Token is not valid" });
   }
