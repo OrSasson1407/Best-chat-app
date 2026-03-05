@@ -5,12 +5,13 @@ const cors = require("cors");
 const mongoose = require("mongoose");
 const socket = require("socket.io");
 const rateLimit = require("express-rate-limit");
+const cookieParser = require("cookie-parser"); // NEW: Required for Refresh Token Pattern
 
 const authRoutes = require("./routes/authRoutes");
 const messageRoutes = require("./routes/messagesRoute");
 const groupRoutes = require("./routes/groupRoutes");
 const { errorHandler } = require("./middleware/errorMiddleware");
-const socketHandler = require("./socket/socketHandler"); // NEW: Imported Socket Logic
+const socketHandler = require("./socket/socketHandler");
 
 const app = express();
 
@@ -26,6 +27,7 @@ app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/register", authLimiter);
 
 app.use(cors());
+app.use(cookieParser()); // NEW: Enables server to read httpOnly cookies for Refresh Tokens
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 

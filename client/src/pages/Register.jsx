@@ -19,6 +19,22 @@ export default function Register() {
   const [avatars, setAvatars] = useState([]);
   const [selectedAvatar, setSelectedAvatar] = useState("");
 
+  const toastOptions = {
+    position: "bottom-right",
+    autoClose: 8000,
+    pauseOnHover: true,
+    draggable: true,
+    theme: "dark",
+  };
+
+  // Redirect if user is already logged in
+  useEffect(() => {
+    if (sessionStorage.getItem("chat-app-user")) {
+      navigate("/");
+    }
+  }, [navigate]);
+
+  // Generate random avatars based on selected gender
   useEffect(() => {
     const generateAvatars = () => {
       const collection = values.gender === "female" ? "lorelei" : "micah";
@@ -39,17 +55,24 @@ export default function Register() {
 
   const handleValidation = () => {
     const { password, confirmPassword, username, email } = values;
+    
+    // Basic formatting regex for email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
     if (password !== confirmPassword) {
-      toast.error("Password and confirm password should be same.", { theme: "dark" });
+      toast.error("Password and confirm password should be same.", toastOptions);
       return false;
     } else if (username.length < 3) {
-      toast.error("Username should be greater than 3 characters.", { theme: "dark" });
+      toast.error("Username should be greater than 3 characters.", toastOptions);
       return false;
     } else if (password.length < 8) {
-      toast.error("Password should be equal or greater than 8 characters.", { theme: "dark" });
+      toast.error("Password should be equal or greater than 8 characters.", toastOptions);
       return false;
     } else if (email === "") {
-      toast.error("Email is required.", { theme: "dark" });
+      toast.error("Email is required.", toastOptions);
+      return false;
+    } else if (!emailRegex.test(email)) {
+      toast.error("Please enter a valid email address.", toastOptions);
       return false;
     }
     return true;
@@ -59,25 +82,34 @@ export default function Register() {
     event.preventDefault();
     if (handleValidation()) {
       const { email, username, password, gender } = values;
-      const { data } = await axios.post(registerRoute, {
-        username,
-        email,
-        password,
-        gender,
-        avatarImage: selectedAvatar
-      });
+      try {
+        const { data } = await axios.post(registerRoute, {
+          username,
+          email,
+          password,
+          gender,
+          avatarImage: selectedAvatar
+        });
 
-      if (data.status === false) {
-        toast.error(data.msg, { theme: "dark" });
-      }
-      if (data.status === true) {
-        // Combined the user and token into a single object for storage
-        const userData = {
-          ...data.user,
-          token: data.token,
-        };
-        sessionStorage.setItem("chat-app-user", JSON.stringify(userData));
-        navigate("/");
+        if (data.status === false) {
+          toast.error(data.msg, toastOptions);
+        }
+        if (data.status === true) {
+          // Combined the user and token into a single object for storage
+          const userData = {
+            ...data.user,
+            token: data.token,
+          };
+          sessionStorage.setItem("chat-app-user", JSON.stringify(userData));
+          navigate("/");
+        }
+      } catch (error) {
+        // FIXED: Catching the 400 error and displaying the server's error message
+        if (error.response && error.response.data) {
+          toast.error(error.response.data.msg || "Registration failed", toastOptions);
+        } else {
+          toast.error("Error connecting to server", toastOptions);
+        }
       }
     }
   };

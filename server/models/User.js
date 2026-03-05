@@ -4,20 +4,20 @@ const userSchema = new mongoose.Schema({
   username: {
     type: String,
     required: true,
-    min: 3,
-    max: 20,
+    minlength: 3,    // FIXED: Changed from min
+    maxlength: 20,   // FIXED: Changed from max
     unique: true,
   },
   email: {
     type: String,
     required: true,
     unique: true,
-    max: 50,
+    maxlength: 50,   // FIXED: Changed from max
   },
   password: {
     type: String,
     required: true,
-    min: 8,
+    minlength: 8,    // FIXED: Changed from min
   },
   gender: {
     type: String,
@@ -45,7 +45,7 @@ const userSchema = new mongoose.Schema({
   statusMessage: {
     type: String,
     default: "Available",
-    max: 50,
+    maxlength: 50,   // FIXED: Changed from max
   },
   statusIcon: {
     type: String,
@@ -54,7 +54,7 @@ const userSchema = new mongoose.Schema({
   bio: {
     type: String,
     default: "Hey there! I am using Snappy.",
-    max: 150,
+    maxlength: 150,  // FIXED: Changed from max
   },
   interests: {
     type: [String],

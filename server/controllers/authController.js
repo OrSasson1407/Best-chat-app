@@ -1,14 +1,26 @@
 const User = require("../models/User");
 const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken"); // NEW: Required for token generation
+const jwt = require("jsonwebtoken");
+const { registerSchema, loginSchema } = require("../utils/validation"); // Path to your Joi schemas
 
 // Safe API constants for Fallback avatar generation
 const femaleTops = "longHairBob,longHairBun,longHairCurly,longHairCurvy,longHairStraight,longHairNotTooLong";
 const maleTops = "shortHairDreads01,shortHairDreads02,shortHairFrizzle,shortHairShaggy,shortHairShortCurly,shortHairShortFlat,shortHairShortRound,shortHairShortWaved,shortHairSides";
 const backgroundColors = "b6e3f4,c0aede,d1d4f9,ffdfbf,ffd5dc";
 
+// Helper to generate both tokens
+const generateTokens = (userId) => {
+  const accessToken = jwt.sign({ id: userId }, process.env.JWT_SECRET, { expiresIn: "15m" });
+  const refreshToken = jwt.sign({ id: userId }, process.env.REFRESH_SECRET, { expiresIn: "7d" });
+  return { accessToken, refreshToken };
+};
+
 module.exports.register = async (req, res, next) => {
   try {
+    // 1. Sanitize Input using Joi
+    const { error } = registerSchema.validate(req.body);
+    if (error) return res.status(400).json({ msg: error.details[0].message, status: false });
+
     const { username, email, password, gender, avatarImage } = req.body;
 
     const usernameCheck = await User.findOne({ username });
@@ -31,15 +43,21 @@ module.exports.register = async (req, res, next) => {
       isAvatarImageSet: true,
     });
 
-    // --- NEW: Generate JWT Token for registration ---
-    const payload = { user: { id: user._id } };
-    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: "7d" });
+    // 2. Generate Tokens
+    const { accessToken, refreshToken } = generateTokens(user._id);
+
+    // 3. Store Refresh Token in httpOnly Cookie for security
+    res.cookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "Strict",
+      maxAge: 7 * 24 * 60 * 60 * 1000, 
+    });
 
     const userResponse = user.toObject();
     delete userResponse.password;
 
-    // Return both user and token to the frontend
-    return res.json({ status: true, user: userResponse, token }); 
+    return res.json({ status: true, user: userResponse, token: accessToken }); 
   } catch (ex) {
     next(ex);
   }
@@ -47,6 +65,10 @@ module.exports.register = async (req, res, next) => {
 
 module.exports.login = async (req, res, next) => {
   try {
+    // 1. Sanitize Input
+    const { error } = loginSchema.validate(req.body);
+    if (error) return res.status(400).json({ msg: error.details[0].message, status: false });
+
     const { username, password } = req.body;
     const user = await User.findOne({ username });
     if (!user) return res.json({ msg: "Incorrect Username or Password", status: false });
@@ -54,32 +76,42 @@ module.exports.login = async (req, res, next) => {
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) return res.json({ msg: "Incorrect Username or Password", status: false });
 
-    // --- NEW: Generate JWT Token for login ---
-    const payload = { user: { id: user._id } };
-    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: "7d" });
+    // 2. Refresh Token Pattern
+    const { accessToken, refreshToken } = generateTokens(user._id);
+
+    res.cookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "Strict",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
 
     const userResponse = user.toObject();
     delete userResponse.password;
 
-    // Return both user and token to the frontend
-    return res.json({ status: true, user: userResponse, token });
+    return res.json({ status: true, user: userResponse, token: accessToken });
   } catch (ex) {
     next(ex);
   }
 };
 
+// 4. NEW: Refresh Token Endpoint
+module.exports.refreshToken = async (req, res) => {
+  const refreshToken = req.cookies.refreshToken;
+  if (!refreshToken) return res.sendStatus(401);
+
+  jwt.verify(refreshToken, process.env.REFRESH_SECRET, (err, decoded) => {
+    if (err) return res.sendStatus(403);
+    const accessToken = jwt.sign({ id: decoded.id }, process.env.JWT_SECRET, { expiresIn: "15m" });
+    res.json({ status: true, token: accessToken });
+  });
+};
+
 module.exports.getAllUsers = async (req, res, next) => {
   try {
     const users = await User.find({ _id: { $ne: req.params.id } }).select([
-      "email", 
-      "username", 
-      "avatarImage", 
-      "gender", 
-      "_id", 
-      "statusMessage", 
-      "statusIcon", 
-      "bio", 
-      "interests"
+      "email", "username", "avatarImage", "gender", "_id", 
+      "statusMessage", "statusIcon", "bio", "interests"
     ]);
     return res.json(users);
   } catch (ex) {
