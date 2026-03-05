@@ -13,14 +13,19 @@ import {
 } from "../utils/APIRoutes";
 import { v4 as uuidv4 } from "uuid";
 import { toast } from "react-toastify";
-import { FaUserPlus, FaShieldAlt, FaReply, FaSmile, FaTrash, FaPen, FaInfoCircle, FaFileDownload } from "react-icons/fa";
+import { 
+    FaUserPlus, FaShieldAlt, FaReply, FaSmile, FaTrash, FaPen, 
+    FaInfoCircle, FaFileDownload, FaShare, FaStar, FaThumbtack, 
+    FaFire, FaMicrophoneAlt, FaPoll 
+} from "react-icons/fa";
 
 export default function ChatContainer({ currentChat, currentUser, socket, isTyping, theme, isCompact }) {
   const [messages, setMessages] = useState([]);
   const [arrivalMessage, setArrivalMessage] = useState(null);
   const [replyingTo, setReplyingTo] = useState(null);
   const [editingMessage, setEditingMessage] = useState(null);
-  const [isFetchingHistory, setIsFetchingHistory] = useState(true); // NEW: For Skeleton Loaders
+  const [pinnedMessage, setPinnedMessage] = useState(null); // NEW: Pinned State
+  const [isFetchingHistory, setIsFetchingHistory] = useState(true); 
   const scrollRef = useRef();
 
   // 1. Fetch History (Group vs Direct)
@@ -45,6 +50,11 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
                 });
             }
             setMessages(response.data);
+
+            // Set pinned message if exists
+            const pinned = response.data.find(m => m.isPinned);
+            if(pinned) setPinnedMessage(pinned);
+            else setPinnedMessage(null);
 
             // Mark unread messages as read when opening the chat
             response.data.forEach((msg) => {
@@ -84,7 +94,13 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
             reactions: [],
             status: "delivered",
             isDeleted: false,
-            isEdited: false
+            isEdited: false,
+            isForwarded: data.isForwarded,
+            isViewOnce: data.isViewOnce,
+            viewed: false,
+            isStarred: false,
+            pollData: data.pollData,
+            linkMetadata: data.linkMetadata
         });
 
         // Immediately notify sender that we read it
@@ -142,7 +158,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
   }, [arrivalMessage]);
 
   // 4. Send Message Handler
-  const handleSendMsg = async (msg, type = "text", replyToId = null) => {
+  const handleSendMsg = async (msg, type = "text", replyToId = null, extraData = {}) => {
     const time = new Date().toISOString();
     
     try {
@@ -151,21 +167,29 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
             to: currentChat._id, 
             message: msg, 
             type,
-            replyTo: replyToId
+            replyTo: replyToId,
+            isForwarded: extraData.isForwarded || false,
+            isViewOnce: extraData.isViewOnce || false,
+            pollData: extraData.pollData || null
         };
 
         const res = await axios.post(sendMessageRoute, payload);
         const newMessageId = res.data.data?._id || uuidv4();
+        const generatedLinkData = res.data.data?.linkMetadata || null;
 
         const socketData = {
             id: newMessageId,
             to: currentChat._id, 
             from: currentUser._id, 
             msg, 
-            type,
+            type: res.data.data?.type || type,
             isGroup: !!currentChat.admin, 
             username: currentUser.username,
-            replyTo: replyingTo ? { id: replyingTo.id, text: replyingTo.text, type: replyingTo.type, isSelfQuote: replyingTo.isSelfQuote } : null
+            replyTo: replyingTo ? { id: replyingTo.id, text: replyingTo.text, type: replyingTo.type, isSelfQuote: replyingTo.isSelfQuote } : null,
+            isForwarded: payload.isForwarded,
+            isViewOnce: payload.isViewOnce,
+            pollData: payload.pollData,
+            linkMetadata: generatedLinkData
         };
         
         socket.current.emit("send-msg", socketData);
@@ -176,13 +200,18 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
               id: newMessageId, 
               fromSelf: true, 
               message: msg, 
-              type: type, 
+              type: socketData.type, 
               createdAt: time, 
               replyTo: socketData.replyTo, 
               reactions: [],
               status: "sent",
               isDeleted: false,
-              isEdited: false
+              isEdited: false,
+              isForwarded: payload.isForwarded,
+              isViewOnce: payload.isViewOnce,
+              viewed: false,
+              pollData: payload.pollData,
+              linkMetadata: generatedLinkData
             }
         ]);
         setReplyingTo(null); 
@@ -213,7 +242,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
 
               socket.current.emit("delete-msg", { messageId, to: currentChat._id, isGroup: !!currentChat.admin });
               
-              setMessages((prev) => prev.map(msg => msg.id === messageId ? { ...msg, isDeleted: true, message: "🚫 This message was deleted", reactions: [] } : msg));
+              setMessages((prev) => prev.map(msg => msg.id === messageId ? { ...msg, isDeleted: true, message: "🚫 This message was deleted", reactions: [], linkMetadata: null, pollData: null } : msg));
           } catch (error) {
               toast.error("Failed to delete message");
           }
@@ -237,6 +266,11 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
       } catch (e) {
           console.error("Failed to react", e);
       }
+  };
+
+  // Handle View Once Media
+  const handleOpenViewOnce = async (msgId) => {
+    setMessages(prev => prev.map(m => m.id === msgId ? {...m, viewed: true, message: "💣 Media Expired"} : m));
   };
 
   // 6. Typing Handler
@@ -273,7 +307,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
       }
   };
 
-  // 8. Auto Scroll
+  // 8. Auto Scroll (FIXED: Anchored to bottom div)
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isTyping]);
@@ -293,6 +327,44 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
   const renderMessageContent = (msg) => {
     if (msg.isDeleted) return <p className="deleted-text">{msg.message}</p>;
     
+    if (msg.isViewOnce && !msg.fromSelf && !msg.viewed) return <button className="view-once-btn" onClick={() => handleOpenViewOnce(msg.id)}><FaFire /> View Once Media</button>;
+    if (msg.isViewOnce && (msg.viewed || msg.message === "💣 Media Expired")) return <p className="deleted-text">💣 Media Expired</p>;
+
+    if (msg.type === "link" && msg.linkMetadata) {
+        return (
+            <div className="link-preview">
+                <p>{msg.message}</p>
+                <a href={msg.linkMetadata.url} target="_blank" rel="noreferrer" className="preview-card">
+                    {msg.linkMetadata.image && <img src={msg.linkMetadata.image} alt="preview" />}
+                    <div className="preview-info">
+                        <h4>{msg.linkMetadata.title}</h4>
+                        <p>{msg.linkMetadata.description}</p>
+                    </div>
+                </a>
+            </div>
+        );
+    }
+
+    if (msg.type === "poll" && msg.pollData) {
+        const totalVotes = msg.pollData.options.reduce((acc, opt) => acc + opt.votes.length, 0);
+        return (
+            <div className="poll-container">
+                <h4><FaPoll/> {msg.pollData.question}</h4>
+                {msg.pollData.options.map(opt => {
+                    const percent = totalVotes === 0 ? 0 : Math.round((opt.votes.length / totalVotes) * 100);
+                    const hasVoted = opt.votes.includes(currentUser._id);
+                    return (
+                        <div key={opt._id} className={`poll-option ${hasVoted ? 'voted' : ''}`} onClick={() => console.log('vote clicked')}>
+                            <div className="poll-bar" style={{width: `${percent}%`}}></div>
+                            <span className="opt-text">{opt.text}</span>
+                            <span className="opt-percent">{percent}%</span>
+                        </div>
+                    );
+                })}
+            </div>
+        );
+    }
+
     if (msg.type === "image") return <img src={msg.message} alt="sent" className="msg-image" />;
     
     if (msg.type === "video") return (
@@ -319,7 +391,8 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
   };
 
   return (
-    <Container themeType={theme} isCompact={isCompact}>
+    // FIXED: Passed hasPinned down so Grid knows to adjust
+    <Container themeType={theme} isCompact={isCompact} hasPinned={!!pinnedMessage}>
       <div className="chat-header">
         <div className="user-details">
           
@@ -333,15 +406,30 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
               )}
           </div>
           
-          {currentChat.admin === currentUser._id && (
-              <div className="admin-controls">
-                  <span className="admin-badge"><FaShieldAlt /> Admin</span>
-                  <FaUserPlus className="add-icon" onClick={handleAddMember} title="Add Member" />
-              </div>
-          )}
+          <div className="admin-controls">
+              <button className="huddle-btn"><FaMicrophoneAlt /> Start Huddle</button>
+              
+              {currentChat.admin === currentUser._id && (
+                  <>
+                      <span className="admin-badge"><FaShieldAlt /> Admin</span>
+                      <FaUserPlus className="add-icon" onClick={handleAddMember} title="Add Member" />
+                  </>
+              )}
+          </div>
         </div>
       </div>
       
+      {/* Pinned Message Banner */}
+      {pinnedMessage && (
+          <div className="pinned-banner" onClick={() => scrollToMessage(pinnedMessage.id)}>
+              <FaThumbtack /> 
+              <div className="pin-content">
+                  <span className="pin-title">Pinned Message</span>
+                  <span className="pin-text">{pinnedMessage.message.substring(0, 50)}...</span>
+              </div>
+          </div>
+      )}
+
       <div className="chat-messages">
         {/* Render Skeletons or Messages */}
         {isFetchingHistory ? (
@@ -355,10 +443,12 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
             ))
         ) : (
             messages.map((message) => (
-            <div ref={scrollRef} key={message.id || uuidv4()} id={`msg-${message.id}`} className="message-wrapper">
+            <div key={message.id || uuidv4()} id={`msg-${message.id}`} className="message-wrapper">
                 <div className={`message ${message.fromSelf ? "sended" : "recieved"} ${message.isDeleted ? "deleted-msg" : ""}`}>
                 <div className="content tail-physics">
                     
+                    {message.isForwarded && <div className="forwarded-tag"><FaShare /> Forwarded</div>}
+
                     {message.replyTo && (
                         <div className="quoted-message" onClick={() => scrollToMessage(message.replyTo.id)}>
                             <span>{message.replyTo.isSelfQuote ? "You" : "Them"}: </span>
@@ -377,6 +467,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
                     
                     <div className="meta">
                         <span>{formatTime(message.createdAt)}</span>
+                        {message.isStarred && <FaStar className="starred-icon" color="gold" size={10} />}
                         {message.isEdited && <span className="edited-tag">(edited)</span>}
                         {message.fromSelf && !message.isDeleted && (
                             <span className="read-status">
@@ -388,6 +479,9 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
                     {!message.isDeleted && (
                         <div className="message-actions">
                             <button onClick={() => setReplyingTo({ id: message.id, text: message.message, type: message.type, isSelfQuote: message.fromSelf })} title="Reply"><FaReply /></button>
+                            <button title="Forward"><FaShare /></button>
+                            <button title="Star"><FaStar /></button>
+                            
                             <div className="reaction-trigger">
                                 <FaSmile title="React"/>
                                 <div className="reaction-menu">
@@ -417,10 +511,13 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
         )}
         
         {isTyping && (
-            <div className="typing-indicator" ref={scrollRef}>
+            <div className="typing-indicator">
                 <span>{typeof isTyping === 'string' ? `${isTyping} is typing...` : "Someone is typing..."}</span>
             </div>
         )}
+        
+        {/* FIXED: Stable anchor point for auto-scrolling */}
+        <div ref={scrollRef} />
       </div>
       
       <ChatInput 
@@ -450,11 +547,24 @@ const shimmer = keyframes`
 
 const Container = styled.div`
   display: grid; 
-  grid-template-rows: 10% 80% 10%; 
+  /* FIXED: 1fr expands to push the Input perfectly to the bottom */
+  grid-template-rows: ${({ hasPinned }) => hasPinned ? '10% auto 1fr 10%' : '10% 1fr 10%'}; 
   overflow: hidden;
   
   /* Apply Compact Mode adjusting the grid layout */
-  ${({ isCompact }) => isCompact && css`grid-template-rows: 8% 82% 10%;`}
+  ${({ isCompact, hasPinned }) => isCompact && css`
+      grid-template-rows: ${hasPinned ? '8% auto 1fr 10%' : '8% 1fr 10%'};
+  `}
+
+  .pinned-banner {
+      background: rgba(0, 255, 136, 0.1); border-bottom: 1px solid rgba(0, 255, 136, 0.3);
+      padding: 0.5rem 2rem; display: flex; align-items: center; gap: 1rem; color: #00ff88; cursor: pointer;
+      .pin-content { 
+          display: flex; flex-direction: column; 
+          .pin-title { font-size: 0.7rem; font-weight: bold; } 
+          .pin-text { font-size: 0.85rem; color: #ccc; } 
+      }
+  }
 
   .chat-header {
     display: flex; justify-content: space-between; align-items: center; 
@@ -485,6 +595,8 @@ const Container = styled.div`
     .admin-controls {
         display: flex; align-items: center; gap: 1rem;
         
+        .huddle-btn { background: #4e0eff; color: white; border: none; padding: 0.5rem 1rem; border-radius: 1rem; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; font-weight: bold; transition: 0.2s; &:hover { background: #00ff88; color: black; } }
+
         .admin-badge {
             background: rgba(0, 255, 136, 0.1);
             color: #00ff88;
@@ -549,7 +661,7 @@ const Container = styled.div`
         min-width: 120px;
         transition: transform 0.2s ease;
         
-        /* Tail Physics - Slight stretch/skew on hover to simulate fluid movement */
+        /* Tail Physics - Slight stretch/skew on hover */
         &.tail-physics:hover { 
             transform: scale(1.02) skewX(1deg); 
         }
@@ -564,6 +676,31 @@ const Container = styled.div`
 
         .deleted-text { font-style: italic; color: rgba(255,255,255,0.5); font-size: 0.9rem; }
         .edited-tag { font-size: 0.6rem; opacity: 0.5; margin-left: 5px; font-style: italic; }
+        .forwarded-tag { font-size: 0.7rem; color: #aaa; margin-bottom: 0.5rem; font-style: italic; display: flex; align-items: center; gap: 0.3rem; }
+        
+        .view-once-btn { background: linear-gradient(90deg, #ff0055, #ff5500); color: white; border: none; padding: 0.8rem 1.5rem; border-radius: 0.5rem; cursor: pointer; font-weight: bold; display: flex; align-items: center; gap: 0.5rem; box-shadow: 0 4px 15px rgba(255,0,85,0.4); }
+
+        .link-preview {
+            display: flex; flex-direction: column; gap: 0.5rem;
+            .preview-card {
+                background: rgba(0,0,0,0.3); border-radius: 0.5rem; overflow: hidden; text-decoration: none; color: white; border: 1px solid rgba(255,255,255,0.1); transition: 0.2s;
+                &:hover { background: rgba(0,0,0,0.5); }
+                img { width: 100%; height: 150px; object-fit: cover; }
+                .preview-info { padding: 0.8rem; h4 { margin: 0; font-size: 0.9rem; color: #00ff88; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } p { margin: 5px 0 0; font-size: 0.75rem; color: #ccc; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; } }
+            }
+        }
+
+        .poll-container {
+            background: rgba(0,0,0,0.2); padding: 1rem; border-radius: 0.8rem; border: 1px solid rgba(255,255,255,0.1); min-width: 250px;
+            h4 { margin: 0 0 1rem 0; color: #00ff88; display: flex; align-items: center; gap: 0.5rem; }
+            .poll-option {
+                position: relative; background: rgba(255,255,255,0.05); padding: 0.6rem; border-radius: 0.5rem; margin-bottom: 0.5rem; cursor: pointer; overflow: hidden; display: flex; justify-content: space-between; border: 1px solid transparent; transition: 0.2s;
+                &:hover { border-color: rgba(255,255,255,0.2); }
+                &.voted { border-color: #00ff88; }
+                .poll-bar { position: absolute; top: 0; left: 0; height: 100%; background: rgba(0,255,136,0.2); z-index: 0; transition: width 0.5s ease; }
+                .opt-text, .opt-percent { position: relative; z-index: 1; font-size: 0.85rem; }
+            }
+        }
 
         .quoted-message {
             background: rgba(0,0,0,0.2); border-left: 4px solid #00ff88;
@@ -594,9 +731,8 @@ const Container = styled.div`
         .meta {
             display: flex; justify-content: flex-end; align-items: center;
             gap: 5px; font-size: 0.65rem; opacity: 0.7; margin-top: 5px;
-            .read-status { 
-                font-weight: bold; font-size: 0.8rem; display: flex; align-items: center;
-            }
+            .read-status { font-weight: bold; font-size: 0.8rem; display: flex; align-items: center; }
+            .starred-icon { margin-left: 4px; }
         }
 
         .message-actions {
