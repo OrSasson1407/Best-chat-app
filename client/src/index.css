@@ -1,10 +1,56 @@
+:root {
+  --glass-bg: rgba(255, 255, 255, 0.03);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-blur: blur(15px);
+  --primary-gradient: linear-gradient(135deg, #4e0eff 0%, #9a41fe 100%);
+  --mesh-gradient: radial-gradient(at 0% 0%, #4e0eff 0, transparent 50%), 
+                   radial-gradient(at 50% 0%, #9a41fe 0, transparent 50%), 
+                   radial-gradient(at 100% 0%, #4e0eff 0, transparent 50%);
+}
+
 * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
 }
+
 body {
-  background-color: #131324;
+  background-color: #050510;
   color: white;
-  font-family: sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+@keyframes spring-hover {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.03); }
+  100% { transform: scale(1.02); }
+}
+
+@keyframes glass-shine {
+  0% { left: -100%; opacity: 0; }
+  50% { opacity: 0.3; }
+  100% { left: 100%; opacity: 0; }
+}
+
+.glass-shine-effect {
+  position: relative;
+  overflow: hidden;
+}
+
+.glass-shine-effect::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+  transform: skewX(-25deg);
+  transition: 0.5s;
+}
+
+.glass-shine-effect:hover::after {
+  animation: glass-shine 0.8s ease-in-out;
 }

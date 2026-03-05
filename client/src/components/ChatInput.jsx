@@ -1,26 +1,35 @@
 import React, { useState, useRef, useEffect } from "react";
-import styled from "styled-components";
+import styled, { keyframes } from "styled-components";
 import EmojiPicker, { Theme } from "emoji-picker-react";
 import { IoMdSend, IoMdClose, IoMdCheckmark } from "react-icons/io";
-// Swapped BsImage for BsPaperclip to indicate it handles all file types now
-import { BsEmojiSmileFill, BsPaperclip, BsMicFill, BsStopCircleFill, BsCodeSlash } from "react-icons/bs";
+import { 
+    BsEmojiSmileFill, BsPaperclip, BsMicFill, 
+    BsStopCircleFill, BsCodeSlash, BsClockHistory 
+} from "react-icons/bs";
+import { FaBomb, FaFire, FaCalendarAlt } from "react-icons/fa";
 
 export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, setReplyingTo, editingMessage, setEditingMessage, handleEditMsgSubmit }) {
   const [msg, setMsg] = useState("");
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isCodeMode, setIsCodeMode] = useState(false);
-  const [mediaPreview, setMediaPreview] = useState(null); // { src: string, type: string }
+  const [mediaPreview, setMediaPreview] = useState(null); 
+  
+  // --- PHASE 2 STATE: PRODUCTIVITY & PRIVACY ---
+  const [showTimerMenu, setShowTimerMenu] = useState(false);
+  const [timerDuration, setTimerDuration] = useState(null); // e.g., 3600 (1h), 86400 (1d)
+  const [showScheduleMenu, setShowScheduleMenu] = useState(false);
+  const [scheduleDate, setScheduleDate] = useState("");
+  const [isViewOnceMedia, setIsViewOnceMedia] = useState(false);
   
   const fileInputRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
 
-  // Populate input when editing
   useEffect(() => {
       if (editingMessage) {
           setMsg(editingMessage.text);
-          setReplyingTo(null); // Clear reply if starting to edit
+          setReplyingTo(null); 
       }
   }, [editingMessage, setReplyingTo]);
 
@@ -36,13 +45,20 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
           handleEditMsgSubmit(editingMessage.id, msg);
           setEditingMessage(null);
       } else {
-          handleSendMsg(msg, isCodeMode ? "code" : "text", replyingTo?.id); 
+          // Send with Phase 2 Extra Data
+          handleSendMsg(msg, isCodeMode ? "code" : "text", replyingTo?.id, {
+              timer: timerDuration,
+              scheduledAt: scheduleDate || null
+          }); 
       }
+      // Reset inputs
       setMsg("");
       setIsCodeMode(false);
       setReplyingTo(null);
       handleTyping(false);
       setShowEmojiPicker(false);
+      setScheduleDate(""); 
+      setShowScheduleMenu(false);
     }
   };
 
@@ -51,7 +67,6 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
     handleTyping(e.target.value.length > 0);
   };
 
-  // Upgraded to handle images, videos, and general files
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -61,19 +76,21 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
         if (file.type.startsWith("image/")) type = "image";
         else if (file.type.startsWith("video/")) type = "video";
 
-        setMediaPreview({ src: reader.result, type }); // Show preview overlay
+        setMediaPreview({ src: reader.result, type }); 
+        setIsViewOnceMedia(false); // reset view once state
       };
       reader.readAsDataURL(file);
     }
-    e.target.value = null; // reset input
+    e.target.value = null; 
   };
 
   const confirmSendMedia = () => {
-      handleSendMsg(mediaPreview.src, mediaPreview.type, replyingTo?.id);
+      handleSendMsg(mediaPreview.src, mediaPreview.type, replyingTo?.id, {
+          isViewOnce: isViewOnceMedia
+      });
       setMediaPreview(null);
       setReplyingTo(null);
       
-      // If user typed a caption, send it as a follow-up text message
       if (msg.length > 0) {
           setTimeout(() => sendChat(), 200); 
       }
@@ -87,9 +104,7 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
       audioChunksRef.current = [];
 
       mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
       };
 
       mediaRecorder.onstop = () => {
@@ -97,7 +112,7 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
         const reader = new FileReader();
         reader.readAsDataURL(audioBlob);
         reader.onloadend = () => {
-           handleSendMsg(reader.result, "audio", replyingTo?.id); 
+           handleSendMsg(reader.result, "audio", replyingTo?.id, { timer: timerDuration }); 
            setReplyingTo(null);
         };
       };
@@ -116,9 +131,27 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
     }
   };
 
+  const toggleTimer = (duration) => {
+      setTimerDuration(timerDuration === duration ? null : duration);
+      setShowTimerMenu(false);
+  };
+
   return (
     <Wrapper>
-      {/* Reply Banner */}
+      {/* Dynamic Status Badges (Phase 2) */}
+      <div className="status-badges">
+          {timerDuration && (
+              <div className="badge timer-badge" onClick={() => setTimerDuration(null)}>
+                  <FaBomb /> Disappears in {timerDuration >= 86400 ? `${timerDuration/86400}d` : `${timerDuration/3600}h`} <IoMdClose className="close" />
+              </div>
+          )}
+          {scheduleDate && (
+              <div className="badge schedule-badge" onClick={() => setScheduleDate("")}>
+                  <FaCalendarAlt /> Scheduled <IoMdClose className="close" />
+              </div>
+          )}
+      </div>
+
       {replyingTo && !editingMessage && (
         <div className="reply-banner">
             <span>Replying to: <strong>{replyingTo.text.substring(0, 30)}...</strong></span>
@@ -126,7 +159,6 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
         </div>
       )}
 
-      {/* Edit Banner */}
       {editingMessage && (
         <div className="reply-banner edit-banner">
             <span>Editing message...</span>
@@ -134,7 +166,6 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
         </div>
       )}
 
-      {/* Dynamic Media Preview Overlay */}
       {mediaPreview && (
           <PreviewOverlay>
               <div className="preview-container">
@@ -147,13 +178,16 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
                   {mediaPreview.type === "video" && <video src={mediaPreview.src} controls />}
                   {mediaPreview.type === "file" && <div className="file-preview-icon">📄 Document attached</div>}
 
+                  {/* Phase 2: View Once Toggle for Media */}
+                  <div className="media-options">
+                      <label className={`view-once-toggle ${isViewOnceMedia ? 'active' : ''}`}>
+                          <input type="checkbox" checked={isViewOnceMedia} onChange={(e) => setIsViewOnceMedia(e.target.checked)} hidden />
+                          <FaFire /> {isViewOnceMedia ? "View Once Enabled" : "Send as View Once"}
+                      </label>
+                  </div>
+
                   <div className="preview-actions">
-                      <input 
-                         type="text" 
-                         placeholder="Add a caption..." 
-                         value={msg} 
-                         onChange={(e) => setMsg(e.target.value)}
-                      />
+                      <input type="text" placeholder="Add a caption..." value={msg} onChange={(e) => setMsg(e.target.value)} />
                       <button onClick={confirmSendMedia}><IoMdSend /></button>
                   </div>
               </div>
@@ -163,9 +197,9 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
       <Container>
         <div className="button-container">
           <div className="emoji">
-            <BsEmojiSmileFill onClick={() => setShowEmojiPicker(!showEmojiPicker)} />
+            <BsEmojiSmileFill onClick={() => { setShowEmojiPicker(!showEmojiPicker); setShowTimerMenu(false); setShowScheduleMenu(false); }} />
             {showEmojiPicker && (
-               <div className="emoji-picker-react">
+               <div className="floating-menu emoji-picker-react">
                  <EmojiPicker theme={Theme.DARK} onEmojiClick={handleEmojiClick} />
                </div>
             )}
@@ -173,20 +207,44 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
 
           <div className="upload" onClick={() => fileInputRef.current.click()} title="Attach File">
             <BsPaperclip />
-            <input 
-              type="file" 
-              ref={fileInputRef} 
-              style={{ display: "none" }} 
-              accept="image/*,video/*,.pdf,.doc,.docx,.txt"
-              onChange={handleFileUpload}
-            />
+            <input type="file" ref={fileInputRef} style={{ display: "none" }} accept="image/*,video/*,.pdf,.doc,.docx,.txt" onChange={handleFileUpload} />
           </div>
 
           <div className="mic" onClick={isRecording ? stopRecording : startRecording} title="Record Audio">
             {isRecording ? <BsStopCircleFill className="recording-active" /> : <BsMicFill />}
           </div>
 
-          <div className={`code-toggle ${isCodeMode ? 'active' : ''}`} onClick={() => setIsCodeMode(!isCodeMode)} title="Send Code Snippet">
+          {/* Phase 2: Productivity Tools */}
+          <div className={`tool-toggle ${timerDuration ? 'active' : ''}`} title="Self-Destruct Timer">
+              <FaBomb onClick={() => { setShowTimerMenu(!showTimerMenu); setShowEmojiPicker(false); setShowScheduleMenu(false); }} />
+              {showTimerMenu && (
+                  <div className="floating-menu timer-menu">
+                      <h4>Self-Destruct</h4>
+                      <button className={timerDuration === null ? 'selected' : ''} onClick={() => toggleTimer(null)}>Off</button>
+                      <button className={timerDuration === 3600 ? 'selected' : ''} onClick={() => toggleTimer(3600)}>1 Hour</button>
+                      <button className={timerDuration === 86400 ? 'selected' : ''} onClick={() => toggleTimer(86400)}>1 Day</button>
+                      <button className={timerDuration === 604800 ? 'selected' : ''} onClick={() => toggleTimer(604800)}>1 Week</button>
+                  </div>
+              )}
+          </div>
+
+          <div className={`tool-toggle ${scheduleDate ? 'active' : ''}`} title="Schedule Message">
+              <BsClockHistory onClick={() => { setShowScheduleMenu(!showScheduleMenu); setShowEmojiPicker(false); setShowTimerMenu(false); }} />
+              {showScheduleMenu && (
+                  <div className="floating-menu schedule-menu">
+                      <h4>Schedule Message</h4>
+                      <input 
+                        type="datetime-local" 
+                        value={scheduleDate} 
+                        onChange={(e) => setScheduleDate(e.target.value)} 
+                        min={new Date().toISOString().slice(0, 16)}
+                      />
+                      <button onClick={() => setShowScheduleMenu(false)}>Set Schedule</button>
+                  </div>
+              )}
+          </div>
+
+          <div className={`code-toggle tool-toggle ${isCodeMode ? 'active' : ''}`} onClick={() => setIsCodeMode(!isCodeMode)} title="Send Code Snippet">
              <BsCodeSlash />
           </div>
         </div>
@@ -204,8 +262,8 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
               onBlur={() => handleTyping(false)}
             />
           )}
-          <button type="submit">
-            {editingMessage ? <IoMdCheckmark /> : <IoMdSend />}
+          <button type="submit" className={scheduleDate ? 'schedule-btn' : ''}>
+            {editingMessage ? <IoMdCheckmark /> : (scheduleDate ? <BsClockHistory /> : <IoMdSend />)}
           </button>
         </form>
       </Container>
@@ -213,169 +271,131 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
   );
 }
 
+// --- STYLES & ANIMATIONS ---
+
+const popIn = keyframes`
+  0% { transform: scale(0.9) translateY(10px); opacity: 0; }
+  100% { transform: scale(1) translateY(0); opacity: 1; }
+`;
+
+const pulse = keyframes`
+  0% { transform: scale(1); }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); }
+`;
+
 const PreviewOverlay = styled.div`
-    position: absolute; bottom: 80px; left: 0; right: 0;
-    display: flex; justify-content: center;
-    z-index: 100;
+    position: absolute; bottom: 85px; left: 0; right: 0;
+    display: flex; justify-content: center; z-index: 100;
     
     .preview-container {
-        background: #1a1a25; border-radius: 1rem; padding: 1rem;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+        background: rgba(26, 26, 37, 0.95); backdrop-filter: blur(15px);
+        border-radius: 1.5rem; padding: 1.2rem;
+        box-shadow: 0 15px 40px rgba(0,0,0,0.8);
         border: 1px solid rgba(255,255,255,0.1);
         display: flex; flex-direction: column; gap: 1rem;
-        width: 350px;
+        width: 380px; animation: ${popIn} 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
         
         .preview-header {
-            display: flex; justify-content: space-between; color: white;
-            font-weight: bold;
-            .close-btn { cursor: pointer; font-size: 1.5rem; transition: 0.2s; &:hover { color: #ff4e4e; } }
+            display: flex; justify-content: space-between; color: white; font-weight: bold;
+            .close-btn { cursor: pointer; font-size: 1.5rem; transition: 0.2s; &:hover { color: #ff4e4e; transform: scale(1.1); } }
         }
 
-        img, video { width: 100%; max-height: 250px; object-fit: contain; border-radius: 0.5rem; background: black; }
-        .file-preview-icon { height: 100px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.05); color: white; border-radius: 0.5rem; }
+        img, video { width: 100%; max-height: 250px; object-fit: contain; border-radius: 0.8rem; background: rgba(0,0,0,0.5); }
+        .file-preview-icon { height: 120px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.05); color: white; border-radius: 0.8rem; border: 2px dashed rgba(255,255,255,0.2); }
+
+        .media-options {
+            display: flex; justify-content: center;
+            .view-once-toggle {
+                display: flex; align-items: center; gap: 0.5rem; background: rgba(255,255,255,0.05);
+                padding: 0.5rem 1rem; border-radius: 2rem; cursor: pointer; color: #ccc; font-size: 0.85rem;
+                transition: 0.3s; border: 1px solid transparent;
+                &:hover { background: rgba(255,255,255,0.1); }
+                &.active { background: rgba(255, 85, 0, 0.1); color: #ff5500; border-color: #ff5500; font-weight: bold; }
+            }
+        }
 
         .preview-actions {
-            display: flex; gap: 0.5rem;
-            input {
-                flex: 1; padding: 0.8rem; border-radius: 2rem; border: none;
-                background: rgba(255,255,255,0.1); color: white;
-                &:focus { outline: none; }
-            }
-            button {
-                background: #4e0eff; border: none; border-radius: 50%; width: 40px; height: 40px;
-                display: flex; align-items: center; justify-content: center; cursor: pointer;
-                color: white; font-size: 1.2rem; transition: 0.2s;
-                &:hover { background: #9a86f3; }
-            }
+            display: flex; gap: 0.8rem;
+            input { flex: 1; padding: 0.9rem 1.2rem; border-radius: 2rem; border: none; background: rgba(255,255,255,0.08); color: white; outline: none; transition: 0.3s; &:focus { background: rgba(255,255,255,0.15); box-shadow: 0 0 10px rgba(78, 14, 255, 0.3); } }
+            button { background: #4e0eff; border: none; border-radius: 50%; min-width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: white; font-size: 1.2rem; transition: 0.3s; &:hover { background: #9a86f3; transform: scale(1.05); } }
         }
     }
 `;
 
 const Wrapper = styled.div`
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  position: relative; 
+  display: flex; flex-direction: column; width: 100%; position: relative; 
   
-  .reply-banner {
-      background: rgba(154, 65, 254, 0.2);
-      padding: 0.5rem 2rem;
-      display: flex; justify-content: space-between; align-items: center;
-      color: #ccc; font-size: 0.85rem;
-      border-top: 1px solid rgba(255, 255, 255, 0.05);
-      .close-btn { cursor: pointer; color: white; font-size: 1.2rem; }
+  .status-badges {
+      position: absolute; top: -35px; left: 2rem; display: flex; gap: 0.8rem; z-index: 10;
+      .badge {
+          display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.8rem; border-radius: 1rem; font-size: 0.75rem; font-weight: bold; cursor: pointer; color: white; animation: ${popIn} 0.3s ease; box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+          .close { margin-left: 5px; opacity: 0.6; &:hover { opacity: 1; } }
+      }
+      .timer-badge { background: rgba(255, 85, 0, 0.2); border: 1px solid #ff5500; color: #ff5500; }
+      .schedule-badge { background: rgba(0, 255, 136, 0.2); border: 1px solid #00ff88; color: #00ff88; }
   }
 
-  .edit-banner {
-      background: rgba(0, 255, 136, 0.2); 
+  .reply-banner {
+      background: rgba(154, 65, 254, 0.15); backdrop-filter: blur(10px); padding: 0.6rem 2rem; display: flex; justify-content: space-between; align-items: center; color: #ccc; font-size: 0.85rem; border-top: 1px solid rgba(255, 255, 255, 0.05);
+      .close-btn { cursor: pointer; color: white; font-size: 1.2rem; transition: 0.2s; &:hover { color: #ff4e4e; transform: scale(1.2); } }
   }
+  .edit-banner { background: rgba(0, 255, 136, 0.15); }
 `;
 
 const Container = styled.div`
-  display: grid;
-  grid-template-columns: 20% 80%;
-  align-items: center;
-  background-color: rgba(255, 255, 255, 0.02);
-  padding: 0 2rem;
-  min-height: 10%;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  display: grid; grid-template-columns: 25% 75%; align-items: center;
+  background-color: rgba(255, 255, 255, 0.02); padding: 0 2rem; min-height: 10%; border-top: 1px solid rgba(255, 255, 255, 0.05);
 
-  @media screen and (max-width: 720px) {
-    padding: 0 1rem;
-    gap: 1rem;
-    grid-template-columns: 25% 75%;
-  }
+  @media screen and (max-width: 1080px) { grid-template-columns: 35% 65%; }
+  @media screen and (max-width: 720px) { padding: 0 1rem; gap: 1rem; grid-template-columns: 40% 60%; }
   
   .button-container {
-    display: flex;
-    align-items: center;
-    color: white;
-    gap: 1rem;
+    display: flex; align-items: center; color: white; gap: 1.2rem;
     
-    .emoji, .upload, .mic, .code-toggle {
-      position: relative;
-      cursor: pointer;
-      svg {
-        font-size: 1.5rem;
-        color: #ffff00c8;
-        transition: 0.3s ease;
-        &:hover { color: #fff; }
-      }
+    .emoji, .upload, .mic, .tool-toggle {
+      position: relative; cursor: pointer;
+      svg { font-size: 1.5rem; color: #999; transition: 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); &:hover { color: #fff; transform: scale(1.15) translateY(-2px); } }
+      &.active svg { color: #4e0eff; filter: drop-shadow(0 0 5px rgba(78,14,255,0.5)); }
     }
     
-    .upload svg { color: #0084ff; }
-    
-    .mic svg { color: #ffffff; }
-    .mic .recording-active { color: #ff0000; animation: pulse 1s infinite; }
-    
-    .code-toggle.active svg { color: #00ff88; }
-    .code-toggle svg { color: #aaa; }
+    .emoji svg { color: #ffff00c8; }
+    .upload svg { color: #34B7F1; }
+    .mic .recording-active { color: #ff4e4e; animation: ${pulse} 1s infinite; filter: drop-shadow(0 0 8px #ff4e4e); }
+    .code-toggle.active svg { color: #00ff88; filter: drop-shadow(0 0 5px #00ff88); }
 
-    .emoji-picker-react {
-      position: absolute;
-      top: -470px;
-      left: 0;
-      background-color: #080420;
-      box-shadow: 0 5px 10px #9a86f3;
-      border-color: #9a86f3;
-      z-index: 99;
-      .epr-body::-webkit-scrollbar {
-        background-color: #080420;
-        width: 5px;
-        &-thumb { background-color: #9a86f3; }
-      }
+    /* Unified Floating Menu Styling for Phase 2 */
+    .floating-menu {
+      position: absolute; bottom: 50px; left: 0; background: rgba(13, 13, 48, 0.95); backdrop-filter: blur(15px);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.8); border: 1px solid rgba(78, 14, 255, 0.3); border-radius: 1rem; z-index: 99;
+      animation: ${popIn} 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+
+    .emoji-picker-react { border: none; .epr-body::-webkit-scrollbar { width: 4px; &-thumb { background-color: #4e0eff; border-radius: 10px; } } }
+
+    .timer-menu, .schedule-menu {
+        padding: 1.2rem; width: 220px; display: flex; flex-direction: column; gap: 0.6rem;
+        h4 { color: white; margin-top: 0; margin-bottom: 0.5rem; font-size: 0.9rem; text-align: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 0.5rem; }
+        button { background: rgba(255,255,255,0.05); border: 1px solid transparent; color: white; padding: 0.6rem; border-radius: 0.5rem; cursor: pointer; transition: 0.2s; &:hover { background: rgba(255,255,255,0.1); } &.selected { background: #4e0eff; font-weight: bold; box-shadow: 0 0 10px rgba(78,14,255,0.3); } }
+        input[type="datetime-local"] { background: rgba(0,0,0,0.3); color: white; border: 1px solid rgba(78,14,255,0.3); padding: 0.8rem; border-radius: 0.5rem; outline: none; margin-bottom: 0.5rem; font-family: inherit; color-scheme: dark; }
     }
   }
 
   .input-container {
-    width: 100%;
-    border-radius: 2rem;
-    display: flex;
-    align-items: center;
-    gap: 2rem;
-    background-color: rgba(255, 255, 255, 0.1);
-    padding: 0.3rem 0;
+    width: 100%; border-radius: 2rem; display: flex; align-items: center; gap: 1rem;
+    background-color: rgba(255, 255, 255, 0.05); padding: 0.4rem; transition: 0.3s;
+    border: 1px solid transparent;
+    &:focus-within { background-color: rgba(255, 255, 255, 0.08); border-color: rgba(78, 14, 255, 0.3); box-shadow: 0 0 15px rgba(78, 14, 255, 0.1); }
     
-    input {
-      width: 90%;
-      height: 60%;
-      background-color: transparent;
-      color: white;
-      border: none;
-      padding-left: 1rem;
-      font-size: 1.2rem;
-      &::selection { background-color: #9a86f3; }
-      &:focus { outline: none; }
-    }
-    
-    textarea { 
-      width: 90%; 
-      background-color: transparent; 
-      color: #00ff88; 
-      border: none; 
-      padding-left: 1rem; 
-      font-size: 1rem; 
-      resize: none; 
-      font-family: monospace; 
-      &:focus { outline: none; } 
-    }
+    input { width: 100%; height: 60%; background-color: transparent; color: white; border: none; padding-left: 1.5rem; font-size: 1.1rem; &::selection { background-color: #9a86f3; } &:focus { outline: none; } }
+    textarea { width: 100%; background-color: transparent; color: #00ff88; border: none; padding-left: 1.5rem; font-size: 1rem; resize: none; font-family: 'JetBrains Mono', monospace; &:focus { outline: none; } }
     
     button {
-      padding: 0.3rem 2rem;
-      border-radius: 2rem;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      background-color: #9a86f3;
-      border: none;
-      cursor: pointer;
-      svg { font-size: 2rem; color: white; }
+      padding: 0.6rem 1.5rem; border-radius: 2rem; display: flex; justify-content: center; align-items: center;
+      background: linear-gradient(135deg, #4e0eff 0%, #9a41fe 100%); border: none; cursor: pointer; transition: 0.3s; box-shadow: 0 4px 15px rgba(78, 14, 255, 0.3);
+      svg { font-size: 1.5rem; color: white; }
+      &:hover { transform: scale(1.05); box-shadow: 0 6px 20px rgba(78, 14, 255, 0.5); }
+      &.schedule-btn { background: linear-gradient(135deg, #00ff88 0%, #00b35f 100%); box-shadow: 0 4px 15px rgba(0, 255, 136, 0.3); }
     }
-  }
-  
-  @keyframes pulse {
-    0% { transform: scale(1); }
-    50% { transform: scale(1.2); }
-    100% { transform: scale(1); }
   }
 `;

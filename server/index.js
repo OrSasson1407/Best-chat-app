@@ -22,6 +22,9 @@ const groupRoutes = require("./routes/groupRoutes");
 const { errorHandler } = require("./middleware/errorMiddleware");
 const socketHandler = require("./socket/socketHandler");
 
+// --- PHASE 2 IMPORT: For Scheduled Messages ---
+const Message = require("./models/Message"); 
+
 const app = express();
 
 // --- SWAGGER CONFIGURATION ---
@@ -96,6 +99,9 @@ const io = socket(server, {
   },
 });
 
+// Expose Socket globally so controllers and background workers can use it to emit events
+global.chatSocket = io; 
+
 // Setup Redis Clients for Socket.io scaling
 const pubClient = createClient({ url: process.env.REDIS_URI || "redis://localhost:6379" });
 const subClient = pubClient.duplicate();
@@ -109,3 +115,54 @@ Promise.all([pubClient.connect(), subClient.connect()]).then(() => {
 }).catch((err) => {
   logger.error(`Redis Connection Error: ${err.message}`);
 });
+
+
+// ==========================================
+// PHASE 2: SCHEDULED MESSAGE WORKER
+// ==========================================
+// Runs every 30 seconds to check for messages that need to be delivered
+setInterval(async () => {
+  try {
+      const now = new Date();
+      
+      // Find messages scheduled for the past/present that haven't been sent yet
+      const pendingMessages = await Message.find({
+          isSent: false,
+          scheduledAt: { $lte: now }
+      });
+
+      if (pendingMessages.length > 0) {
+          for (let msg of pendingMessages) {
+              // Mark the message as officially sent
+              msg.isSent = true;
+              msg.status = "sent";
+              await msg.save();
+
+              // Send the message via WebSockets if the receiver is connected
+              if (global.chatSocket) {
+                  // Find the receiver's ID (the user who isn't the sender)
+                  const receiverId = msg.users.find(id => id.toString() !== msg.sender.toString());
+                  
+                  if (receiverId) {
+                      global.chatSocket.to(receiverId).emit("msg-recieve", {
+                          id: msg._id.toString(),
+                          from: msg.sender.toString(),
+                          to: receiverId,
+                          msg: msg.message.text,
+                          type: msg.type,
+                          createdAt: msg.createdAt,
+                          timer: msg.timer,
+                          isViewOnce: msg.isViewOnce,
+                          isForwarded: msg.isForwarded,
+                          pollData: msg.pollData,
+                          linkMetadata: msg.linkMetadata
+                      });
+                  }
+              }
+          }
+          logger.info(`[Scheduler] Processed and sent ${pendingMessages.length} scheduled message(s).`);
+      }
+  } catch (err) {
+      logger.error(`[Scheduler Error]: ${err.message}`);
+  }
+}, 30000); // 30000 ms = 30 seconds

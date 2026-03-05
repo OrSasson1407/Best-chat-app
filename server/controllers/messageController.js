@@ -35,49 +35,58 @@ module.exports.searchMessages = async (req, res, next) => {
   }
 };
 
-// --- NEW FEATURE: Infinite Scrolling (Cursor-Based Pagination) ---
+// --- NEW FEATURE: Infinite Scrolling & Phase 2 Scheduled Message Filter ---
 module.exports.getMessages = async (req, res, next) => {
   try {
-    // 1. Accept cursor and limit from the frontend
     const { from, to, cursor, limit = 50 } = req.body; 
 
-    let query = { users: { $all: [from, to] } };
+    // PHASE 2: Only show messages that have been sent, OR show unsent scheduled messages ONLY if the current user is the sender
+    let query = { 
+        users: { $all: [from, to] },
+        $or: [
+            { isSent: true },
+            { sender: from, isSent: false }
+        ]
+    };
 
-    // 2. If the frontend provides a cursor, only look for messages older than that timestamp
     if (cursor) {
       query.createdAt = { $lt: new Date(cursor) }; 
     }
 
-    // 3. Sort by newest first (-1), limit to the chunk size, then fetch
     const messages = await Message.find(query)
       .sort({ createdAt: -1 })
       .limit(limit)
       .populate("replyTo", "message.text sender type isDeleted");
 
-    // 4. Reverse the array so they are back in chronological order (oldest to newest) for the UI
     messages.reverse();
 
     const projectedMessages = messages.map((msg) => {
-      // Hide content if it's a view-once media that was already viewed by the recipient
-      const isHiddenViewOnce = msg.isViewOnce && msg.viewed && msg.sender.toString() !== from;
+      // Phase 2: Check if view-once media was already viewed by the current user
+      const hasViewed = msg.viewed || msg.viewedBy.includes(from);
+      const isHiddenViewOnce = msg.isViewOnce && hasViewed && msg.sender.toString() !== from;
 
       return {
         id: msg._id,
         fromSelf: msg.sender.toString() === from,
         message: msg.isDeleted ? "🚫 This message was deleted" : isHiddenViewOnce ? "💣 Media Expired" : msg.message.text,
         type: msg.type,
-        createdAt: msg.createdAt, // Crucial: Frontend uses this as the next cursor
+        createdAt: msg.createdAt, 
         status: msg.status || "sent", 
         isDeleted: msg.isDeleted,
         isEdited: msg.isEdited,
         
         isForwarded: msg.isForwarded,
         isViewOnce: msg.isViewOnce,
-        viewed: msg.viewed,
+        viewed: hasViewed,
         isPinned: msg.isPinned,
         isStarred: msg.starredBy.includes(from),
         pollData: msg.pollData,
         linkMetadata: msg.linkMetadata,
+
+        // Phase 2: Expose timer and schedule state to UI
+        timer: msg.timer,
+        scheduledAt: msg.scheduledAt,
+        isSent: msg.isSent,
 
         replyTo: msg.replyTo ? {
             id: msg.replyTo._id,
@@ -89,25 +98,23 @@ module.exports.getMessages = async (req, res, next) => {
       };
     });
 
-    // 5. Send back the messages PLUS pagination metadata
     res.json({
         messages: projectedMessages,
-        hasMore: messages.length === limit, // If we got exactly the limit, there are probably more
-        nextCursor: messages.length > 0 ? messages[0].createdAt : null // The timestamp of the oldest message in this batch
+        hasMore: messages.length === limit, 
+        nextCursor: messages.length > 0 ? messages[0].createdAt : null 
     });
   } catch (ex) {
     next(ex);
   }
 };
 
+// --- Add Message (Updated with Phase 2 Expiration & Scheduling Logic) ---
 module.exports.addMessage = async (req, res, next) => {
   try {
-    const { from, to, message, type, replyTo, isForwarded, isViewOnce, pollData } = req.body;
+    const { from, to, message, type, replyTo, isForwarded, isViewOnce, pollData, timer, scheduledAt } = req.body;
 
-    // --- BLOCK LOGIC ENFORCEMENT ---
     const receiver = await User.findById(to);
     if (receiver && receiver.blockedUsers.includes(from)) {
-      // Return 403 to indicate they are blocked and cannot send messages to this user
       return res.status(403).json({ msg: "Cannot send message. You are blocked by this user." });
     }
 
@@ -115,7 +122,6 @@ module.exports.addMessage = async (req, res, next) => {
     let linkMetadata = null;
     let finalType = type || "text";
 
-    // 1. INTERCEPT: Media Uploads (Base64 -> Cloudinary)
     if (["image", "video", "audio", "file"].includes(type) && message.startsWith("data:")) {
       const uploadRes = await cloudinary.uploader.upload(message, {
         resource_type: "auto", 
@@ -124,7 +130,6 @@ module.exports.addMessage = async (req, res, next) => {
       finalContent = uploadRes.secure_url; 
     }
 
-    // 2. INTERCEPT: Rich Link Previews
     if (finalType === "text" || finalType === "link") {
         const urls = extractUrls(message);
         if (urls && urls.length > 0) {
@@ -143,38 +148,45 @@ module.exports.addMessage = async (req, res, next) => {
         }
     }
 
+    // Phase 2: Compute Self-Destruct Timer
+    let expireAt = null;
+    if (timer) {
+        expireAt = new Date(Date.now() + timer * 1000); 
+    }
+
+    // Phase 2: Compute Scheduling
+    const isSent = scheduledAt ? new Date(scheduledAt) <= new Date() : true;
+
     const data = await Message.create({
       message: { text: finalContent },
       users: [from, to],
       sender: from,
       type: finalType,
       replyTo: replyTo || null,
-      status: "sent",
+      status: isSent ? "sent" : "pending",
       
       isForwarded: isForwarded || false,
       isViewOnce: isViewOnce || false,
       pollData: pollData || null,
-      linkMetadata: linkMetadata
+      linkMetadata: linkMetadata,
+      
+      timer: timer || null,
+      expireAt,
+      scheduledAt: scheduledAt ? new Date(scheduledAt) : null,
+      isSent
     });
 
-    // --- LEVEL 4: OFFLINE PUSH NOTIFICATIONS VIA BACKGROUND QUEUE ---
-    // If user is not online via socket (tracked in global.onlineUsers), queue a push notification
-    if (!global.onlineUsers.has(to) && receiver && receiver.fcmToken) {
+    if (isSent && !global.onlineUsers.has(to) && receiver && receiver.fcmToken) {
        try {
          const senderUser = await User.findById(from);
-         
-         // Dispatch the job to BullMQ instantly
          await notificationQueue.add("send_fcm_message", {
            userId: receiver._id,
            fcmToken: receiver.fcmToken,
            title: `New message from ${senderUser.username}`,
            body: finalType === "text" ? "Sent a message" : `Sent a ${finalType}`,
          }, {
-           attempts: 3, // Enterprise feature: Automatically retry 3 times if Firebase is down
-           backoff: {
-             type: 'exponential',
-             delay: 1000, // Wait 1s, 2s, 4s between retries
-           }
+           attempts: 3,
+           backoff: { type: 'exponential', delay: 1000 }
          });
        } catch (err) {
          console.error("Failed to queue FCM Notification:", err.message);
@@ -196,7 +208,6 @@ module.exports.reactToMessage = async (req, res, next) => {
 
     const existingReaction = message.reactions.findIndex(r => r.by.toString() === userId && r.emoji === emoji);
     
-    // Toggle reaction
     if (existingReaction > -1) {
         message.reactions.splice(existingReaction, 1);
     } else {
@@ -216,12 +227,10 @@ module.exports.deleteMessage = async (req, res, next) => {
     const message = await Message.findById(messageId);
     if (!message) return res.status(404).json({ msg: "Message not found" });
 
-    // SECURITY CHECK: Ensure only the original sender can delete the message
     if (message.sender.toString() !== req.user.id) {
         return res.status(403).json({ msg: "Unauthorized action: You can only delete your own messages." });
     }
 
-    // Mark as deleted, overwrite text, clear reactions/metadata
     message.isDeleted = true;
     message.message.text = "🚫 This message was deleted";
     message.reactions = []; 
@@ -241,19 +250,16 @@ module.exports.editMessage = async (req, res, next) => {
     const message = await Message.findById(messageId);
     if (!message) return res.status(404).json({ msg: "Message not found" });
 
-    // SECURITY CHECK: Ensure only the original sender can edit the message
     if (message.sender.toString() !== req.user.id) {
         return res.status(403).json({ msg: "Unauthorized action: You can only edit your own messages." });
     }
 
-    // Prevent editing of deleted or view-once messages
     if (message.isDeleted) return res.status(400).json({ msg: "Cannot edit a deleted message" });
     if (message.isViewOnce) return res.status(400).json({ msg: "Cannot edit a view-once message" });
 
     message.message.text = newText;
     message.isEdited = true;
     
-    // Re-evaluate Link Previews on Edit
     if (message.type === "text" || message.type === "link") {
         const urls = extractUrls(newText);
         if (urls && urls.length > 0) {
@@ -284,14 +290,12 @@ module.exports.votePoll = async (req, res, next) => {
             return res.status(404).json({ msg: "Poll not found" });
         }
 
-        // Remove user's previous votes if multipleAnswers is false
         if (!message.pollData.multipleAnswers) {
             message.pollData.options.forEach(opt => {
                 opt.votes = opt.votes.filter(id => id.toString() !== userId);
             });
         }
 
-        // Add new vote
         const option = message.pollData.options.id(optionId);
         if(option && !option.votes.includes(userId)) {
             option.votes.push(userId);
@@ -304,14 +308,18 @@ module.exports.votePoll = async (req, res, next) => {
     }
 };
 
+// Phase 2: Enhanced View-Once logic for groups
 module.exports.triggerViewOnce = async (req, res, next) => {
     try {
-        const { messageId } = req.body;
+        const { messageId, userId } = req.body;
         const message = await Message.findById(messageId);
         
         if(!message) return res.status(404).json({ msg: "Message not found" });
 
         message.viewed = true;
+        if (userId && !message.viewedBy.includes(userId)) {
+            message.viewedBy.push(userId);
+        }
         await message.save();
 
         return res.json({ msg: "Media marked as viewed." });

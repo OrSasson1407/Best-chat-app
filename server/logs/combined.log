@@ -28,3 +28,9 @@
 {"level":"info","message":"Server started on Port 5000","service":"chat-backend","timestamp":"2026-03-05 17:42:44"}
 {"level":"info","message":"Redis Adapter connected to Socket.io","service":"chat-backend","timestamp":"2026-03-05 17:42:44"}
 {"level":"info","message":"DB Connection Successful","service":"chat-backend","timestamp":"2026-03-05 17:42:44"}
+{"level":"info","message":"Server started on Port 5000","service":"chat-backend","timestamp":"2026-03-05 17:47:08"}
+{"level":"info","message":"Redis Adapter connected to Socket.io","service":"chat-backend","timestamp":"2026-03-05 17:47:09"}
+{"level":"info","message":"DB Connection Successful","service":"chat-backend","timestamp":"2026-03-05 17:47:09"}
+{"level":"info","message":"Server started on Port 5000","service":"chat-backend","timestamp":"2026-03-05 18:59:33"}
+{"level":"info","message":"Redis Adapter connected to Socket.io","service":"chat-backend","timestamp":"2026-03-05 18:59:33"}
+{"level":"info","message":"DB Connection Successful","service":"chat-backend","timestamp":"2026-03-05 18:59:33"}

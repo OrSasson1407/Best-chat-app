@@ -12,7 +12,7 @@ export default function Chat() {
   const navigate = useNavigate();
   const socket = useRef();
   
-  // State Initialization
+  // --- State Initialization ---
   const [contacts, setContacts] = useState([]); 
   const [currentChat, setCurrentChat] = useState(undefined);
   const [currentUser, setCurrentUser] = useState(undefined);
@@ -20,9 +20,10 @@ export default function Chat() {
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [isTyping, setIsTyping] = useState(false);
 
-  // UI State Management
+  // --- UI State Management (Phase 1) ---
   const [theme, setTheme] = useState(localStorage.getItem("chat-theme") || "glass");
   const [isCompact, setIsCompact] = useState(localStorage.getItem("chat-compact") === "true");
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // Persist UI preferences
   useEffect(() => {
@@ -33,7 +34,6 @@ export default function Chat() {
   // 1. Authentication Check & Data Retrieval
   useEffect(() => {
     async function checkAuth() {
-      // Changed to sessionStorage as per your previous logic
       const storedData = sessionStorage.getItem("chat-app-user");
       if (!storedData) {
         navigate("/login");
@@ -67,7 +67,6 @@ export default function Chat() {
         }
       });
 
-      // Cleanup on unmount
       return () => {
         if (socket.current) socket.current.disconnect();
       };
@@ -79,18 +78,15 @@ export default function Chat() {
     async function fetchContacts() {
       if (currentUser && currentUser._id) {
         try {
-          // IMPORTANT: Retrieve the token from the user object
           const token = currentUser.token; 
-
           const response = await axios.get(`${allUsersRoute}/${currentUser._id}`, {
             headers: {
-              "x-auth-token": token, // Passes verification in authMiddleware
+              "x-auth-token": token,
             },
           });
           setContacts(response.data);
         } catch (error) {
           console.error("Error fetching contacts:", error);
-          // If unauthorized, token might be expired
           if (error.response?.status === 401) {
             sessionStorage.clear();
             navigate("/login");
@@ -101,10 +97,11 @@ export default function Chat() {
     fetchContacts();
   }, [currentUser, navigate]);
 
-  // Handlers
+  // --- Handlers ---
   const handleChatChange = (chat) => {
     setCurrentChat(chat);
     setIsTyping(false);
+    setIsMobileMenuOpen(false); // Phase 1: Close drawer on selection
   };
 
   const handleLogout = () => {
@@ -113,37 +110,53 @@ export default function Chat() {
   };
 
   return (
-    <Container $themeType={theme} $isTyping={!!isTyping}>
+    <Container 
+      $themeType={theme} 
+      $isTyping={!!isTyping} 
+      $isMobileMenuOpen={isMobileMenuOpen}
+    >
       <div className="bg-orb orb-1"></div>
       <div className="bg-orb orb-2"></div>
       
+      {/* Mobile Toggle Button (Phase 1) */}
+      <button 
+        className="mobile-toggle" 
+        onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+      >
+        {isMobileMenuOpen ? "✕" : "☰"}
+      </button>
+
       <div className={`glass-container ${isCompact ? "compact-mode" : ""}`}>
-        <Contacts 
-          contacts={contacts} 
-          currentUser={currentUser} 
-          changeChat={handleChatChange} 
-          onlineUsers={onlineUsers}
-          handleLogout={handleLogout}
-          theme={theme}
-          setTheme={setTheme}
-          isCompact={isCompact}
-          setIsCompact={setIsCompact}
-        />
+        <div className={`sidebar-wrapper ${isMobileMenuOpen ? "open" : ""}`}>
+          <Contacts 
+            contacts={contacts} 
+            currentUser={currentUser} 
+            changeChat={handleChatChange} 
+            onlineUsers={onlineUsers}
+            handleLogout={handleLogout}
+            theme={theme}
+            setTheme={setTheme}
+            isCompact={isCompact}
+            setIsCompact={setIsCompact}
+          />
+        </div>
         
-        {isLoaded && currentChat === undefined ? (
-          <Welcome />
-        ) : (
-          currentChat && (
-            <ChatContainer 
-              currentChat={currentChat} 
-              currentUser={currentUser} 
-              socket={socket} 
-              isTyping={isTyping} 
-              theme={theme}
-              isCompact={isCompact}
-            />
-          )
-        )}
+        <div className="main-chat-wrapper">
+          {isLoaded && currentChat === undefined ? (
+            <Welcome />
+          ) : (
+            currentChat && (
+              <ChatContainer 
+                currentChat={currentChat} 
+                currentUser={currentUser} 
+                socket={socket} 
+                isTyping={isTyping} 
+                theme={theme}
+                isCompact={isCompact}
+              />
+            )
+          )}
+        </div>
       </div>
     </Container>
   );
@@ -169,21 +182,34 @@ const getThemeStyles = (themeType) => {
       return css`
         background-color: #000000;
         .bg-orb { display: none; }
-        .glass-container { background: #0a0a0a; border: 1px solid #1a1a1a; box-shadow: none; backdrop-filter: none; }
+        .glass-container { 
+          background: #0a0a0a; 
+          border: 1px solid #1a1a1a; 
+          box-shadow: none; 
+          backdrop-filter: none; 
+        }
       `;
     case 'cyberpunk':
       return css`
         background-color: #0d0221;
         .orb-1 { background: rgba(0, 255, 136, 0.2); }
         .orb-2 { background: rgba(255, 0, 85, 0.2); }
-        .glass-container { background: rgba(13, 2, 33, 0.8); border: 1px solid #00ff88; box-shadow: 0 0 20px rgba(0, 255, 136, 0.2); }
+        .glass-container { 
+          background: rgba(13, 2, 33, 0.8); 
+          border: 1px solid #00ff88; 
+          box-shadow: 0 0 20px rgba(0, 255, 136, 0.2); 
+        }
       `;
     default:
       return css`
         background-color: #050510;
         .orb-1 { background: rgba(78, 14, 255, 0.3); }
         .orb-2 { background: rgba(154, 65, 254, 0.3); }
-        .glass-container { background: rgba(255, 255, 255, 0.03); backdrop-filter: blur(15px); border: 1px solid rgba(255, 255, 255, 0.1); }
+        .glass-container { 
+          background: rgba(255, 255, 255, 0.03); 
+          backdrop-filter: blur(20px); 
+          border: 1px solid rgba(255, 255, 255, 0.1); 
+        }
       `;
   }
 };
@@ -199,6 +225,24 @@ const Container = styled.div`
   transition: background-color 0.5s ease;
 
   ${({ $themeType }) => getThemeStyles($themeType)}
+
+  .mobile-toggle {
+    display: none;
+    position: absolute;
+    top: 1rem;
+    left: 1rem;
+    z-index: 10;
+    background: rgba(78, 14, 255, 0.8);
+    color: white;
+    border: none;
+    padding: 0.5rem 1rem;
+    border-radius: 0.5rem;
+    font-size: 1.2rem;
+    cursor: pointer;
+    backdrop-filter: blur(10px);
+    transition: 0.3s;
+    &:hover { background: #4e0eff; }
+  }
 
   .bg-orb {
     position: absolute;
@@ -230,10 +274,49 @@ const Container = styled.div`
       grid-template-columns: 20% 80%;
     }
 
-    @media screen and (max-width: 720px) {
-      grid-template-columns: 35% 65%;
+    .sidebar-wrapper, .main-chat-wrapper {
+        height: 100%;
+        width: 100%;
+        overflow: hidden;
+    }
+  }
+
+  /* Responsive Logic (Phase 1 Updates) */
+  @media screen and (max-width: 1080px) {
+    .glass-container {
       width: 95vw;
-      &.compact-mode { grid-template-columns: 30% 70%; }
+      grid-template-columns: 30% 70%;
+    }
+  }
+
+  @media screen and (max-width: 720px) {
+    .mobile-toggle { display: block; }
+    
+    .glass-container {
+      grid-template-columns: 100%;
+      height: 100vh;
+      width: 100vw;
+      border-radius: 0;
+    }
+
+    .sidebar-wrapper {
+      position: fixed;
+      left: ${({ $isMobileMenuOpen }) => ($isMobileMenuOpen ? "0" : "-100%")};
+      top: 0;
+      width: 80%;
+      height: 100%;
+      z-index: 5;
+      background: #050510;
+      transition: 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      border-right: 1px solid rgba(255, 255, 255, 0.1);
+      
+      &.open {
+        box-shadow: 20px 0 50px rgba(0, 0, 0, 0.8);
+      }
+    }
+
+    .main-chat-wrapper {
+        width: 100vw;
     }
   }
 `;
