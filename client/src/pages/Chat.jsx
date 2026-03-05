@@ -18,11 +18,9 @@ export default function Chat() {
   const [currentUser, setCurrentUser] = useState(undefined);
   const [isLoaded, setIsLoaded] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState([]);
-  
-  // Holds the username string instead of a boolean
   const [isTyping, setIsTyping] = useState(false);
 
-  // NEW: UI State Management (Themes & Compact Mode)
+  // UI State Management
   const [theme, setTheme] = useState(localStorage.getItem("chat-theme") || "glass");
   const [isCompact, setIsCompact] = useState(localStorage.getItem("chat-compact") === "true");
 
@@ -32,14 +30,15 @@ export default function Chat() {
     localStorage.setItem("chat-compact", isCompact);
   }, [theme, isCompact]);
 
-  // 1. Authentication Check
+  // 1. Authentication Check & Data Retrieval
   useEffect(() => {
     async function checkAuth() {
-      const storedUser = sessionStorage.getItem("chat-app-user");
-      if (!storedUser) {
+      // Changed to sessionStorage as per your previous logic
+      const storedData = sessionStorage.getItem("chat-app-user");
+      if (!storedData) {
         navigate("/login");
       } else {
-        setCurrentUser(JSON.parse(storedUser));
+        setCurrentUser(JSON.parse(storedData));
         setIsLoaded(true);
       }
     }
@@ -48,16 +47,14 @@ export default function Chat() {
 
   // 2. Socket Connection & Global Listeners
   useEffect(() => {
-    if (currentUser) {
+    if (currentUser && currentUser._id) {
       socket.current = io(host);
       socket.current.emit("add-user", currentUser._id);
       
-      // Listen for online users
       socket.current.on("get-online-users", (users) => {
         setOnlineUsers(users);
       });
       
-      // Listen for typing events and store the specific username
       socket.current.on("typing-status", (data) => {
         if (currentChat) {
             if (data.isGroup) {
@@ -69,28 +66,45 @@ export default function Chat() {
             }
         }
       });
+
+      // Cleanup on unmount
+      return () => {
+        if (socket.current) socket.current.disconnect();
+      };
     }
   }, [currentUser, currentChat]);
 
-  // 3. Fetch Contacts (Initial 1-on-1 list)
+  // 3. Fetch Contacts (WITH JWT SECURITY FIX)
   useEffect(() => {
     async function fetchContacts() {
-      if (currentUser) {
+      if (currentUser && currentUser._id) {
         try {
-          const data = await axios.get(`${allUsersRoute}/${currentUser._id}`);
-          setContacts(data.data);
+          // IMPORTANT: Retrieve the token from the user object
+          const token = currentUser.token; 
+
+          const response = await axios.get(`${allUsersRoute}/${currentUser._id}`, {
+            headers: {
+              "x-auth-token": token, // Passes verification in authMiddleware
+            },
+          });
+          setContacts(response.data);
         } catch (error) {
           console.error("Error fetching contacts:", error);
+          // If unauthorized, token might be expired
+          if (error.response?.status === 401) {
+            sessionStorage.clear();
+            navigate("/login");
+          }
         }
       }
     }
     fetchContacts();
-  }, [currentUser]);
+  }, [currentUser, navigate]);
 
   // Handlers
   const handleChatChange = (chat) => {
     setCurrentChat(chat);
-    setIsTyping(false); // Reset typing status when switching chats
+    setIsTyping(false);
   };
 
   const handleLogout = () => {
@@ -99,13 +113,10 @@ export default function Chat() {
   };
 
   return (
-    // UPDATED: Used $ prefix for styled-components specific props to prevent DOM warnings
     <Container $themeType={theme} $isTyping={!!isTyping}>
-      {/* Animated Background Orbs */}
       <div className="bg-orb orb-1"></div>
       <div className="bg-orb orb-2"></div>
       
-      {/* Main Interface */}
       <div className={`glass-container ${isCompact ? "compact-mode" : ""}`}>
         <Contacts 
           contacts={contacts} 
@@ -146,20 +157,18 @@ const float = keyframes`
   100% { transform: translate(0, 0) scale(1); }
 `;
 
-// Adaptive pulse when someone is typing
 const pulseGlow = keyframes`
   0% { filter: blur(80px) brightness(1); }
   50% { filter: blur(100px) brightness(1.5); }
   100% { filter: blur(80px) brightness(1); }
 `;
 
-// Theme-specific logic
 const getThemeStyles = (themeType) => {
   switch (themeType) {
     case 'midnight':
       return css`
         background-color: #000000;
-        .bg-orb { display: none; } /* Hide orbs for full OLED blacks */
+        .bg-orb { display: none; }
         .glass-container { background: #0a0a0a; border: 1px solid #1a1a1a; box-shadow: none; backdrop-filter: none; }
       `;
     case 'cyberpunk':
@@ -169,7 +178,7 @@ const getThemeStyles = (themeType) => {
         .orb-2 { background: rgba(255, 0, 85, 0.2); }
         .glass-container { background: rgba(13, 2, 33, 0.8); border: 1px solid #00ff88; box-shadow: 0 0 20px rgba(0, 255, 136, 0.2); }
       `;
-    default: // glass (default)
+    default:
       return css`
         background-color: #050510;
         .orb-1 { background: rgba(78, 14, 255, 0.3); }
@@ -189,37 +198,20 @@ const Container = styled.div`
   position: relative;
   transition: background-color 0.5s ease;
 
-  /* UPDATED: Apply dynamic theme variables using transient prop $themeType */
   ${({ $themeType }) => getThemeStyles($themeType)}
 
-  /* Floating Background Orbs */
   .bg-orb {
     position: absolute;
     border-radius: 50%;
     filter: blur(80px);
     z-index: 0;
     animation: ${float} 10s infinite ease-in-out;
-    
-    /* UPDATED: Adaptive Background: Pulses when user is typing */
     ${({ $isTyping }) => $isTyping && css` animation: ${pulseGlow} 2s infinite ease-in-out; `}
   }
   
-  .orb-1 {
-    width: 400px;
-    height: 400px;
-    top: -10%;
-    left: -10%;
-  }
-  
-  .orb-2 {
-    width: 350px;
-    height: 350px;
-    bottom: -5%;
-    right: -5%;
-    animation-delay: -5s;
-  }
+  .orb-1 { width: 400px; height: 400px; top: -10%; left: -10%; }
+  .orb-2 { width: 350px; height: 350px; bottom: -5%; right: -5%; animation-delay: -5s; }
 
-  /* Main Glass Panel */
   .glass-container {
     height: 85vh;
     width: 85vw;
@@ -241,10 +233,7 @@ const Container = styled.div`
     @media screen and (max-width: 720px) {
       grid-template-columns: 35% 65%;
       width: 95vw;
-      
-      &.compact-mode {
-        grid-template-columns: 30% 70%;
-      }
+      &.compact-mode { grid-template-columns: 30% 70%; }
     }
   }
 `;

@@ -18,7 +18,6 @@ export default function Login() {
   };
 
   useEffect(() => {
-    // CHANGE 1: Check sessionStorage
     if (sessionStorage.getItem("chat-app-user")) {
       navigate("/");
     }
@@ -30,10 +29,7 @@ export default function Login() {
 
   const validateForm = () => {
     const { username, password } = values;
-    if (username === "") {
-      toast.error("Username and Password are required.", toastOptions);
-      return false;
-    } else if (password === "") {
+    if (username === "" || password === "") {
       toast.error("Username and Password are required.", toastOptions);
       return false;
     }
@@ -53,18 +49,19 @@ export default function Login() {
           toast.error(data.msg, toastOptions);
         }
         if (data.status === true) {
-          // CHANGE 2: Save to sessionStorage
-          sessionStorage.setItem(
-            "chat-app-user",
-            JSON.stringify(data.user)
-          );
+          // Combined the user and token into a single object for storage
+          const userData = {
+            ...data.user,
+            token: data.token,
+          };
+          sessionStorage.setItem("chat-app-user", JSON.stringify(userData));
           navigate("/");
         }
       } catch (error) {
-         if (error.response && error.response.data) {
-           toast.error(error.response.data.msg, toastOptions);
+        if (error.response && error.response.data) {
+          toast.error(error.response.data.msg, toastOptions);
         } else {
-           toast.error("Error logging in", toastOptions);
+          toast.error("Error logging in", toastOptions);
         }
       }
     }
@@ -73,7 +70,7 @@ export default function Login() {
   return (
     <>
       <FormContainer>
-        <form action="" onSubmit={(event) => handleSubmit(event)}>
+        <form onSubmit={(event) => handleSubmit(event)}>
           <div className="brand">
             <h1>snappy</h1>
           </div>
@@ -101,7 +98,6 @@ export default function Login() {
   );
 }
 
-// ... (Styled Component FormContainer stays exactly the same)
 const FormContainer = styled.div`
   height: 100vh;
   width: 100vw;

@@ -1,5 +1,6 @@
 const User = require("../models/User");
 const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken"); // NEW: Required for token generation
 
 // Safe API constants for Fallback avatar generation
 const femaleTops = "longHairBob,longHairBun,longHairCurly,longHairCurvy,longHairStraight,longHairNotTooLong";
@@ -18,7 +19,6 @@ module.exports.register = async (req, res, next) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Provide default valid API URL if user skipped selecting one
     const tops = gender === 'female' ? femaleTops : maleTops;
     const finalAvatar = avatarImage || `https://api.dicebear.com/9.x/avataaars/svg?seed=${username}&top=${tops}&backgroundColor=${backgroundColors}`;
 
@@ -31,10 +31,15 @@ module.exports.register = async (req, res, next) => {
       isAvatarImageSet: true,
     });
 
+    // --- NEW: Generate JWT Token for registration ---
+    const payload = { user: { id: user._id } };
+    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: "7d" });
+
     const userResponse = user.toObject();
     delete userResponse.password;
 
-    return res.json({ status: true, user: userResponse });
+    // Return both user and token to the frontend
+    return res.json({ status: true, user: userResponse, token }); 
   } catch (ex) {
     next(ex);
   }
@@ -49,10 +54,15 @@ module.exports.login = async (req, res, next) => {
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) return res.json({ msg: "Incorrect Username or Password", status: false });
 
+    // --- NEW: Generate JWT Token for login ---
+    const payload = { user: { id: user._id } };
+    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: "7d" });
+
     const userResponse = user.toObject();
     delete userResponse.password;
 
-    return res.json({ status: true, user: userResponse });
+    // Return both user and token to the frontend
+    return res.json({ status: true, user: userResponse, token });
   } catch (ex) {
     next(ex);
   }
@@ -60,7 +70,6 @@ module.exports.login = async (req, res, next) => {
 
 module.exports.getAllUsers = async (req, res, next) => {
   try {
-    // Select all the newly added fields to populate the UI (including avatar, gender, and bio info)
     const users = await User.find({ _id: { $ne: req.params.id } }).select([
       "email", 
       "username", 
@@ -83,17 +92,62 @@ module.exports.updateProfile = async (req, res, next) => {
     const userId = req.params.id;
     const { statusMessage, statusIcon, bio, interests } = req.body;
     
-    // Find the user and update their custom profile status and bio
     const user = await User.findByIdAndUpdate(
       userId,
       { statusMessage, statusIcon, bio, interests },
-      { new: true } // Returns the newly updated document
+      { new: true }
     );
 
     const userResponse = user.toObject();
     delete userResponse.password;
     
     return res.json({ status: true, user: userResponse });
+  } catch (ex) {
+    next(ex);
+  }
+};
+
+module.exports.toggleBlockUser = async (req, res, next) => {
+  try {
+    const { userId, blockedUserId } = req.body;
+    const user = await User.findById(userId);
+    
+    if (user.blockedUsers.includes(blockedUserId)) {
+        user.blockedUsers.pull(blockedUserId); 
+    } else {
+        user.blockedUsers.push(blockedUserId);
+    }
+    await user.save();
+    return res.json({ status: true, blockedUsers: user.blockedUsers });
+  } catch (ex) {
+    next(ex);
+  }
+};
+
+module.exports.updateFcmToken = async (req, res, next) => {
+  try {
+    const { userId, fcmToken } = req.body;
+    await User.findByIdAndUpdate(userId, { fcmToken });
+    return res.json({ status: true, msg: "FCM Token updated" });
+  } catch (ex) {
+    next(ex);
+  }
+};
+
+module.exports.updatePublicKey = async (req, res, next) => {
+  try {
+    const { userId, publicKey } = req.body;
+    await User.findByIdAndUpdate(userId, { publicKey });
+    return res.json({ status: true, msg: "Public Key registered for E2EE" });
+  } catch (ex) {
+    next(ex);
+  }
+};
+
+module.exports.getPublicKey = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.params.id).select("publicKey");
+    return res.json({ status: true, publicKey: user.publicKey });
   } catch (ex) {
     next(ex);
   }

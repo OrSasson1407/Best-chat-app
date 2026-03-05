@@ -12,6 +12,18 @@ module.exports = (io) => {
       io.emit("get-online-users", Array.from(onlineUsers.keys()));
     });
 
+    // --- NEW FEATURE: Heartbeat System ---
+    // The client sends this periodically (e.g., every 30 seconds) to confirm they are still active
+    socket.on("heartbeat", async (userId) => {
+       onlineUsers.set(userId, socket.id); // Refresh mapping
+       try {
+           // Update last seen in the database silently
+           await User.findByIdAndUpdate(userId, { lastSeen: new Date() });
+       } catch (err) { 
+           console.error("Heartbeat update failed", err); 
+       }
+    });
+
     // 2. Join Group Room
     socket.on("join-group", (groupId) => {
       socket.join(groupId);

@@ -9,14 +9,15 @@ import {
     addGroupMemberRoute,
     reactMessageRoute,
     deleteMessageRoute, 
-    editMessageRoute 
+    editMessageRoute,
+    blockUserRoute 
 } from "../utils/APIRoutes";
 import { v4 as uuidv4 } from "uuid";
 import { toast } from "react-toastify";
 import { 
     FaUserPlus, FaShieldAlt, FaReply, FaSmile, FaTrash, FaPen, 
     FaInfoCircle, FaFileDownload, FaShare, FaStar, FaThumbtack, 
-    FaFire, FaMicrophoneAlt, FaPoll 
+    FaFire, FaMicrophoneAlt, FaPoll, FaSearch, FaUserSlash 
 } from "react-icons/fa";
 
 export default function ChatContainer({ currentChat, currentUser, socket, isTyping, theme, isCompact }) {
@@ -24,11 +25,23 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
   const [arrivalMessage, setArrivalMessage] = useState(null);
   const [replyingTo, setReplyingTo] = useState(null);
   const [editingMessage, setEditingMessage] = useState(null);
-  const [pinnedMessage, setPinnedMessage] = useState(null); // NEW: Pinned State
+  const [pinnedMessage, setPinnedMessage] = useState(null);
   const [isFetchingHistory, setIsFetchingHistory] = useState(true); 
+  
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isBlocked, setIsBlocked] = useState(false);
+
   const scrollRef = useRef();
 
-  // 1. Fetch History (Group vs Direct)
+  // Helper function to generate Authorization Headers
+  const getAuthHeader = () => ({
+    headers: {
+      "x-auth-token": currentUser.token,
+    },
+  });
+
+  // 1. Fetch History (Secured with Headers)
   useEffect(() => {
     async function fetchHistory() {
       if (currentChat && currentUser) {
@@ -39,7 +52,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
                 response = await axios.post(getGroupMessagesRoute, {
                     from: currentUser._id,
                     groupId: currentChat._id,
-                });
+                }, getAuthHeader());
                 if (socket.current) {
                     socket.current.emit("join-group", currentChat._id);
                 }
@@ -47,16 +60,20 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
                 response = await axios.post(receiveMessageRoute, {
                     from: currentUser._id,
                     to: currentChat._id,
-                });
+                }, getAuthHeader());
+                
+                if (currentUser.blockedUsers?.includes(currentChat._id)) {
+                    setIsBlocked(true);
+                } else {
+                    setIsBlocked(false);
+                }
             }
             setMessages(response.data);
 
-            // Set pinned message if exists
             const pinned = response.data.find(m => m.isPinned);
             if(pinned) setPinnedMessage(pinned);
             else setPinnedMessage(null);
 
-            // Mark unread messages as read when opening the chat
             response.data.forEach((msg) => {
                 if (!msg.fromSelf && msg.status !== "read" && socket.current) {
                     socket.current.emit("mark-as-read", { 
@@ -69,61 +86,50 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
 
         } catch (error) {
             console.error("Error fetching messages:", error);
+            if (error.response?.status === 401) {
+                toast.error("Session expired. Please login again.");
+            }
         } finally {
             setIsFetchingHistory(false);
         }
       }
     }
     fetchHistory();
-  }, [currentChat, currentUser, socket]);
+  }, [currentChat, currentUser]);
 
-  // 2. Real-time Message Listeners
+  // Heartbeat System
+  useEffect(() => {
+      if (socket.current && currentUser) {
+          const heartbeatInterval = setInterval(() => {
+              socket.current.emit("heartbeat", currentUser._id);
+          }, 30000); 
+
+          return () => clearInterval(heartbeatInterval);
+      }
+  }, [socket, currentUser]);
+
+  // 2. Real-time Listeners
   useEffect(() => {
     if (socket.current) {
       const s = socket.current;
       
       const handleMsgRecieve = (data) => {
         setArrivalMessage({ 
-            id: data.id,
-            fromSelf: false, 
-            message: data.msg, 
-            type: data.type, 
-            createdAt: data.createdAt,
-            username: data.username,
-            replyTo: data.replyTo,
-            reactions: [],
-            status: "delivered",
-            isDeleted: false,
-            isEdited: false,
-            isForwarded: data.isForwarded,
-            isViewOnce: data.isViewOnce,
-            viewed: false,
-            isStarred: false,
-            pollData: data.pollData,
-            linkMetadata: data.linkMetadata
+            id: data.id, fromSelf: false, message: data.msg, type: data.type, 
+            createdAt: data.createdAt, username: data.username, replyTo: data.replyTo,
+            reactions: [], status: "delivered", isDeleted: false, isEdited: false,
+            isForwarded: data.isForwarded, isViewOnce: data.isViewOnce, viewed: false,
+            isStarred: false, pollData: data.pollData, linkMetadata: data.linkMetadata
         });
-
-        // Immediately notify sender that we read it
-        s.emit("mark-as-read", { 
-            messageId: data.id, 
-            from: currentUser._id, 
-            to: data.from 
-        });
+        s.emit("mark-as-read", { messageId: data.id, from: currentUser._id, to: data.from });
       };
 
       const handleReactionReceive = (data) => {
-          setMessages(prev => prev.map(msg => {
-              if (msg.id === data.messageId) {
-                  return { ...msg, reactions: data.reactions };
-              }
-              return msg;
-          }));
+          setMessages(prev => prev.map(msg => msg.id === data.messageId ? { ...msg, reactions: data.reactions } : msg));
       };
 
       const handleMsgReadUpdate = ({ messageId }) => {
-          setMessages((prev) => 
-              prev.map(msg => msg.id === messageId ? { ...msg, status: "read" } : msg)
-          );
+          setMessages((prev) => prev.map(msg => msg.id === messageId ? { ...msg, status: "read" } : msg));
       };
 
       const handleMsgDeleted = ({ messageId }) => {
@@ -150,46 +156,29 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
     }
   }, [socket, currentUser]);
 
-  // 3. Update State on Arrival
   useEffect(() => {
-    if (arrivalMessage) {
-      setMessages((prev) => [...prev, arrivalMessage]);
-    }
+    if (arrivalMessage) setMessages((prev) => [...prev, arrivalMessage]);
   }, [arrivalMessage]);
 
-  // 4. Send Message Handler
+  // 4. Send Message Handler (Secured with Headers)
   const handleSendMsg = async (msg, type = "text", replyToId = null, extraData = {}) => {
     const time = new Date().toISOString();
-    
     try {
         const payload = {
-            from: currentUser._id, 
-            to: currentChat._id, 
-            message: msg, 
-            type,
-            replyTo: replyToId,
-            isForwarded: extraData.isForwarded || false,
-            isViewOnce: extraData.isViewOnce || false,
-            pollData: extraData.pollData || null
+            from: currentUser._id, to: currentChat._id, message: msg, type,
+            replyTo: replyToId, isForwarded: extraData.isForwarded || false,
+            isViewOnce: extraData.isViewOnce || false, pollData: extraData.pollData || null
         };
 
-        const res = await axios.post(sendMessageRoute, payload);
+        const res = await axios.post(sendMessageRoute, payload, getAuthHeader());
         const newMessageId = res.data.data?._id || uuidv4();
         const generatedLinkData = res.data.data?.linkMetadata || null;
 
         const socketData = {
-            id: newMessageId,
-            to: currentChat._id, 
-            from: currentUser._id, 
-            msg, 
-            type: res.data.data?.type || type,
-            isGroup: !!currentChat.admin, 
-            username: currentUser.username,
-            replyTo: replyingTo ? { id: replyingTo.id, text: replyingTo.text, type: replyingTo.type, isSelfQuote: replyingTo.isSelfQuote } : null,
-            isForwarded: payload.isForwarded,
-            isViewOnce: payload.isViewOnce,
-            pollData: payload.pollData,
-            linkMetadata: generatedLinkData
+            id: newMessageId, to: currentChat._id, from: currentUser._id, 
+            msg, type: res.data.data?.type || type, isGroup: !!currentChat.admin, 
+            username: currentUser.username, replyTo: replyingTo ? { id: replyingTo.id, text: replyingTo.text, type: replyingTo.type, isSelfQuote: replyingTo.isSelfQuote } : null,
+            isForwarded: payload.isForwarded, isViewOnce: payload.isViewOnce, pollData: payload.pollData, linkMetadata: generatedLinkData
         };
         
         socket.current.emit("send-msg", socketData);
@@ -197,107 +186,77 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
         setMessages((prev) => [
             ...prev, 
             { 
-              id: newMessageId, 
-              fromSelf: true, 
-              message: msg, 
-              type: socketData.type, 
-              createdAt: time, 
-              replyTo: socketData.replyTo, 
-              reactions: [],
-              status: "sent",
-              isDeleted: false,
-              isEdited: false,
-              isForwarded: payload.isForwarded,
-              isViewOnce: payload.isViewOnce,
-              viewed: false,
-              pollData: payload.pollData,
-              linkMetadata: generatedLinkData
+              id: newMessageId, fromSelf: true, message: msg, type: socketData.type, createdAt: time, 
+              replyTo: socketData.replyTo, reactions: [], status: "sent", isDeleted: false, isEdited: false,
+              isForwarded: payload.isForwarded, isViewOnce: payload.isViewOnce, viewed: false, 
+              pollData: payload.pollData, linkMetadata: generatedLinkData
             }
         ]);
         setReplyingTo(null); 
     } catch (error) {
-        toast.error("Failed to send message");
+        if (error.response && error.response.status === 403) {
+            toast.error(error.response.data.msg || "You are blocked by this user.");
+        } else {
+            toast.error("Failed to send message");
+        }
     }
   };
 
-  // Handle Editing Submit
   const handleEditMsgSubmit = async (messageId, newText) => {
       try {
-          await axios.post(editMessageRoute, { messageId, newText }); 
-          
+          await axios.post(editMessageRoute, { messageId, newText }, getAuthHeader()); 
           socket.current.emit("edit-msg", { messageId, newText, to: currentChat._id, isGroup: !!currentChat.admin });
-          
           setMessages((prev) => prev.map(msg => msg.id === messageId ? { ...msg, message: newText, isEdited: true } : msg));
           setEditingMessage(null);
-      } catch (error) {
-          toast.error("Failed to edit message");
-      }
+      } catch (error) { toast.error("Failed to edit message"); }
   };
 
-  // Handle Deleting
   const handleDeleteMsg = async (messageId) => {
       if(window.confirm("Delete message for everyone?")) {
           try {
-              await axios.post(deleteMessageRoute, { messageId }); 
-
+              await axios.post(deleteMessageRoute, { messageId }, getAuthHeader()); 
               socket.current.emit("delete-msg", { messageId, to: currentChat._id, isGroup: !!currentChat.admin });
-              
               setMessages((prev) => prev.map(msg => msg.id === messageId ? { ...msg, isDeleted: true, message: "🚫 This message was deleted", reactions: [], linkMetadata: null, pollData: null } : msg));
-          } catch (error) {
-              toast.error("Failed to delete message");
-          }
+          } catch (error) { toast.error("Failed to delete message"); }
       }
   };
 
-  // 5. Reaction Handler
   const handleReaction = async (messageId, emoji) => {
       try {
-          const res = await axios.post(reactMessageRoute, {
-              messageId, emoji, userId: currentUser._id, username: currentUser.username
-          });
-          
-          const updatedReactions = res.data.reactions;
-          
-          setMessages(prev => prev.map(msg => msg.id === messageId ? { ...msg, reactions: updatedReactions } : msg));
-
-          socket.current.emit("send-reaction", {
-              messageId, reactions: updatedReactions, to: currentChat._id, isGroup: !!currentChat.admin
-          });
-      } catch (e) {
-          console.error("Failed to react", e);
-      }
+          const res = await axios.post(reactMessageRoute, { messageId, emoji, userId: currentUser._id, username: currentUser.username }, getAuthHeader());
+          setMessages(prev => prev.map(msg => msg.id === messageId ? { ...msg, reactions: res.data.reactions } : msg));
+          socket.current.emit("send-reaction", { messageId, reactions: res.data.reactions, to: currentChat._id, isGroup: !!currentChat.admin });
+      } catch (e) { console.error("Failed to react", e); }
   };
 
-  // Handle View Once Media
   const handleOpenViewOnce = async (msgId) => {
     setMessages(prev => prev.map(m => m.id === msgId ? {...m, viewed: true, message: "💣 Media Expired"} : m));
   };
 
-  // 6. Typing Handler
   const handleTyping = (typing) => {
-    socket.current.emit("typing", {
-      to: currentChat._id, 
-      from: currentUser._id, 
-      isTyping: typing,
-      isGroup: !!currentChat.admin, 
-      username: currentUser.username
-    });
+    socket.current.emit("typing", { to: currentChat._id, from: currentUser._id, isTyping: typing, isGroup: !!currentChat.admin, username: currentUser.username });
   };
 
-  // 7. Admin Action: Add Member
   const handleAddMember = async () => {
       const userId = prompt("Enter the User ID to add to this group:");
       if (userId) {
           try {
-            await axios.post(addGroupMemberRoute, { groupId: currentChat._id, userId });
+            await axios.post(addGroupMemberRoute, { groupId: currentChat._id, userId }, getAuthHeader());
             toast.success("Member added successfully");
-          } catch (e) {
-            toast.error("Failed to add member");
-          }
+          } catch (e) { toast.error("Failed to add member"); }
       }
   };
 
-  // Scroll to Original Message
+  const handleToggleBlock = async () => {
+      try {
+          await axios.post(blockUserRoute, { userId: currentUser._id, blockedUserId: currentChat._id }, getAuthHeader());
+          setIsBlocked(!isBlocked);
+          toast.success(isBlocked ? "User Unblocked" : "User Blocked");
+      } catch (e) {
+          toast.error("Failed to update block status");
+      }
+  };
+
   const scrollToMessage = (msgId) => {
       const element = document.getElementById(`msg-${msgId}`);
       if (element) {
@@ -307,12 +266,10 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
       }
   };
 
-  // 8. Auto Scroll (FIXED: Anchored to bottom div)
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isTyping]);
 
-  // Helpers
   const formatTime = (timeStr) => {
     const date = timeStr ? new Date(timeStr) : new Date();
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -326,7 +283,6 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
 
   const renderMessageContent = (msg) => {
     if (msg.isDeleted) return <p className="deleted-text">{msg.message}</p>;
-    
     if (msg.isViewOnce && !msg.fromSelf && !msg.viewed) return <button className="view-once-btn" onClick={() => handleOpenViewOnce(msg.id)}><FaFire /> View Once Media</button>;
     if (msg.isViewOnce && (msg.viewed || msg.message === "💣 Media Expired")) return <p className="deleted-text">💣 Media Expired</p>;
 
@@ -354,7 +310,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
                     const percent = totalVotes === 0 ? 0 : Math.round((opt.votes.length / totalVotes) * 100);
                     const hasVoted = opt.votes.includes(currentUser._id);
                     return (
-                        <div key={opt._id} className={`poll-option ${hasVoted ? 'voted' : ''}`} onClick={() => console.log('vote clicked')}>
+                        <div key={opt._id} className={`poll-option ${hasVoted ? 'voted' : ''}`}>
                             <div className="poll-bar" style={{width: `${percent}%`}}></div>
                             <span className="opt-text">{opt.text}</span>
                             <span className="opt-percent">{percent}%</span>
@@ -366,60 +322,48 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
     }
 
     if (msg.type === "image") return <img src={msg.message} alt="sent" className="msg-image" />;
-    
-    if (msg.type === "video") return (
-        <video controls className="msg-video">
-            <source src={msg.message} />
-            Your browser does not support video playback.
-        </video>
-    );
-
-    if (msg.type === "file") return (
-        <a href={msg.message} target="_blank" rel="noreferrer" className="msg-file-link">
-            <FaFileDownload /> Download Attachment
-        </a>
-    );
-
+    if (msg.type === "video") return ( <video controls className="msg-video"><source src={msg.message} />Your browser does not support video playback.</video>);
+    if (msg.type === "file") return ( <a href={msg.message} target="_blank" rel="noreferrer" className="msg-file-link"><FaFileDownload /> Download Attachment</a>);
     if (msg.type === "audio") return <audio controls src={msg.message} className="msg-audio" />;
-    
-    if (msg.type === "code") return (
-        <pre className="code-snippet">
-            <code>{msg.message}</code>
-        </pre>
-    );
+    if (msg.type === "code") return ( <pre className="code-snippet"><code>{msg.message}</code></pre>);
     return <p>{msg.message}</p>;
   };
 
+  const filteredMessages = messages.filter(msg => 
+    msg.message && msg.type === "text" && msg.message.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   return (
-    // UPDATED: Passed transient props down so Grid knows to adjust
     <Container $themeType={theme} $isCompact={isCompact} $hasPinned={!!pinnedMessage}>
       <div className="chat-header">
         <div className="user-details">
-          
           <div className="header-info">
-              <h3>{currentChat.name || currentChat.username}</h3>
-              
+              <h3>{currentChat.name || currentChat.username} {isBlocked && <span style={{color: 'red', fontSize: '10px'}}>(Blocked)</span>}</h3>
               {!currentChat.admin && currentChat.bio && (
                   <p className="chat-bio" title={currentChat.interests?.join(", ")}>
                       <FaInfoCircle /> {currentChat.bio}
                   </p>
               )}
           </div>
-          
           <div className="admin-controls">
+              {showSearch && (
+                  <input type="text" placeholder="Search chat..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="chat-search-input" />
+              )}
+              <FaSearch className="action-icon" title="Search messages" onClick={() => setShowSearch(!showSearch)} />
               <button className="huddle-btn"><FaMicrophoneAlt /> Start Huddle</button>
-              
+              {!currentChat.admin && (
+                  <FaUserSlash className={`action-icon ${isBlocked ? 'blocked' : ''}`} title={isBlocked ? "Unblock User" : "Block User"} onClick={handleToggleBlock} />
+              )}
               {currentChat.admin === currentUser._id && (
                   <>
                       <span className="admin-badge"><FaShieldAlt /> Admin</span>
-                      <FaUserPlus className="add-icon" onClick={handleAddMember} title="Add Member" />
+                      <FaUserPlus className="action-icon" onClick={handleAddMember} title="Add Member" />
                   </>
               )}
           </div>
         </div>
       </div>
       
-      {/* Pinned Message Banner */}
       {pinnedMessage && (
           <div className="pinned-banner" onClick={() => scrollToMessage(pinnedMessage.id)}>
               <FaThumbtack /> 
@@ -431,24 +375,18 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
       )}
 
       <div className="chat-messages">
-        {/* Render Skeletons or Messages */}
         {isFetchingHistory ? (
             Array.from({ length: 5 }).map((_, i) => (
                 <div key={i} className={`message skeleton-msg ${i % 2 === 0 ? 'sended' : 'recieved'}`}>
-                    <div 
-                        className="content skeleton-anim" 
-                        style={{width: `${Math.random() * 40 + 20}%`, height: '40px'}}
-                    />
+                    <div className="content skeleton-anim" style={{width: `${Math.random() * 40 + 20}%`, height: '40px'}}/>
                 </div>
             ))
         ) : (
-            messages.map((message) => (
+            filteredMessages.map((message) => (
             <div key={message.id || uuidv4()} id={`msg-${message.id}`} className="message-wrapper">
                 <div className={`message ${message.fromSelf ? "sended" : "recieved"} ${message.isDeleted ? "deleted-msg" : ""}`}>
                 <div className="content tail-physics">
-                    
                     {message.isForwarded && <div className="forwarded-tag"><FaShare /> Forwarded</div>}
-
                     {message.replyTo && (
                         <div className="quoted-message" onClick={() => scrollToMessage(message.replyTo.id)}>
                             <span>{message.replyTo.isSelfQuote ? "You" : "Them"}: </span>
@@ -458,13 +396,10 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
                             }
                         </div>
                     )}
-
                     {!message.fromSelf && currentChat.admin && (
                         <span className="sender-name">{message.username}</span>
                     )}
-                    
                     {renderMessageContent(message)}
-                    
                     <div className="meta">
                         <span>{formatTime(message.createdAt)}</span>
                         {message.isStarred && <FaStar className="starred-icon" color="gold" size={10} />}
@@ -475,13 +410,11 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
                             </span>
                         )}
                     </div>
-
                     {!message.isDeleted && (
                         <div className="message-actions">
                             <button onClick={() => setReplyingTo({ id: message.id, text: message.message, type: message.type, isSelfQuote: message.fromSelf })} title="Reply"><FaReply /></button>
                             <button title="Forward"><FaShare /></button>
                             <button title="Star"><FaStar /></button>
-                            
                             <div className="reaction-trigger">
                                 <FaSmile title="React"/>
                                 <div className="reaction-menu">
@@ -498,7 +431,6 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
                             )}
                         </div>
                     )}
-
                     {message.reactions?.length > 0 && !message.isDeleted && (
                         <div className="reactions-display">
                             {message.reactions.map((r, i) => <span key={i} title={r.username}>{r.emoji}</span>)}
@@ -509,14 +441,11 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
             </div>
             ))
         )}
-        
         {isTyping && (
             <div className="typing-indicator">
                 <span>{typeof isTyping === 'string' ? `${isTyping} is typing...` : "Someone is typing..."}</span>
             </div>
         )}
-        
-        {/* FIXED: Stable anchor point for auto-scrolling */}
         <div ref={scrollRef} />
       </div>
       
@@ -533,8 +462,6 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
   );
 }
 
-// --- STYLES & ANIMATIONS ---
-
 const popIn = keyframes`
   0% { transform: scale(0.9) translateY(10px); opacity: 0; }
   100% { transform: scale(1) translateY(0); opacity: 1; }
@@ -547,11 +474,9 @@ const shimmer = keyframes`
 
 const Container = styled.div`
   display: grid; 
-  /* UPDATED: $hasPinned expands to push the Input perfectly to the bottom */
   grid-template-rows: ${({ $hasPinned }) => $hasPinned ? '10% auto 1fr 10%' : '10% 1fr 10%'}; 
   overflow: hidden;
   
-  /* UPDATED: Apply Compact Mode adjusting the grid layout */
   ${({ $isCompact, $hasPinned }) => $isCompact && css`
       grid-template-rows: ${$hasPinned ? '8% auto 1fr 10%' : '8% 1fr 10%'};
   `}
@@ -572,7 +497,6 @@ const Container = styled.div`
     background: rgba(255, 255, 255, 0.02); 
     border-bottom: 1px solid rgba(255, 255, 255, 0.05);
     
-    /* UPDATED: Theme Border Overrides */
     ${({ $themeType }) => $themeType === 'cyberpunk' && css`border-bottom: 1px solid #00ff88;`}
     ${({ $themeType }) => $themeType === 'midnight' && css`border-bottom: 1px solid #333;`}
     
@@ -594,24 +518,23 @@ const Container = styled.div`
     
     .admin-controls {
         display: flex; align-items: center; gap: 1rem;
-        
+        .chat-search-input {
+            background: rgba(0,0,0,0.3); color: white; border: 1px solid #00ff88; 
+            padding: 0.4rem 0.8rem; border-radius: 1rem; outline: none; font-size: 0.8rem;
+        }
+
         .huddle-btn { background: #4e0eff; color: white; border: none; padding: 0.5rem 1rem; border-radius: 1rem; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; font-weight: bold; transition: 0.2s; &:hover { background: #00ff88; color: black; } }
 
         .admin-badge {
-            background: rgba(0, 255, 136, 0.1);
-            color: #00ff88;
-            padding: 0.3rem 0.6rem;
-            border-radius: 0.5rem;
-            border: 1px solid #00ff88;
-            font-size: 0.7rem;
-            font-weight: bold;
-            display: flex; align-items: center; gap: 0.3rem;
+            background: rgba(0, 255, 136, 0.1); color: #00ff88; padding: 0.3rem 0.6rem;
+            border-radius: 0.5rem; border: 1px solid #00ff88; font-size: 0.7rem;
+            font-weight: bold; display: flex; align-items: center; gap: 0.3rem;
         }
 
-        .add-icon {
-            color: #00ff88; cursor: pointer; font-size: 1.2rem;
-            transition: 0.2s;
+        .action-icon {
+            color: #00ff88; cursor: pointer; font-size: 1.2rem; transition: 0.2s;
             &:hover { transform: scale(1.1); color: white; }
+            &.blocked { color: #ff0055; }
         }
     }
   }
@@ -625,7 +548,6 @@ const Container = styled.div`
     &::-webkit-scrollbar { width: 4px; }
     &::-webkit-scrollbar-thumb { background-color: rgba(255, 255, 255, 0.1); border-radius: 1rem; }
 
-    /* Skeleton CSS for Messages */
     .skeleton-msg .content { background: #2a2a35; border: none !important; border-radius: 1rem; }
     .skeleton-anim { 
         background-image: linear-gradient(to right, #2a2a35 0%, #3a3a45 20%, #2a2a35 40%, #2a2a35 100%); 
@@ -633,18 +555,10 @@ const Container = styled.div`
         animation: ${shimmer} 1.5s infinite linear forwards; 
     }
 
-    .highlight-flash {
-        animation: flashBg 1.5s ease-out;
-    }
-    
-    @keyframes flashBg {
-        0% { background-color: rgba(255, 255, 255, 0.2); border-radius: 10px; }
-        100% { background-color: transparent; }
-    }
+    .highlight-flash { animation: flashBg 1.5s ease-out; }
+    @keyframes flashBg { 0% { background-color: rgba(255, 255, 255, 0.2); border-radius: 10px; } 100% { background-color: transparent; } }
 
-    .message-wrapper { 
-        animation: ${popIn} 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; 
-    }
+    .message-wrapper { animation: ${popIn} 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
 
     .message {
       display: flex; align-items: center; position: relative;
@@ -654,26 +568,12 @@ const Container = styled.div`
         padding: ${({ $isCompact }) => $isCompact ? '0.5rem 0.8rem' : '0.8rem 1rem'};
         font-size: ${({ $isCompact }) => $isCompact ? '0.9rem' : '1rem'};
         border-radius: 1.2rem;
-        color: #fff;
-        line-height: 1.4;
-        display: flex; flex-direction: column;
-        position: relative;
-        min-width: 120px;
-        transition: transform 0.2s ease;
+        color: #fff; line-height: 1.4; display: flex; flex-direction: column;
+        position: relative; min-width: 120px; transition: transform 0.2s ease;
         
-        /* Tail Physics - Slight stretch/skew on hover */
-        &.tail-physics:hover { 
-            transform: scale(1.02) skewX(1deg); 
-        }
+        &.tail-physics:hover { transform: scale(1.02) skewX(1deg); }
 
-        .sender-name {
-            font-size: 0.75rem;
-            color: #ff0055; 
-            font-weight: bold; 
-            margin-bottom: 4px;
-            text-transform: capitalize;
-        }
-
+        .sender-name { font-size: 0.75rem; color: #ff0055; font-weight: bold; margin-bottom: 4px; text-transform: capitalize; }
         .deleted-text { font-style: italic; color: rgba(255,255,255,0.5); font-size: 0.9rem; }
         .edited-tag { font-size: 0.6rem; opacity: 0.5; margin-left: 5px; font-style: italic; }
         .forwarded-tag { font-size: 0.7rem; color: #aaa; margin-bottom: 0.5rem; font-style: italic; display: flex; align-items: center; gap: 0.3rem; }
@@ -738,11 +638,8 @@ const Container = styled.div`
         .message-actions {
             position: absolute; top: -15px; right: 10px;
             background: #2a2a35; padding: 0.3rem 0.5rem; border-radius: 1rem;
-            display: flex; gap: 0.5rem; 
-            opacity: 1; visibility: visible; 
-            transition: 0.2s;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.5);
-            z-index: 5;
+            display: flex; gap: 0.5rem; opacity: 1; visibility: visible; 
+            transition: 0.2s; box-shadow: 0 2px 5px rgba(0,0,0,0.5); z-index: 5;
             
             button, .reaction-trigger {
                 background: none; border: none; color: #aaa; cursor: pointer;
@@ -772,25 +669,17 @@ const Container = styled.div`
     }
 
     .deleted-msg .content {
-        background: transparent !important;
-        border: 1px dashed rgba(255,255,255,0.2) !important;
-        box-shadow: none !important;
+        background: transparent !important; border: 1px dashed rgba(255,255,255,0.2) !important; box-shadow: none !important;
     }
 
     .sended {
       justify-content: flex-end;
       .content {
         background: linear-gradient(135deg, #4e0eff 0%, #9a41fe 100%);
-        border-bottom-right-radius: 0.2rem;
-        box-shadow: 0 4px 15px rgba(78, 14, 255, 0.3);
+        border-bottom-right-radius: 0.2rem; box-shadow: 0 4px 15px rgba(78, 14, 255, 0.3);
         
-        /* UPDATED: Theme Overrides */
-        ${({ $themeType }) => $themeType === 'cyberpunk' && css`
-            background: transparent; border: 1px solid #00ff88; box-shadow: 0 0 10px rgba(0,255,136,0.2);
-        `}
-        ${({ $themeType }) => $themeType === 'midnight' && css`
-            background: #222; box-shadow: none; border: 1px solid #444;
-        `}
+        ${({ $themeType }) => $themeType === 'cyberpunk' && css` background: transparent; border: 1px solid #00ff88; box-shadow: 0 0 10px rgba(0,255,136,0.2); `}
+        ${({ $themeType }) => $themeType === 'midnight' && css` background: #222; box-shadow: none; border: 1px solid #444; `}
       }
       .message-actions { right: auto; left: 10px; } 
       .reactions-display { right: auto; left: 10px; }
@@ -800,31 +689,18 @@ const Container = styled.div`
     .recieved {
       justify-content: flex-start;
       .content {
-        background: rgba(255, 255, 255, 0.08);
-        border-bottom-left-radius: 0.2rem;
-        backdrop-filter: blur(5px);
-        border: 1px solid rgba(255,255,255,0.05);
+        background: rgba(255, 255, 255, 0.08); border-bottom-left-radius: 0.2rem; backdrop-filter: blur(5px); border: 1px solid rgba(255,255,255,0.05);
         
-        /* UPDATED: Theme Overrides */
-        ${({ $themeType }) => $themeType === 'cyberpunk' && css`
-            background: rgba(255,0,85,0.1); border-color: #ff0055;
-        `}
-        ${({ $themeType }) => $themeType === 'midnight' && css`
-            background: #111; border-color: #222;
-        `}
+        ${({ $themeType }) => $themeType === 'cyberpunk' && css` background: rgba(255,0,85,0.1); border-color: #ff0055; `}
+        ${({ $themeType }) => $themeType === 'midnight' && css` background: #111; border-color: #222; `}
       }
       .tail-physics { transform-origin: bottom left; }
     }
     
     .typing-indicator {
-        color: #00ff88; font-size: 0.8rem; margin-left: 1rem; 
-        font-style: italic; animation: pulse 1.5s infinite;
+        color: #00ff88; font-size: 0.8rem; margin-left: 1rem; font-style: italic; animation: pulse 1.5s infinite;
     }
     
-    @keyframes pulse {
-        0% { opacity: 0.5; }
-        50% { opacity: 1; }
-        100% { opacity: 0.5; }
-    }
+    @keyframes pulse { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }
   }
 `;

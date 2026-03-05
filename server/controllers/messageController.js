@@ -1,6 +1,8 @@
 const Message = require("../models/Message"); 
+const User = require("../models/User");
 const cloudinary = require("cloudinary").v2;
 const urlMetadata = require('url-metadata'); // For Rich Link Previews
+const admin = require("../config/firebase"); // Firebase setup for Push Notifications
 
 // Configure Cloudinary using environment variables
 cloudinary.config({
@@ -13,6 +15,22 @@ cloudinary.config({
 const extractUrls = (text) => {
     const urlRegex = /(https?:\/\/[^\s]+)/g;
     return text.match(urlRegex);
+};
+
+// --- NEW FEATURE: Search Messages ---
+module.exports.searchMessages = async (req, res, next) => {
+  try {
+    const { userId, query } = req.body;
+    // Uses the MongoDB text index on message.text
+    const messages = await Message.find({
+      users: { $in: [userId] },
+      $text: { $search: query }
+    }).sort({ score: { $meta: "textScore" } }).limit(20);
+    
+    return res.json({ status: true, messages });
+  } catch (ex) {
+    next(ex);
+  }
 };
 
 module.exports.getMessages = async (req, res, next) => {
@@ -39,7 +57,6 @@ module.exports.getMessages = async (req, res, next) => {
         isDeleted: msg.isDeleted,
         isEdited: msg.isEdited,
         
-        // --- MAPPED FIELDS ---
         isForwarded: msg.isForwarded,
         isViewOnce: msg.isViewOnce,
         viewed: msg.viewed,
@@ -66,6 +83,14 @@ module.exports.getMessages = async (req, res, next) => {
 module.exports.addMessage = async (req, res, next) => {
   try {
     const { from, to, message, type, replyTo, isForwarded, isViewOnce, pollData } = req.body;
+
+    // --- NEW FEATURE: BLOCK LOGIC ENFORCEMENT ---
+    const receiver = await User.findById(to);
+    if (receiver && receiver.blockedUsers.includes(from)) {
+      // Return 403 to indicate they are blocked and cannot send messages to this user
+      return res.status(403).json({ msg: "Cannot send message. You are blocked by this user." });
+    }
+
     let finalContent = message;
     let linkMetadata = null;
     let finalType = type || "text";
@@ -80,7 +105,7 @@ module.exports.addMessage = async (req, res, next) => {
     }
 
     // 2. INTERCEPT: Rich Link Previews
-    if (finalType === "text") {
+    if (finalType === "text" || finalType === "link") {
         const urls = extractUrls(message);
         if (urls && urls.length > 0) {
             try {
@@ -106,12 +131,28 @@ module.exports.addMessage = async (req, res, next) => {
       replyTo: replyTo || null,
       status: "sent",
       
-      // NEW DATA INJECTIONS
       isForwarded: isForwarded || false,
       isViewOnce: isViewOnce || false,
       pollData: pollData || null,
       linkMetadata: linkMetadata
     });
+
+    // --- NEW FEATURE: OFFLINE PUSH NOTIFICATIONS (FCM) ---
+    // If user is not online via socket (tracked in global.onlineUsers), send a push notification
+    if (!global.onlineUsers.has(to) && receiver && receiver.fcmToken && admin.apps.length > 0) {
+       try {
+         const senderUser = await User.findById(from);
+         await admin.messaging().send({
+           token: receiver.fcmToken,
+           notification: {
+             title: `New message from ${senderUser.username}`,
+             body: finalType === "text" ? "Sent a message" : `Sent a ${finalType}`, // Hides actual text for privacy/E2EE
+           },
+         });
+       } catch (err) {
+         console.error("FCM Notification failed:", err.message);
+       }
+    }
 
     if (data) return res.json({ msg: "Message added successfully.", data });
     else return res.json({ msg: "Failed to add message" });
@@ -207,8 +248,6 @@ module.exports.editMessage = async (req, res, next) => {
   }
 };
 
-// --- NEW FEATURE CONTROLLERS ---
-
 module.exports.votePoll = async (req, res, next) => {
     try {
         const { messageId, optionId, userId } = req.body;
@@ -247,12 +286,6 @@ module.exports.triggerViewOnce = async (req, res, next) => {
 
         message.viewed = true;
         await message.save();
-
-        // Optional: Destroy the file from Cloudinary immediately here to save storage space
-        // if (message.message.text.includes("cloudinary.com")) {
-        //    const publicId = extractPublicId(message.message.text);
-        //    await cloudinary.uploader.destroy(publicId);
-        // }
 
         return res.json({ msg: "Media marked as viewed." });
     } catch (ex) { 

@@ -13,28 +13,23 @@ export default function Register() {
     email: "",
     password: "",
     confirmPassword: "",
-    gender: "male" // Default gender
+    gender: "male"
   });
 
   const [avatars, setAvatars] = useState([]);
   const [selectedAvatar, setSelectedAvatar] = useState("");
 
-  // Instantly fetch 4 new beautiful avatars using ultra-stable URL formats
   useEffect(() => {
     const generateAvatars = () => {
-      // Use distinct collections for Male/Female to guarantee beautiful results without breaking the API
       const collection = values.gender === "female" ? "lorelei" : "micah";
-
       const newAvatars = Array.from({ length: 4 }).map(() => {
         const randomSeed = Math.random().toString(36).substring(7);
-        // Clean, error-free API URL (Guaranteed to work in v9)
         return `https://api.dicebear.com/9.x/${collection}/svg?seed=${randomSeed}`;
       });
       
       setAvatars(newAvatars);
       setSelectedAvatar(newAvatars[0]); 
     };
-
     generateAvatars();
   }, [values.gender]);
 
@@ -69,14 +64,19 @@ export default function Register() {
         email,
         password,
         gender,
-        avatarImage: selectedAvatar // Send perfectly formatted remote URL
+        avatarImage: selectedAvatar
       });
 
       if (data.status === false) {
         toast.error(data.msg, { theme: "dark" });
       }
       if (data.status === true) {
-        sessionStorage.setItem("chat-app-user", JSON.stringify(data.user));
+        // Combined the user and token into a single object for storage
+        const userData = {
+          ...data.user,
+          token: data.token,
+        };
+        sessionStorage.setItem("chat-app-user", JSON.stringify(userData));
         navigate("/");
       }
     }
@@ -197,7 +197,7 @@ const FormContainer = styled.div`
               cursor: pointer; 
               border: 3px solid transparent; 
               transition: 0.3s; 
-              background: #1a1a2e; /* Adds a nice dark background to the SVGs */
+              background: #1a1a2e;
               
               img { 
                   width: 100%; 
