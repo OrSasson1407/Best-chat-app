@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import styled, { keyframes, css } from "styled-components";
 import ChatInput from "./ChatInput";
 import axios from "axios";
+import { Virtuoso } from "react-virtuoso"; // <-- PHASE 3: Virtualization
 import { 
     sendMessageRoute, 
     receiveMessageRoute, 
@@ -18,7 +19,7 @@ import {
     FaUserPlus, FaShieldAlt, FaReply, FaSmile, FaTrash, FaPen, 
     FaInfoCircle, FaFileDownload, FaShare, FaStar, FaThumbtack, 
     FaFire, FaMicrophoneAlt, FaPoll, FaSearch, FaUserSlash, FaSpinner,
-    FaArrowDown, FaCloudUploadAlt, FaTimes, FaClock, FaEye, FaCheckDouble
+    FaArrowDown, FaCloudUploadAlt, FaTimes, FaClock, FaCheckDouble
 } from "react-icons/fa";
 
 export default function ChatContainer({ currentChat, currentUser, socket, isTyping, theme, isCompact }) {
@@ -29,11 +30,12 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
   const [pinnedMessage, setPinnedMessage] = useState(null);
   const [isFetchingHistory, setIsFetchingHistory] = useState(true); 
   
-  // --- INFINITE SCROLL STATE ---
+  // --- PHASE 3: VIRTUAL SCROLLING STATE ---
+  const virtuosoRef = useRef(null);
+  const [highlightedMsgId, setHighlightedMsgId] = useState(null);
   const [cursor, setCursor] = useState(null);
   const [hasMore, setHasMore] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const chatContainerRef = useRef(); 
 
   // --- PRESENCE STATE ---
   const [isOnline, setIsOnline] = useState(false);
@@ -43,13 +45,11 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
   const [isDragging, setIsDragging] = useState(false);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [lightboxImage, setLightboxImage] = useState(null);
-  const [readReceiptsMsg, setReadReceiptsMsg] = useState(null); // Group Read Receipts
+  const [readReceiptsMsg, setReadReceiptsMsg] = useState(null);
 
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [isBlocked, setIsBlocked] = useState(false);
-
-  const scrollRef = useRef();
 
   const getAuthHeader = () => ({
     headers: { "x-auth-token": currentUser.token },
@@ -95,7 +95,6 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
                 }
             });
 
-            scrollToBottom();
         } catch (error) {
             console.error("Error fetching messages:", error);
             if (error.response?.status === 401) toast.error("Session expired. Please login again.");
@@ -107,17 +106,10 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
     fetchHistory();
   }, [currentChat, currentUser]);
 
-  // Infinite Scroll & Smart Scroll Button Logic
-  const handleScroll = async () => {
-    if (!chatContainerRef.current) return;
-    const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
-    
-    setShowScrollBtn(scrollHeight - scrollTop - clientHeight > 400);
-
-    if (scrollTop === 0 && hasMore && !isLoadingMore) {
+  // Phase 3: Virtuoso Load More Logic (Replaces handleScroll)
+  const loadMoreMessages = async () => {
+    if (hasMore && !isLoadingMore) {
       setIsLoadingMore(true);
-      const previousHeight = scrollHeight;
-
       try {
           let response;
           if (currentChat.admin) {
@@ -128,19 +120,15 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
 
           const newMessages = response.data.messages ? response.data.messages : response.data;
           
+          // Virtuoso automatically preserves scroll position when items are prepended!
           setMessages((prev) => [...newMessages, ...prev]);
+          
           if (response.data.nextCursor !== undefined) {
               setCursor(response.data.nextCursor);
               setHasMore(response.data.hasMore);
           } else {
               setHasMore(false);
           }
-
-          setTimeout(() => {
-            if (chatContainerRef.current) {
-                chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight - previousHeight;
-            }
-          }, 0);
       } catch (error) {
           console.error("Failed to fetch older messages", error);
       } finally {
@@ -150,7 +138,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
   };
 
   const scrollToBottom = () => {
-      setTimeout(() => scrollRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+      virtuosoRef.current?.scrollToIndex({ index: messages.length - 1, behavior: 'smooth' });
   };
 
   // Heartbeat System
@@ -227,11 +215,9 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
   useEffect(() => {
     if (arrivalMessage) {
         setMessages((prev) => [...prev, arrivalMessage]);
-        scrollToBottom();
+        // Virtuoso automatically follows output when configured
     }
   }, [arrivalMessage]);
-
-  useEffect(() => { if (isTyping) scrollToBottom(); }, [isTyping]);
 
   // Send Message Handler
   const handleSendMsg = async (msg, type = "text", replyToId = null, extraData = {}) => {
@@ -241,7 +227,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
             from: currentUser._id, to: currentChat._id, message: msg, type,
             replyTo: replyToId, isForwarded: extraData.isForwarded || false,
             isViewOnce: extraData.isViewOnce || false, pollData: extraData.pollData || null,
-            timer: extraData.timer || null // Phase 2: Self-destruct timer
+            timer: extraData.timer || null 
         };
 
         const res = await axios.post(sendMessageRoute, payload, getAuthHeader());
@@ -268,7 +254,6 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
             }
         ]);
         setReplyingTo(null); 
-        scrollToBottom();
     } catch (error) {
         if (error.response && error.response.status === 403) toast.error(error.response.data.msg || "You are blocked.");
         else toast.error("Failed to send message");
@@ -328,12 +313,13 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
       } catch (e) { toast.error("Failed to update block status"); }
   };
 
+  // Phase 3: Scroll to specific message using Virtuoso
   const scrollToMessage = (msgId) => {
-      const element = document.getElementById(`msg-${msgId}`);
-      if (element) {
-          element.scrollIntoView({ behavior: "smooth", block: "center" });
-          element.classList.add("highlight-flash");
-          setTimeout(() => element.classList.remove("highlight-flash"), 1500);
+      const index = filteredMessages.findIndex(m => m.id === msgId);
+      if (index !== -1) {
+          virtuosoRef.current?.scrollToIndex({ index, align: 'center', behavior: 'smooth' });
+          setHighlightedMsgId(msgId);
+          setTimeout(() => setHighlightedMsgId(null), 1500);
       }
   };
 
@@ -350,7 +336,6 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
     return `Last seen ${date.toLocaleDateString()} at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
   };
 
-  // Read Receipts UI Handler
   const renderStatusTicks = (msg) => {
     const isGroup = !!currentChat.admin;
     const handleClick = () => {
@@ -501,92 +486,97 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
           </div>
       )}
 
-      <div className="chat-messages" ref={chatContainerRef} onScroll={handleScroll}>
-        {isLoadingMore && (
-            <div className="loading-older">
-                <FaSpinner className="fa-spin" /> Loading older messages...
-            </div>
-        )}
-
+      {/* PHASE 3: VIRTUAL SCROLLING IMPLEMENTATION */}
+      <div className="chat-messages-container">
         {isFetchingHistory ? (
-            Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className={`message skeleton-msg ${i % 2 === 0 ? 'sended' : 'recieved'}`}>
-                    <div className="content skeleton-anim" style={{width: `${Math.random() * 40 + 20}%`, height: '40px'}}/>
-                </div>
-            ))
+            <div className="skeleton-container">
+                {Array.from({ length: 5 }).map((_, i) => (
+                    <div key={i} className={`message skeleton-msg ${i % 2 === 0 ? 'sended' : 'recieved'}`}>
+                        <div className="content skeleton-anim" style={{width: `${Math.random() * 40 + 20}%`, height: '40px'}}/>
+                    </div>
+                ))}
+            </div>
         ) : (
-            filteredMessages.map((message) => (
-            <div key={message.id || uuidv4()} id={`msg-${message.id}`} className="message-wrapper">
-                <div className={`message ${message.fromSelf ? "sended" : "recieved"} ${message.isDeleted ? "deleted-msg" : ""}`}>
-                <div className="content tail-physics">
-                    {message.isForwarded && <div className="forwarded-tag"><FaShare /> Forwarded</div>}
-                    {message.replyTo && (
-                        <div className="quoted-message" onClick={() => scrollToMessage(message.replyTo.id)}>
-                            <span>{message.replyTo.isSelfQuote ? "You" : "Them"}: </span>
-                            {["text", "code"].includes(message.replyTo.type) 
-                                ? message.replyTo.text.substring(0,40) 
-                                : `[${message.replyTo.type.toUpperCase()}]`
-                            }
-                        </div>
-                    )}
-                    {!message.fromSelf && currentChat.admin && (
-                        <span className="sender-name">{message.username}</span>
-                    )}
-                    
-                    <div className="message-payload">
-                        {renderMessageContent(message)}
-                    </div>
-
-                    <div className="meta">
-                        {/* Productivity UI Indicators */}
-                        {message.timer && <FaClock className="timer-icon" title="Self-destructing message" />}
-                        
-                        <span>{formatTime(message.createdAt)}</span>
-                        {message.isStarred && <FaStar className="starred-icon" color="gold" size={10} />}
-                        {message.isEdited && <span className="edited-tag">(edited)</span>}
-                        {message.fromSelf && !message.isDeleted && (
-                            <span className="read-status">
-                                {renderStatusTicks(message)}
-                            </span>
-                        )}
-                    </div>
-                    {!message.isDeleted && (
-                        <div className="message-actions">
-                            <button onClick={() => setReplyingTo({ id: message.id, text: message.message, type: message.type, isSelfQuote: message.fromSelf })} title="Reply"><FaReply /></button>
-                            <button title="Forward"><FaShare /></button>
-                            <button title="Star"><FaStar /></button>
-                            <div className="reaction-trigger">
-                                <FaSmile title="React"/>
-                                <div className="reaction-menu">
-                                    {['👍', '❤️', '😂', '😮', '😢'].map(emoji => (
-                                        <span key={emoji} onClick={() => handleReaction(message.id, emoji)}>{emoji}</span>
-                                    ))}
+            <Virtuoso
+                ref={virtuosoRef}
+                className="virtuoso-scroll"
+                data={filteredMessages}
+                firstItemIndex={0}
+                initialTopMostItemIndex={filteredMessages.length - 1}
+                startReached={loadMoreMessages}
+                atBottomStateChange={(bottom) => setShowScrollBtn(!bottom)}
+                followOutput={(isAtBottom) => isAtBottom ? 'smooth' : false}
+                components={{
+                    Header: () => isLoadingMore ? <div className="loading-older"><FaSpinner className="fa-spin" /> Loading older messages...</div> : null,
+                    Footer: () => isTyping ? <div className="typing-indicator"><span>{typeof isTyping === 'string' ? `${isTyping} is typing...` : "Someone is typing..."}</span></div> : <div style={{ height: '20px' }} />
+                }}
+                itemContent={(index, message) => (
+                    <div id={`msg-${message.id}`} className={`message-wrapper ${highlightedMsgId === message.id ? 'highlight-flash' : ''}`}>
+                        <div className={`message ${message.fromSelf ? "sended" : "recieved"} ${message.isDeleted ? "deleted-msg" : ""}`}>
+                        <div className="content tail-physics">
+                            {message.isForwarded && <div className="forwarded-tag"><FaShare /> Forwarded</div>}
+                            {message.replyTo && (
+                                <div className="quoted-message" onClick={() => scrollToMessage(message.replyTo.id)}>
+                                    <span>{message.replyTo.isSelfQuote ? "You" : "Them"}: </span>
+                                    {["text", "code"].includes(message.replyTo.type) 
+                                        ? message.replyTo.text.substring(0,40) 
+                                        : `[${message.replyTo.type.toUpperCase()}]`
+                                    }
                                 </div>
+                            )}
+                            {!message.fromSelf && currentChat.admin && (
+                                <span className="sender-name">{message.username}</span>
+                            )}
+                            
+                            <div className="message-payload">
+                                {renderMessageContent(message)}
                             </div>
-                            {message.fromSelf && message.type === "text" && (
-                                <button onClick={() => setEditingMessage({ id: message.id, text: message.message })} title="Edit"><FaPen size={12}/></button>
+
+                            <div className="meta">
+                                {/* Productivity UI Indicators */}
+                                {message.timer && <FaClock className="timer-icon" title="Self-destructing message" />}
+                                
+                                <span>{formatTime(message.createdAt)}</span>
+                                {message.isStarred && <FaStar className="starred-icon" color="gold" size={10} />}
+                                {message.isEdited && <span className="edited-tag">(edited)</span>}
+                                {message.fromSelf && !message.isDeleted && (
+                                    <span className="read-status">
+                                        {renderStatusTicks(message)}
+                                    </span>
+                                )}
+                            </div>
+                            {!message.isDeleted && (
+                                <div className="message-actions">
+                                    <button onClick={() => setReplyingTo({ id: message.id, text: message.message, type: message.type, isSelfQuote: message.fromSelf })} title="Reply"><FaReply /></button>
+                                    <button title="Forward"><FaShare /></button>
+                                    <button title="Star"><FaStar /></button>
+                                    <div className="reaction-trigger">
+                                        <FaSmile title="React"/>
+                                        <div className="reaction-menu">
+                                            {['👍', '❤️', '😂', '😮', '😢'].map(emoji => (
+                                                <span key={emoji} onClick={() => handleReaction(message.id, emoji)}>{emoji}</span>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    {message.fromSelf && message.type === "text" && (
+                                        <button onClick={() => setEditingMessage({ id: message.id, text: message.message })} title="Edit"><FaPen size={12}/></button>
+                                    )}
+                                    {message.fromSelf && (
+                                        <button onClick={() => handleDeleteMsg(message.id)} title="Delete"><FaTrash size={12}/></button>
+                                    )}
+                                </div>
                             )}
-                            {message.fromSelf && (
-                                <button onClick={() => handleDeleteMsg(message.id)} title="Delete"><FaTrash size={12}/></button>
+                            {message.reactions?.length > 0 && !message.isDeleted && (
+                                <div className="reactions-display">
+                                    {message.reactions.map((r, i) => <span key={i} title={r.username}>{r.emoji}</span>)}
+                                </div>
                             )}
                         </div>
-                    )}
-                    {message.reactions?.length > 0 && !message.isDeleted && (
-                        <div className="reactions-display">
-                            {message.reactions.map((r, i) => <span key={i} title={r.username}>{r.emoji}</span>)}
                         </div>
-                    )}
-                </div>
-                </div>
-            </div>
-            ))
+                    </div>
+                )}
+            />
         )}
-        {isTyping && (
-            <div className="typing-indicator">
-                <span>{typeof isTyping === 'string' ? `${isTyping} is typing...` : "Someone is typing..."}</span>
-            </div>
-        )}
-        <div ref={scrollRef} />
       </div>
 
       {showScrollBtn && (
@@ -689,24 +679,26 @@ const Container = styled.div`
     }
   }
 
-  .chat-messages {
+  .chat-messages-container {
+    height: 100%; width: 100%; overflow: hidden; position: relative;
     padding: ${({ $isCompact }) => $isCompact ? '1rem 1.5rem' : '1.5rem 2rem'};
-    display: flex; flex-direction: column; 
-    gap: ${({ $isCompact }) => $isCompact ? '0.6rem' : '1.2rem'};
-    overflow: auto;
-    scroll-behavior: smooth;
     
-    &::-webkit-scrollbar { width: 4px; }
-    &::-webkit-scrollbar-thumb { background-color: rgba(255, 255, 255, 0.1); border-radius: 1rem; }
+    .virtuoso-scroll { 
+        height: 100% !important; width: 100% !important; 
+        &::-webkit-scrollbar { width: 4px; } 
+        &::-webkit-scrollbar-thumb { background-color: rgba(255, 255, 255, 0.1); border-radius: 1rem; } 
+    }
 
     .loading-older { text-align: center; padding: 1rem; color: #00ff88; font-size: 0.85rem; }
+    
+    .skeleton-container { display: flex; flex-direction: column; gap: 1.2rem; }
     .skeleton-msg .content { background: #2a2a35; border: none !important; border-radius: 1rem; }
     .skeleton-anim { background-image: linear-gradient(to right, #2a2a35 0%, #3a3a45 20%, #2a2a35 40%, #2a2a35 100%); background-repeat: no-repeat; background-size: 800px 100%; animation: ${shimmer} 1.5s infinite linear forwards; }
 
-    .highlight-flash { animation: flashBg 1.5s ease-out; }
-    @keyframes flashBg { 0% { background-color: rgba(255, 255, 255, 0.2); border-radius: 10px; } 100% { background-color: transparent; } }
+    .highlight-flash .content { animation: flashBg 1.5s ease-out; }
+    @keyframes flashBg { 0% { background-color: rgba(255, 255, 255, 0.4); box-shadow: 0 0 20px rgba(255,255,255,0.5); } 100% { background-color: inherit; box-shadow: inherit; } }
 
-    .message-wrapper { animation: ${popIn} 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+    .message-wrapper { padding-bottom: 1.2rem; animation: ${popIn} 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
 
     .message {
       display: flex; align-items: center; position: relative;
@@ -721,6 +713,7 @@ const Container = styled.div`
         
         &:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
 
+        /* Perfect Design: Improved Tail Physics */
         &::before { content: ""; position: absolute; bottom: 0; width: 16px; height: 16px; z-index: -1; }
 
         .sender-name { font-size: 0.75rem; color: #00ff88; font-weight: bold; margin-bottom: 4px; text-transform: capitalize; }
@@ -772,6 +765,7 @@ const Container = styled.div`
             .read-status { font-weight: bold; font-size: 0.8rem; display: flex; align-items: center; transition: 0.2s; }
         }
 
+        /* Design Update: Interactive Message Actions */
         .message-actions {
             position: absolute; top: -18px; right: 10px;
             background: #1a1a25; padding: 0.4rem 0.6rem; border-radius: 2rem;
@@ -812,6 +806,7 @@ const Container = styled.div`
         &::before { display: none; }
     }
 
+    /* Perfect Design: Mesh Gradient & Tails for Sent */
     .sended {
       justify-content: flex-end;
       .content {
@@ -832,6 +827,7 @@ const Container = styled.div`
       .tail-physics { transform-origin: bottom right; }
     }
 
+    /* Perfect Design: Glassmorphism for Received */
     .recieved {
       justify-content: flex-start;
       .content {
