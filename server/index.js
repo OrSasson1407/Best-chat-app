@@ -26,7 +26,13 @@ const authLimiter = rateLimit({
 app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/register", authLimiter);
 
-app.use(cors());
+// FIXED: CORS must have credentials set to true and a specific origin 
+// to allow the browser to accept and store the httpOnly refreshToken cookie.
+app.use(cors({
+  origin: "http://localhost:3000",
+  credentials: true,
+})); 
+
 app.use(cookieParser()); // NEW: Enables server to read httpOnly cookies for Refresh Tokens
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
