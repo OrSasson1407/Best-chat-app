@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import styled, { keyframes, css } from "styled-components";
-import { FaUserFriends, FaPlus, FaSearch, FaCog, FaThumbtack, FaRegEnvelope } from "react-icons/fa";
+import { FaUserFriends, FaPlus, FaSearch, FaCog, FaThumbtack, FaRegEnvelope, FaTimes } from "react-icons/fa";
 import { BsChatDotsFill, BsPeopleFill } from "react-icons/bs";
 import { MdOutlineAllInclusive } from "react-icons/md";
 import axios from "axios";
@@ -42,7 +42,7 @@ export default function Contacts({
   setTheme,
   isCompact,
   setIsCompact,
-  typingUsers = [] // New Prop: Array of user IDs currently typing
+  typingUsers = [] 
 }) {
   const [currentUserName, setCurrentUserName] = useState(undefined);
   const [currentSelected, setCurrentSelected] = useState(undefined);
@@ -71,7 +71,6 @@ export default function Contacts({
     const fetchGroups = async () => {
       if(currentUser && currentUser.token) {
           try {
-              // [FIX APPLIED]: Added Authorization Header
               const { data } = await axios.get(`${getUserGroupsRoute}/${currentUser._id}`, {
                   headers: { "x-auth-token": currentUser.token }
               });
@@ -151,6 +150,10 @@ export default function Contacts({
     });
   }, [contacts, groups, searchTerm, activeFolder, pinnedIds, onlineUsers]);
 
+  // Dynamic Badge Counters calculation
+  const unreadCount = contacts.filter(c => c.unreadCount > 0).length;
+  const groupsCount = groups.length;
+
   const toggleMemberSelection = (id) => {
     if (selectedMembers.includes(id)) setSelectedMembers(selectedMembers.filter(m => m !== id));
     else setSelectedMembers([...selectedMembers, id]);
@@ -160,7 +163,6 @@ export default function Contacts({
     if (groupName.length < 3) return toast.error("Group name must be > 3 characters");
     if (selectedMembers.length < 1) return toast.error("Select at least 1 member");
     try {
-        // [FIX APPLIED]: Added Authorization Header
         const { data } = await axios.post(createGroupRoute, {
             name: groupName, members: [...selectedMembers, currentUser._id], admin: currentUser._id
         }, {
@@ -180,7 +182,6 @@ export default function Contacts({
             ? profileData.interests.split(",").map(i => i.trim()).filter(i => i !== "") 
             : [];
             
-          // [FIX APPLIED]: Added Authorization Header
           const { data } = await axios.post(`${updateProfileRoute}/${currentUser._id}`, {
               ...profileData, interests: interestsArray
           }, {
@@ -228,15 +229,20 @@ export default function Contacts({
             </FolderBtn>
             <FolderBtn className={activeFolder === "groups" ? "active" : ""} onClick={() => setActiveFolder("groups")} title="Groups">
                 <BsPeopleFill />
+                {groupsCount > 0 && <span className="badge theme-badge">{groupsCount}</span>}
             </FolderBtn>
             <FolderBtn className={activeFolder === "unread" ? "active" : ""} onClick={() => setActiveFolder("unread")} title="Unread">
                 <FaRegEnvelope />
+                {unreadCount > 0 && <span className="badge danger-badge">{unreadCount}</span>}
             </FolderBtn>
           </div>
 
           <div className="search-bar">
              <FaSearch className="search-icon"/>
              <input type="text" placeholder={`Search ${activeFolder}...`} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+             {searchTerm && (
+                 <FaTimes className="clear-icon" onClick={() => setSearchTerm("")} title="Clear search" />
+             )}
           </div>
 
           <div className="contacts">
@@ -417,16 +423,12 @@ const glassShine = keyframes`
   100% { left: 100%; opacity: 0; }
 `;
 
-// THE FIXES ARE IN THE 3 COMPONENTS BELOW:
-
 const Container = styled.div`
   display: grid; 
   grid-template-rows: 10% 7.5% 8.5% 59% 15%; 
-  
-  height: 100%; /* ABSOLUTE FIX: Locks the height completely */
-  width: 100%;  /* ABSOLUTE FIX: Locks the width completely */
-  overflow: hidden; /* Prevents container itself from scrolling */
-  
+  height: 100%; 
+  width: 100%; 
+  overflow: hidden; 
   background: rgba(0, 0, 0, 0.2); 
   border-right: 1px solid rgba(255, 255, 255, 0.05);
   
@@ -455,18 +457,13 @@ const Container = styled.div`
   .search-bar { 
       display: flex; align-items: center; justify-content: center; padding: 0 1.2rem; position: relative; 
       .search-icon { position: absolute; left: 2.2rem; color: #666; font-size: 0.9rem; } 
-      input { width: 100%; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255,255,255,0.05); padding: 0.6rem 1rem 0.6rem 2.8rem; border-radius: 1.2rem; color: white; outline: none; transition: 0.3s; font-size: 0.9rem; &:focus { background: rgba(255, 255, 255, 0.08); border-color: rgba(78, 14, 255, 0.4); box-shadow: 0 0 10px rgba(78, 14, 255, 0.1); } } 
+      .clear-icon { position: absolute; right: 2.2rem; color: #888; font-size: 0.9rem; cursor: pointer; transition: 0.2s; &:hover { color: #fff; transform: scale(1.1); } }
+      input { width: 100%; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255,255,255,0.05); padding: 0.6rem 2.8rem; border-radius: 1.2rem; color: white; outline: none; transition: 0.3s; font-size: 0.9rem; &:focus { background: rgba(255, 255, 255, 0.08); border-color: rgba(78, 14, 255, 0.4); box-shadow: 0 0 10px rgba(78, 14, 255, 0.1); } } 
   }
   
   .contacts {
     display: flex; flex-direction: column; align-items: center; 
-    
-    /* FIX: Force list container to strictly obey parent grid bounds */
-    height: 100%; 
-    width: 100%; 
-    overflow-y: auto; /* Only shows scrollbar when list goes past height */
-    overflow-x: hidden; 
-    
+    height: 100%; width: 100%; overflow-y: auto; overflow-x: hidden; 
     gap: 0.8rem; padding: 1.2rem 0.6rem;
     
     &::-webkit-scrollbar { width: 4px; } 
@@ -485,8 +482,7 @@ const Container = styled.div`
 
   .current-user {
       background: rgba(0, 0, 0, 0.3); padding: 1.2rem; display: flex; justify-content: center; align-items: center;
-      border-top: 1px solid rgba(255,255,255,0.05);
-      height: 100%; /* Ensure footer stays pinned */
+      border-top: 1px solid rgba(255,255,255,0.05); height: 100%; 
       .user-info {
           display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 12px;
           .current-user-avatar { height: 2.8rem; min-width: 2.8rem; width: 2.8rem; border-radius: 50%; overflow: hidden; border: 2px solid rgba(0, 255, 136, 0.2); img { width: 100%; height: 100%; object-fit: cover; } }
@@ -499,22 +495,20 @@ const Container = styled.div`
 const ContactItem = styled.div`
   background: rgba(255, 255, 255, 0.03); 
   padding: ${({ $isCompact }) => $isCompact ? '0.5rem' : '0.8rem'}; 
-  width: 90%; 
-  flex-shrink: 0; /* FIX: Items will no longer squish when scrollbar appears */
-  border-radius: 1rem;
-  display: flex; align-items: center; gap: 1rem; 
+  width: 90%; flex-shrink: 0; 
+  border-radius: 1rem; display: flex; align-items: center; gap: 1rem; 
   cursor: pointer; border: 1px solid transparent; position: relative;
-  transition: transform 0.2s ease, background 0.2s ease;
+  transition: all 0.25s cubic-bezier(0.25, 0.8, 0.25, 1);
   overflow: hidden; 
 
   ${({ $isPinned }) => $isPinned && css`
-    background: rgba(255, 255, 255, 0.06);
-    border-left: 3.5px solid #4e0eff;
+    background: rgba(255, 255, 255, 0.06); border-left: 3.5px solid #4e0eff;
   `}
 
   &:hover { 
     background: rgba(255, 255, 255, 0.08); 
-    transform: scale(1.02) translateY(-2px); 
+    transform: scale(1.03) translateY(-2px); 
+    box-shadow: 0 5px 15px rgba(0,0,0,0.2);
     .pin-btn { opacity: 1; }
   }
 
@@ -526,8 +520,7 @@ const ContactItem = styled.div`
   `}
 
   .avatar { 
-    height: 3rem; width: 3rem; min-width: 3rem; 
-    border-radius: 50%; overflow: hidden; 
+    height: 3rem; width: 3rem; min-width: 3rem; border-radius: 50%; overflow: hidden; 
     display: flex; align-items: center; justify-content: center; 
     background: #1a1a2e; transition: box-shadow 0.3s ease;
     img { width: 100%; height: 100%; object-fit: cover; } 
@@ -536,13 +529,8 @@ const ContactItem = styled.div`
   }
 
   .username { 
-    flex-grow: 1; display: flex; flex-direction: column; justify-content: center; 
-    overflow: hidden; 
-    h3 { 
-        color: #e0e0e0; font-size: 0.95rem; margin-bottom: 2px;
-        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    } 
-    
+    flex-grow: 1; display: flex; flex-direction: column; justify-content: center; overflow: hidden; 
+    h3 { color: #e0e0e0; font-size: 0.95rem; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } 
     .presence-container { display: flex; align-items: center; gap: 5px; }
     .status-text { color: #888; font-size: 0.75rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px; } 
     .typing-text { color: #00ff88; font-style: italic; font-weight: 600; letter-spacing: 0.5px; animation: ${glassShine} 2s infinite linear; }
@@ -551,8 +539,7 @@ const ContactItem = styled.div`
   }
   
   .contact-meta {
-    display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
-    min-width: 20px; 
+    display: flex; flex-direction: column; align-items: flex-end; gap: 8px; min-width: 20px; 
     .online-indicator { height: 8px; width: 8px; background: #00ff88; border-radius: 50%; box-shadow: 0 0 10px #00ff88; }
     .pin-btn {
       background: none; border: none; color: #555; cursor: pointer; transition: 0.2s; font-size: 0.85rem;
@@ -566,9 +553,20 @@ const ContactItem = styled.div`
 const FolderBtn = styled.button`
     background: transparent; border: none; color: #777; cursor: pointer;
     font-size: 1.2rem; display: flex; align-items: center; justify-content: center;
-    transition: 0.3s; width: 42px; height: 42px; border-radius: 12px;
-    &:hover { color: #fff; background: rgba(255,255,255,0.08); }
-    &.active { color: #4e0eff; background: rgba(78, 14, 255, 0.12); box-shadow: 0 0 10px rgba(78, 14, 255, 0.1); }
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); 
+    width: 42px; height: 42px; border-radius: 12px; position: relative;
+    
+    &:hover { color: #fff; background: rgba(255,255,255,0.08); transform: translateY(-2px); }
+    &.active { color: #4e0eff; background: rgba(78, 14, 255, 0.12); box-shadow: 0 4px 10px rgba(78, 14, 255, 0.2); transform: translateY(-2px); }
+
+    .badge {
+        position: absolute; top: -2px; right: -2px;
+        color: white; font-size: 0.6rem; font-weight: bold;
+        padding: 2px 5px; border-radius: 10px; border: 2px solid #131324;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+    }
+    .theme-badge { background: #4e0eff; }
+    .danger-badge { background: #ff4e4e; }
 `;
 
 const Modal = styled.div`

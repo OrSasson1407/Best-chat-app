@@ -1,12 +1,12 @@
 import React, { useState, useRef, useEffect } from "react";
-import styled, { keyframes } from "styled-components";
+import styled, { keyframes, css } from "styled-components";
 import EmojiPicker, { Theme } from "emoji-picker-react";
 import { IoMdSend, IoMdClose, IoMdCheckmark } from "react-icons/io";
 import { 
     BsEmojiSmileFill, BsPaperclip, BsMicFill, 
     BsStopCircleFill, BsCodeSlash, BsClockHistory 
 } from "react-icons/bs";
-import { FaBomb, FaFire, FaCalendarAlt } from "react-icons/fa";
+import { FaBomb, FaFire, FaCalendarAlt, FaLink } from "react-icons/fa";
 
 export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, setReplyingTo, editingMessage, setEditingMessage, handleEditMsgSubmit }) {
   const [msg, setMsg] = useState("");
@@ -15,12 +15,15 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
   const [isCodeMode, setIsCodeMode] = useState(false);
   const [mediaPreview, setMediaPreview] = useState(null); 
   
-  // --- PHASE 2 STATE: PRODUCTIVITY & PRIVACY ---
+  // --- STATE: PRODUCTIVITY & PRIVACY ---
   const [showTimerMenu, setShowTimerMenu] = useState(false);
-  const [timerDuration, setTimerDuration] = useState(null); // e.g., 3600 (1h), 86400 (1d)
+  const [timerDuration, setTimerDuration] = useState(null); 
   const [showScheduleMenu, setShowScheduleMenu] = useState(false);
   const [scheduleDate, setScheduleDate] = useState("");
   const [isViewOnceMedia, setIsViewOnceMedia] = useState(false);
+  
+  // --- NEW: LINK DETECTION STATE ---
+  const [detectedUrl, setDetectedUrl] = useState(null);
   
   const fileInputRef = useRef(null);
   const mediaRecorderRef = useRef(null);
@@ -32,6 +35,17 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
           setReplyingTo(null); 
       }
   }, [editingMessage, setReplyingTo]);
+
+  // --- NEW: SMART LINK DETECTION ---
+  useEffect(() => {
+      const urlRegex = /(https?:\/\/[^\s]+)/g;
+      const match = msg.match(urlRegex);
+      if (match && match.length > 0) {
+          setDetectedUrl(match[0]);
+      } else {
+          setDetectedUrl(null);
+      }
+  }, [msg]);
 
   const handleEmojiClick = (emojiData) => {
     setMsg((prev) => prev + emojiData.emoji);
@@ -45,8 +59,8 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
           handleEditMsgSubmit(editingMessage.id, msg);
           setEditingMessage(null);
       } else {
-          // Send with Phase 2 Extra Data
-          handleSendMsg(msg, isCodeMode ? "code" : "text", replyingTo?.id, {
+          // Change type to 'link' if a URL is detected
+          handleSendMsg(msg, isCodeMode ? "code" : (detectedUrl ? "link" : "text"), replyingTo?.id, {
               timer: timerDuration,
               scheduledAt: scheduleDate || null
           }); 
@@ -59,6 +73,7 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
       setShowEmojiPicker(false);
       setScheduleDate(""); 
       setShowScheduleMenu(false);
+      setDetectedUrl(null);
     }
   };
 
@@ -77,7 +92,7 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
         else if (file.type.startsWith("video/")) type = "video";
 
         setMediaPreview({ src: reader.result, type }); 
-        setIsViewOnceMedia(false); // reset view once state
+        setIsViewOnceMedia(false); 
       };
       reader.readAsDataURL(file);
     }
@@ -138,7 +153,6 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
 
   return (
     <Wrapper>
-      {/* Dynamic Status Badges (Phase 2) */}
       <div className="status-badges">
           {timerDuration && (
               <div className="badge timer-badge" onClick={() => setTimerDuration(null)}>
@@ -151,6 +165,14 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
               </div>
           )}
       </div>
+
+      {/* --- NEW: LINK DETECTION BANNER --- */}
+      {detectedUrl && !isRecording && !isCodeMode && (
+         <div className="reply-banner link-banner">
+             <FaLink style={{marginRight: '8px', color: '#34B7F1'}}/>
+             <span>Link detected: A rich preview will be generated when sent.</span>
+         </div>
+      )}
 
       {replyingTo && !editingMessage && (
         <div className="reply-banner">
@@ -178,7 +200,6 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
                   {mediaPreview.type === "video" && <video src={mediaPreview.src} controls />}
                   {mediaPreview.type === "file" && <div className="file-preview-icon">📄 Document attached</div>}
 
-                  {/* Phase 2: View Once Toggle for Media */}
                   <div className="media-options">
                       <label className={`view-once-toggle ${isViewOnceMedia ? 'active' : ''}`}>
                           <input type="checkbox" checked={isViewOnceMedia} onChange={(e) => setIsViewOnceMedia(e.target.checked)} hidden />
@@ -194,7 +215,7 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
           </PreviewOverlay>
       )}
 
-      <Container>
+      <Container $isRecording={isRecording}>
         <div className="button-container">
           <div className="emoji">
             <BsEmojiSmileFill onClick={() => { setShowEmojiPicker(!showEmojiPicker); setShowTimerMenu(false); setShowScheduleMenu(false); }} />
@@ -214,7 +235,6 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
             {isRecording ? <BsStopCircleFill className="recording-active" /> : <BsMicFill />}
           </div>
 
-          {/* Phase 2: Productivity Tools */}
           <div className={`tool-toggle ${timerDuration ? 'active' : ''}`} title="Self-Destruct Timer">
               <FaBomb onClick={() => { setShowTimerMenu(!showTimerMenu); setShowEmojiPicker(false); setShowScheduleMenu(false); }} />
               {showTimerMenu && (
@@ -250,19 +270,28 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
         </div>
 
         <form className="input-container" onSubmit={(event) => sendChat(event)}>
-          {isCodeMode ? (
+          {/* --- NEW: AUDIO WAVEFORM UI --- */}
+          {isRecording ? (
+            <div className="recording-ui">
+               <span className="rec-text">Recording Audio...</span>
+               <div className="waveform">
+                   <span className="bar"></span><span className="bar"></span><span className="bar"></span>
+                   <span className="bar"></span><span className="bar"></span><span className="bar"></span>
+               </div>
+            </div>
+          ) : isCodeMode ? (
             <textarea placeholder="Paste your code snippet here..." onChange={handleChange} value={msg} rows="2" />
           ) : (
             <input
               type="text"
-              placeholder={isRecording ? "Recording audio..." : "Type your message here..."}
+              placeholder="Type your message here..."
               onChange={handleChange}
               value={msg}
-              disabled={isRecording} 
               onBlur={() => handleTyping(false)}
             />
           )}
-          <button type="submit" className={scheduleDate ? 'schedule-btn' : ''}>
+          
+          <button type="submit" className={scheduleDate ? 'schedule-btn' : ''} disabled={isRecording}>
             {editingMessage ? <IoMdCheckmark /> : (scheduleDate ? <BsClockHistory /> : <IoMdSend />)}
           </button>
         </form>
@@ -280,8 +309,14 @@ const popIn = keyframes`
 
 const pulse = keyframes`
   0% { transform: scale(1); }
-  50% { transform: scale(1.2); }
+  50% { transform: scale(1.15); }
   100% { transform: scale(1); }
+`;
+
+// --- NEW: WAVE ANIMATION ---
+const wave = keyframes`
+  0%, 100% { height: 8px; }
+  50% { height: 24px; }
 `;
 
 const PreviewOverlay = styled.div`
@@ -332,8 +367,8 @@ const Wrapper = styled.div`
           display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.8rem; border-radius: 1rem; font-size: 0.75rem; font-weight: bold; cursor: pointer; color: white; animation: ${popIn} 0.3s ease; box-shadow: 0 4px 10px rgba(0,0,0,0.5);
           .close { margin-left: 5px; opacity: 0.6; &:hover { opacity: 1; } }
       }
-      .timer-badge { background: rgba(255, 85, 0, 0.2); border: 1px solid #ff5500; color: #ff5500; }
-      .schedule-badge { background: rgba(0, 255, 136, 0.2); border: 1px solid #00ff88; color: #00ff88; }
+      .timer-badge { background: rgba(255, 85, 0, 0.2); border: 1px solid #ff5500; color: #ff5500; backdrop-filter: blur(5px); }
+      .schedule-badge { background: rgba(0, 255, 136, 0.2); border: 1px solid #00ff88; color: #00ff88; backdrop-filter: blur(5px); }
   }
 
   .reply-banner {
@@ -341,11 +376,18 @@ const Wrapper = styled.div`
       .close-btn { cursor: pointer; color: white; font-size: 1.2rem; transition: 0.2s; &:hover { color: #ff4e4e; transform: scale(1.2); } }
   }
   .edit-banner { background: rgba(0, 255, 136, 0.15); }
+  .link-banner { background: rgba(52, 183, 241, 0.1); border-top: 1px solid rgba(52, 183, 241, 0.2); justify-content: flex-start; animation: ${popIn} 0.3s ease; }
 `;
 
 const Container = styled.div`
   display: grid; grid-template-columns: 25% 75%; align-items: center;
   background-color: rgba(255, 255, 255, 0.02); padding: 0 2rem; min-height: 10%; border-top: 1px solid rgba(255, 255, 255, 0.05);
+  
+  /* --- NEW: RECORDING BACKGROUND PULSE --- */
+  ${({ $isRecording }) => $isRecording && css`
+     background: rgba(255, 78, 78, 0.05);
+     box-shadow: inset 0 0 20px rgba(255, 78, 78, 0.1);
+  `}
 
   @media screen and (max-width: 1080px) { grid-template-columns: 35% 65%; }
   @media screen and (max-width: 720px) { padding: 0 1rem; gap: 1rem; grid-template-columns: 40% 60%; }
@@ -361,10 +403,9 @@ const Container = styled.div`
     
     .emoji svg { color: #ffff00c8; }
     .upload svg { color: #34B7F1; }
-    .mic .recording-active { color: #ff4e4e; animation: ${pulse} 1s infinite; filter: drop-shadow(0 0 8px #ff4e4e); }
+    .mic .recording-active { color: #ff4e4e; animation: ${pulse} 1s infinite; filter: drop-shadow(0 0 10px #ff4e4e); }
     .code-toggle.active svg { color: #00ff88; filter: drop-shadow(0 0 5px #00ff88); }
 
-    /* Unified Floating Menu Styling for Phase 2 */
     .floating-menu {
       position: absolute; bottom: 50px; left: 0; background: rgba(13, 13, 48, 0.95); backdrop-filter: blur(15px);
       box-shadow: 0 10px 30px rgba(0,0,0,0.8); border: 1px solid rgba(78, 14, 255, 0.3); border-radius: 1rem; z-index: 99;
@@ -387,6 +428,19 @@ const Container = styled.div`
     border: 1px solid transparent;
     &:focus-within { background-color: rgba(255, 255, 255, 0.08); border-color: rgba(78, 14, 255, 0.3); box-shadow: 0 0 15px rgba(78, 14, 255, 0.1); }
     
+    /* --- NEW: WAVEFORM STYLES --- */
+    .recording-ui {
+        width: 100%; height: 60%; display: flex; align-items: center; justify-content: space-between; padding-left: 1.5rem; padding-right: 1rem;
+        .rec-text { color: #ff4e4e; font-style: italic; font-weight: bold; animation: ${pulse} 1.5s infinite; }
+        .waveform {
+            display: flex; align-items: center; gap: 4px; height: 30px;
+            .bar { display: block; width: 4px; background: #ff4e4e; border-radius: 4px; animation: ${wave} 1s ease-in-out infinite; }
+            .bar:nth-child(2) { animation-delay: 0.1s; } .bar:nth-child(3) { animation-delay: 0.2s; }
+            .bar:nth-child(4) { animation-delay: 0.3s; } .bar:nth-child(5) { animation-delay: 0.4s; }
+            .bar:nth-child(6) { animation-delay: 0.5s; }
+        }
+    }
+
     input { width: 100%; height: 60%; background-color: transparent; color: white; border: none; padding-left: 1.5rem; font-size: 1.1rem; &::selection { background-color: #9a86f3; } &:focus { outline: none; } }
     textarea { width: 100%; background-color: transparent; color: #00ff88; border: none; padding-left: 1.5rem; font-size: 1rem; resize: none; font-family: 'JetBrains Mono', monospace; &:focus { outline: none; } }
     
@@ -394,7 +448,8 @@ const Container = styled.div`
       padding: 0.6rem 1.5rem; border-radius: 2rem; display: flex; justify-content: center; align-items: center;
       background: linear-gradient(135deg, #4e0eff 0%, #9a41fe 100%); border: none; cursor: pointer; transition: 0.3s; box-shadow: 0 4px 15px rgba(78, 14, 255, 0.3);
       svg { font-size: 1.5rem; color: white; }
-      &:hover { transform: scale(1.05); box-shadow: 0 6px 20px rgba(78, 14, 255, 0.5); }
+      &:hover:not(:disabled) { transform: scale(1.05); box-shadow: 0 6px 20px rgba(78, 14, 255, 0.5); }
+      &:disabled { background: #555; cursor: not-allowed; box-shadow: none; }
       &.schedule-btn { background: linear-gradient(135deg, #00ff88 0%, #00b35f 100%); box-shadow: 0 4px 15px rgba(0, 255, 136, 0.3); }
     }
   }

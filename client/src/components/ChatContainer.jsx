@@ -11,7 +11,7 @@ import {
     deleteMessageRoute, 
     editMessageRoute,
     blockUserRoute,
-    getChatMediaRoute // <-- ADDED: Phase 3 Media Gallery Route
+    getChatMediaRoute 
 } from "../utils/APIRoutes";
 import { v4 as uuidv4 } from "uuid";
 import { toast } from "react-toastify";
@@ -20,11 +20,47 @@ import {
     FaInfoCircle, FaFileDownload, FaShare, FaStar, FaThumbtack, 
     FaFire, FaMicrophoneAlt, FaPoll, FaSearch, FaUserSlash, FaSpinner,
     FaArrowDown, FaCloudUploadAlt, FaTimes, FaClock, FaCheckDouble,
-    FaImage, FaLink // <-- ADDED: Phase 3 Icons
+    FaImage, FaLink 
 } from "react-icons/fa";
 
-// --- IMPORT STYLES FROM THE NEW FILE ---
-import { Container, DropOverlay, ScrollButton, Lightbox, MediaGalleryPanel } from "./ChatContainer.styles"; // <-- ADDED MediaGalleryPanel
+import { Container, DropOverlay, ScrollButton, Lightbox, MediaGalleryPanel } from "./ChatContainer.styles"; 
+
+// Helper for tiny avatars
+const getSmallAvatar = (seed) => {
+    return `https://api.dicebear.com/9.x/avataaars/svg?seed=${seed}&backgroundColor=b6e3f4,c0aede,d1d4f9`;
+};
+
+// --- TIMELINE & GROUPING HELPERS ---
+const isNewDay = (currentDate, previousDate) => {
+    if (!previousDate) return true;
+    const d1 = new Date(currentDate);
+    const d2 = new Date(previousDate);
+    return d1.toDateString() !== d2.toDateString();
+};
+
+const formatDateBadge = (dateString) => {
+    if (!dateString) return "";
+    const date = new Date(dateString);
+    const today = new Date();
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    if (date.toDateString() === today.toDateString()) return "Today";
+    if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
+    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+};
+
+const isSameSender = (msg1, msg2) => {
+    if (!msg1 || !msg2) return false;
+    return msg1.fromSelf === msg2.fromSelf && msg1.username === msg2.username;
+};
+
+const isWithinTimeFrame = (msg1, msg2) => {
+    if (!msg1 || !msg2) return false;
+    const t1 = new Date(msg1.createdAt).getTime();
+    const t2 = new Date(msg2.createdAt).getTime();
+    return Math.abs(t1 - t2) < 5 * 60 * 1000; // Group if within 5 minutes
+};
 
 export default function ChatContainer({ currentChat, currentUser, socket, isTyping, theme, isCompact }) {
   const [messages, setMessages] = useState([]);
@@ -34,26 +70,27 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
   const [pinnedMessage, setPinnedMessage] = useState(null);
   const [isFetchingHistory, setIsFetchingHistory] = useState(true); 
   
-  // --- PHASE 3: VIRTUAL SCROLLING STATE ---
   const virtuosoRef = useRef(null);
   const [highlightedMsgId, setHighlightedMsgId] = useState(null);
   const [cursor, setCursor] = useState(null);
   const [hasMore, setHasMore] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
-  // --- PRESENCE STATE ---
   const [isOnline, setIsOnline] = useState(false);
   const [lastSeen, setLastSeen] = useState(null);
 
-  // --- PHASE 3: MEDIA GALLERY STATE ---
   const [showMediaGallery, setShowMediaGallery] = useState(false);
   const [chatMedia, setChatMedia] = useState({ media: [], links: [] });
   const [activeMediaTab, setActiveMediaTab] = useState("media");
   const [isFetchingMedia, setIsFetchingMedia] = useState(false);
 
-  // --- PHASE 2 STATE: MEDIA & PRODUCTIVITY UX ---
   const [isDragging, setIsDragging] = useState(false);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
+  
+  // --- NEW: UNREAD SCROLL BADGE STATE ---
+  const [unreadScrollCount, setUnreadScrollCount] = useState(0);
+  const isScrolledUpRef = useRef(false); // Safely track scroll state inside effects
+
   const [lightboxImage, setLightboxImage] = useState(null);
   const [readReceiptsMsg, setReadReceiptsMsg] = useState(null); 
 
@@ -65,7 +102,11 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
     headers: { "x-auth-token": currentUser.token },
   });
 
-  // 1. Fetch History
+  // --- NEW: KEEP REF IN SYNC WITH SCROLL STATE ---
+  useEffect(() => {
+      isScrolledUpRef.current = showScrollBtn;
+  }, [showScrollBtn]);
+
   useEffect(() => {
     async function fetchHistory() {
       if (currentChat && currentUser) {
@@ -88,6 +129,9 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
 
             const fetchedMessages = response.data.messages ? response.data.messages : response.data;
             setMessages(fetchedMessages);
+            
+            // --- NEW: RESET UNREAD COUNT WHEN SWITCHING CHATS ---
+            setUnreadScrollCount(0);
 
             if (response.data.nextCursor !== undefined) {
                 setCursor(response.data.nextCursor);
@@ -122,7 +166,6 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
     fetchHistory();
   }, [currentChat, currentUser]);
 
-  // Phase 3: Fetch Media Gallery Data
   useEffect(() => {
       if (showMediaGallery && currentChat) {
           const fetchMedia = async () => {
@@ -148,7 +191,6 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
       }
   }, [showMediaGallery, currentChat, currentUser]);
 
-  // Phase 3: Virtuoso Load More Logic
   const loadMoreMessages = async () => {
     if (hasMore && !isLoadingMore) {
       setIsLoadingMore(true);
@@ -180,9 +222,10 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
 
   const scrollToBottom = () => {
       virtuosoRef.current?.scrollToIndex({ index: messages.length - 1, behavior: 'smooth' });
+      // --- NEW: RESET UNREAD COUNT MANUALLY ON SCROLL ---
+      setUnreadScrollCount(0);
   };
 
-  // Heartbeat System
   useEffect(() => {
       if (socket.current && currentUser) {
           const heartbeatInterval = setInterval(() => {
@@ -192,7 +235,6 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
       }
   }, [socket, currentUser]);
 
-  // Drag and Drop Overlays
   const handleDragOver = (e) => { e.preventDefault(); setIsDragging(true); };
   const handleDragLeave = (e) => { e.preventDefault(); setIsDragging(false); };
   const handleDrop = (e) => {
@@ -201,7 +243,6 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
     if (files.length > 0) toast.info(`Preparing to upload ${files[0].name}...`);
   };
 
-  // Real-time Listeners
   useEffect(() => {
     if (socket.current) {
       const s = socket.current;
@@ -233,7 +274,6 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
           setMessages(prev => prev.map(msg => msg.id === data.messageId ? { ...msg, reactions: data.reactions } : msg));
       };
 
-      // --- DYNAMIC READ RECEIPT HANDLERS ---
       const handleMsgReadUpdate = ({ messageId, status, newReader }) => {
           setMessages((prev) => prev.map(msg => {
               if (msg.id === messageId) {
@@ -259,7 +299,6 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
               return msg;
           }));
           
-          // Instantly update the modal if it is currently open
           if (readReceiptsMsg && readReceiptsMsg.id === messageId) {
              setReadReceiptsMsg(prev => ({
                  ...prev, 
@@ -296,10 +335,13 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
   useEffect(() => {
     if (arrivalMessage) {
         setMessages((prev) => [...prev, arrivalMessage]);
+        // --- NEW: INCREMENT UNREAD COUNT IF SCROLLED UP ---
+        if (isScrolledUpRef.current) {
+            setUnreadScrollCount(prev => prev + 1);
+        }
     }
   }, [arrivalMessage]);
 
-  // Send Message Handler
   const handleSendMsg = async (msg, type = "text", replyToId = null, extraData = {}) => {
     const time = new Date().toISOString();
     try {
@@ -393,7 +435,6 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
       } catch (e) { toast.error("Failed to update block status"); }
   };
 
-  // Phase 3: Scroll to specific message using Virtuoso
   const scrollToMessage = (msgId) => {
       const index = filteredMessages.findIndex(m => m.id === msgId);
       if (index !== -1) {
@@ -422,11 +463,28 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
         if (isGroup) setReadReceiptsMsg(msg);
     };
 
-    if (msg.status === "read" || (isGroup && msg.readBy && msg.readBy.length > 0)) {
-        return <span className="tick-read" onClick={handleClick} style={{color: '#34B7F1', cursor: isGroup ? 'pointer' : 'default'}} title={isGroup ? "View read receipts" : ""}>✓✓</span>;
-    }
-    if (msg.status === "delivered") return <span className="tick-delivered" onClick={handleClick} style={{cursor: isGroup ? 'pointer' : 'default'}} title={isGroup ? "View read receipts" : ""}>✓✓</span>;
-    return <span className="tick-sent">✓</span>;
+    const hasReaders = isGroup && msg.readBy && msg.readBy.length > 0;
+
+    return (
+        <span className={`read-status-wrapper ${hasReaders ? 'has-avatars' : ''}`} onClick={handleClick} title={isGroup ? "View read receipts" : ""}>
+            {hasReaders && (
+                <div className="reader-avatars">
+                    {msg.readBy.slice(0, 3).map((reader, idx) => (
+                        <img key={idx} src={getSmallAvatar(reader.username)} alt={reader.username} className="tiny-avatar" style={{ zIndex: 3 - idx }} />
+                    ))}
+                    {msg.readBy.length > 3 && <span className="more-readers">+{msg.readBy.length - 3}</span>}
+                </div>
+            )}
+            
+            {(msg.status === "read" || hasReaders) ? (
+                <span className="tick-read" style={{color: '#34B7F1', cursor: isGroup ? 'pointer' : 'default'}}>✓✓</span>
+            ) : msg.status === "delivered" ? (
+                <span className="tick-delivered" style={{cursor: isGroup ? 'pointer' : 'default'}}>✓✓</span>
+            ) : (
+                <span className="tick-sent">✓</span>
+            )}
+        </span>
+    );
   };
 
   const renderMessageContent = (msg) => {
@@ -477,22 +535,15 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
     return <p>{msg.message}</p>;
   };
 
-  // [FIX APPLIED]: Updated filter to show media files when not searching.
   const filteredMessages = messages.filter(msg => {
-      // If there's no search query, show all message types
       if (!searchQuery) return true;
-      
-      // If the user is actively searching, only filter text/link messages
       if (msg.type !== "text" && msg.type !== "link") return false;
-      
-      // Perform the search
       return msg.message && msg.message.toLowerCase().includes(searchQuery.toLowerCase());
   });
 
   return (
     <Container $themeType={theme} $isCompact={isCompact} $hasPinned={!!pinnedMessage} onDragOver={handleDragOver}>
       
-      {/* PHASE 2: OVERLAYS */}
       {isDragging && (
         <DropOverlay onDragLeave={handleDragLeave} onDrop={handleDrop}>
           <div className="overlay-content">
@@ -503,7 +554,6 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
         </DropOverlay>
       )}
 
-      {/* LIGHTBOX FOR IMAGES */}
       {lightboxImage && (
         <Lightbox onClick={() => setLightboxImage(null)}>
           <button className="close-btn"><FaTimes /></button>
@@ -511,7 +561,6 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
         </Lightbox>
       )}
 
-      {/* READ RECEIPTS MODAL */}
       {readReceiptsMsg && (
         <Lightbox onClick={() => setReadReceiptsMsg(null)}>
             <div className="receipt-modal" onClick={(e) => e.stopPropagation()}>
@@ -530,7 +579,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
                         readReceiptsMsg.readBy.map((reader, index) => (
                             <div key={index} className="reader-item">
                                 <div className="reader-info">
-                                    <div className="dot online"></div> 
+                                    <img src={getSmallAvatar(reader.username)} alt="avatar" className="reader-avatar-img" />
                                     <span className="reader-name">{reader.username}</span>
                                 </div>
                                 <span className="reader-time">{formatTime(reader.readAt)}</span>
@@ -542,7 +591,6 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
         </Lightbox>
       )}
 
-      {/* PHASE 3: NEW MEDIA GALLERY RIGHT PANEL */}
       {showMediaGallery && (
         <MediaGalleryPanel $themeType={theme}>
             <div className="panel-header">
@@ -606,8 +654,6 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
                   <input type="text" placeholder="Search chat..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="chat-search-input" />
               )}
               <FaSearch className="action-icon" title="Search messages" onClick={() => setShowSearch(!showSearch)} />
-              
-              {/* ADDED: MEDIA GALLERY TOGGLE BUTTON */}
               <FaImage className="action-icon" title="Media & Links" onClick={() => setShowMediaGallery(!showMediaGallery)} />
               
               <button className="huddle-btn"><FaMicrophoneAlt /> Start Huddle</button>
@@ -634,7 +680,6 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
           </div>
       )}
 
-      {/* PHASE 3: VIRTUAL SCROLLING IMPLEMENTATION */}
       <div className="chat-messages-container">
         {isFetchingHistory ? (
             <div className="skeleton-container">
@@ -652,77 +697,115 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
                 firstItemIndex={0}
                 initialTopMostItemIndex={filteredMessages.length - 1}
                 startReached={loadMoreMessages}
-                atBottomStateChange={(bottom) => setShowScrollBtn(!bottom)}
+                atBottomStateChange={(bottom) => {
+                    setShowScrollBtn(!bottom);
+                    // --- NEW: AUTO-RESET UNREAD COUNT WHEN USER REACHES BOTTOM ---
+                    if (bottom) setUnreadScrollCount(0); 
+                }}
                 followOutput={(isAtBottom) => isAtBottom ? 'smooth' : false}
                 components={{
                     Header: () => isLoadingMore ? <div className="loading-older"><FaSpinner className="fa-spin" /> Loading older messages...</div> : null,
                     Footer: () => isTyping ? <div className="typing-indicator"><span>{typeof isTyping === 'string' ? `${isTyping} is typing...` : "Someone is typing..."}</span></div> : <div style={{ height: '20px' }} />
                 }}
-                itemContent={(index, message) => (
-                    <div id={`msg-${message.id}`} className={`message-wrapper ${highlightedMsgId === message.id ? 'highlight-flash' : ''}`}>
-                        <div className={`message ${message.fromSelf ? "sended" : "recieved"} ${message.isDeleted ? "deleted-msg" : ""}`}>
-                        <div className="content tail-physics">
-                            {message.isForwarded && <div className="forwarded-tag"><FaShare /> Forwarded</div>}
-                            {message.replyTo && (
-                                <div className="quoted-message" onClick={() => scrollToMessage(message.replyTo.id)}>
-                                    <span>{message.replyTo.isSelfQuote ? "You" : "Them"}: </span>
-                                    {["text", "code"].includes(message.replyTo.type) 
-                                        ? message.replyTo.text.substring(0,40) 
-                                        : `[${message.replyTo.type.toUpperCase()}]`
-                                    }
+                itemContent={(index, message) => {
+                    const prevMsg = index > 0 ? filteredMessages[index - 1] : null;
+                    const nextMsg = index < filteredMessages.length - 1 ? filteredMessages[index + 1] : null;
+                    
+                    const showDateSeparator = isNewDay(message.createdAt, prevMsg?.createdAt);
+                    
+                    const isGroupedWithPrev = prevMsg && 
+                                              isSameSender(message, prevMsg) && 
+                                              isWithinTimeFrame(message, prevMsg) && 
+                                              !showDateSeparator;
+
+                    const isGroupedWithNext = nextMsg && 
+                                              isSameSender(message, nextMsg) && 
+                                              isWithinTimeFrame(message, nextMsg) && 
+                                              !isNewDay(nextMsg.createdAt, message.createdAt);
+
+                    return (
+                        <div key={message.id}>
+                            {showDateSeparator && (
+                                <div className="date-separator">
+                                    <span>{formatDateBadge(message.createdAt)}</span>
                                 </div>
-                            )}
-                            {!message.fromSelf && currentChat.admin && (
-                                <span className="sender-name">{message.username}</span>
                             )}
                             
-                            <div className="message-payload">
-                                {renderMessageContent(message)}
-                            </div>
+                            <div 
+                                id={`msg-${message.id}`} 
+                                className={`message-wrapper ${highlightedMsgId === message.id ? 'highlight-flash' : ''} ${isGroupedWithNext ? 'grouped-next' : ''} ${isGroupedWithPrev ? 'grouped-prev' : ''}`}
+                            >
+                                <div className={`message ${message.fromSelf ? "sended" : "recieved"} ${message.isDeleted ? "deleted-msg" : ""}`}>
+                                <div className="content tail-physics">
+                                    {message.isForwarded && <div className="forwarded-tag"><FaShare /> Forwarded</div>}
+                                    
+                                    {message.replyTo && typeof message.replyTo === 'object' && (
+                                        <div className="quoted-message" onClick={() => scrollToMessage(message.replyTo.id)}>
+                                            <span>{message.replyTo.isSelfQuote ? "You" : "Them"}: </span>
+                                            {["text", "code"].includes(message.replyTo.type) 
+                                                ? (message.replyTo.text || "Message").substring(0,40) 
+                                                : `[${(message.replyTo.type || "media").toUpperCase()}]`
+                                            }
+                                        </div>
+                                    )}
 
-                            <div className="meta">
-                                {/* Productivity UI Indicators */}
-                                {message.timer && <FaClock className="timer-icon" title="Self-destructing message" />}
-                                
-                                <span>{formatTime(message.createdAt)}</span>
-                                {message.isStarred && <FaStar className="starred-icon" color="gold" size={10} />}
-                                {message.isEdited && <span className="edited-tag">(edited)</span>}
-                                {message.fromSelf && !message.isDeleted && (
-                                    <span className="read-status">
-                                        {renderStatusTicks(message)}
-                                    </span>
-                                )}
-                            </div>
-                            {!message.isDeleted && (
-                                <div className="message-actions">
-                                    <button onClick={() => setReplyingTo({ id: message.id, text: message.message, type: message.type, isSelfQuote: message.fromSelf })} title="Reply"><FaReply /></button>
-                                    <button title="Forward"><FaShare /></button>
-                                    <button title="Star"><FaStar /></button>
-                                    <div className="reaction-trigger">
-                                        <FaSmile title="React"/>
-                                        <div className="reaction-menu">
-                                            {['👍', '❤️', '😂', '😮', '😢'].map(emoji => (
-                                                <span key={emoji} onClick={() => handleReaction(message.id, emoji)}>{emoji}</span>
+                                    {!message.fromSelf && currentChat.admin && !isGroupedWithPrev && (
+                                        <span className="sender-name">{message.username}</span>
+                                    )}
+                                    
+                                    <div className="message-payload">
+                                        {renderMessageContent(message)}
+                                    </div>
+
+                                    <div className="meta">
+                                        {message.timer && <FaClock className="timer-icon" title="Self-destructing message" />}
+                                        <span>{formatTime(message.createdAt)}</span>
+                                        {message.isStarred && <FaStar className="starred-icon" color="gold" size={10} />}
+                                        {message.isEdited && <span className="edited-tag">(edited)</span>}
+                                        
+                                        {message.fromSelf && !message.isDeleted && (
+                                            <div className="read-status">
+                                                {renderStatusTicks(message)}
+                                            </div>
+                                        )}
+                                    </div>
+                                    {!message.isDeleted && (
+                                        <div className="message-actions">
+                                            <button onClick={() => setReplyingTo({ id: message.id, text: message.message, type: message.type, isSelfQuote: message.fromSelf })} title="Reply"><FaReply /></button>
+                                            <button title="Forward"><FaShare /></button>
+                                            <button title="Star"><FaStar /></button>
+                                            <div className="reaction-trigger">
+                                                <FaSmile title="React"/>
+                                                <div className="reaction-menu">
+                                                    {['👍', '❤️', '😂', '😮', '😢'].map(emoji => (
+                                                        <span key={emoji} onClick={() => handleReaction(message.id, emoji)} className="reaction-emoji-btn">{emoji}</span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                            {message.fromSelf && message.type === "text" && (
+                                                <button onClick={() => setEditingMessage({ id: message.id, text: message.message })} title="Edit"><FaPen size={12}/></button>
+                                            )}
+                                            {message.fromSelf && (
+                                                <button onClick={() => handleDeleteMsg(message.id)} title="Delete"><FaTrash size={12}/></button>
+                                            )}
+                                        </div>
+                                    )}
+                                    
+                                    {message.reactions?.length > 0 && !message.isDeleted && (
+                                        <div className="reactions-display">
+                                            {message.reactions.map((r, i) => (
+                                                <div key={i} className="reaction-pill" title={r.username}>
+                                                    <span className="reaction-anim">{r.emoji}</span>
+                                                </div>
                                             ))}
                                         </div>
-                                    </div>
-                                    {message.fromSelf && message.type === "text" && (
-                                        <button onClick={() => setEditingMessage({ id: message.id, text: message.message })} title="Edit"><FaPen size={12}/></button>
-                                    )}
-                                    {message.fromSelf && (
-                                        <button onClick={() => handleDeleteMsg(message.id)} title="Delete"><FaTrash size={12}/></button>
                                     )}
                                 </div>
-                            )}
-                            {message.reactions?.length > 0 && !message.isDeleted && (
-                                <div className="reactions-display">
-                                    {message.reactions.map((r, i) => <span key={i} title={r.username}>{r.emoji}</span>)}
                                 </div>
-                            )}
+                            </div>
                         </div>
-                        </div>
-                    </div>
-                )}
+                    );
+                }}
             />
         )}
       </div>
@@ -730,6 +813,12 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
       {showScrollBtn && (
         <ScrollButton onClick={scrollToBottom}>
             <FaArrowDown />
+            {/* --- NEW: UNREAD BADGE INJECTED --- */}
+            {unreadScrollCount > 0 && (
+                <span className="unread-badge">
+                    {unreadScrollCount > 99 ? '99+' : unreadScrollCount}
+                </span>
+            )}
         </ScrollButton>
       )}
       
