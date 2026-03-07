@@ -23,7 +23,8 @@ import {
     FaImage, FaLink 
 } from "react-icons/fa";
 
-import { Container, DropOverlay, ScrollButton, Lightbox, MediaGalleryPanel } from "./ChatContainer.styles"; 
+// FIX: Imported SideInfoPanel instead of MediaGalleryPanel
+import { Container, DropOverlay, ScrollButton, Lightbox, SideInfoPanel } from "./ChatContainer.styles"; 
 
 // Helper for tiny avatars
 const getSmallAvatar = (seed) => {
@@ -59,7 +60,21 @@ const isWithinTimeFrame = (msg1, msg2) => {
     if (!msg1 || !msg2) return false;
     const t1 = new Date(msg1.createdAt).getTime();
     const t2 = new Date(msg2.createdAt).getTime();
-    return Math.abs(t1 - t2) < 5 * 60 * 1000; // Group if within 5 minutes
+    return Math.abs(t1 - t2) < 5 * 60 * 1000; 
+};
+
+// --- SEARCH HIGHLIGHTER HELPER ---
+const HighlightedText = ({ text, query }) => {
+    if (!query) return <span>{text}</span>;
+    const parts = text.split(new RegExp(`(${query})`, "gi"));
+    return (
+        <span>
+            {parts.map((part, i) => 
+                part.toLowerCase() === query.toLowerCase() ? 
+                <mark key={i} className="search-highlight">{part}</mark> : part
+            )}
+        </span>
+    );
 };
 
 export default function ChatContainer({ currentChat, currentUser, socket, isTyping, theme, isCompact }) {
@@ -79,17 +94,17 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
   const [isOnline, setIsOnline] = useState(false);
   const [lastSeen, setLastSeen] = useState(null);
 
-  const [showMediaGallery, setShowMediaGallery] = useState(false);
+  // FIX: Synced state names to showSidePanel
+  const [showSidePanel, setShowSidePanel] = useState(false);
   const [chatMedia, setChatMedia] = useState({ media: [], links: [] });
-  const [activeMediaTab, setActiveMediaTab] = useState("media");
+  const [activeSideTab, setActiveSideTab] = useState("about");
   const [isFetchingMedia, setIsFetchingMedia] = useState(false);
 
   const [isDragging, setIsDragging] = useState(false);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   
-  // --- NEW: UNREAD SCROLL BADGE STATE ---
   const [unreadScrollCount, setUnreadScrollCount] = useState(0);
-  const isScrolledUpRef = useRef(false); // Safely track scroll state inside effects
+  const isScrolledUpRef = useRef(false);
 
   const [lightboxImage, setLightboxImage] = useState(null);
   const [readReceiptsMsg, setReadReceiptsMsg] = useState(null); 
@@ -102,7 +117,6 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
     headers: { "x-auth-token": currentUser.token },
   });
 
-  // --- NEW: KEEP REF IN SYNC WITH SCROLL STATE ---
   useEffect(() => {
       isScrolledUpRef.current = showScrollBtn;
   }, [showScrollBtn]);
@@ -129,9 +143,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
 
             const fetchedMessages = response.data.messages ? response.data.messages : response.data;
             setMessages(fetchedMessages);
-            
-            // --- NEW: RESET UNREAD COUNT WHEN SWITCHING CHATS ---
-            setUnreadScrollCount(0);
+            setUnreadScrollCount(0); 
 
             if (response.data.nextCursor !== undefined) {
                 setCursor(response.data.nextCursor);
@@ -167,7 +179,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
   }, [currentChat, currentUser]);
 
   useEffect(() => {
-      if (showMediaGallery && currentChat) {
+      if (showSidePanel && currentChat) {
           const fetchMedia = async () => {
               setIsFetchingMedia(true);
               try {
@@ -189,7 +201,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
           };
           fetchMedia();
       }
-  }, [showMediaGallery, currentChat, currentUser]);
+  }, [showSidePanel, currentChat, currentUser]);
 
   const loadMoreMessages = async () => {
     if (hasMore && !isLoadingMore) {
@@ -222,8 +234,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
 
   const scrollToBottom = () => {
       virtuosoRef.current?.scrollToIndex({ index: messages.length - 1, behavior: 'smooth' });
-      // --- NEW: RESET UNREAD COUNT MANUALLY ON SCROLL ---
-      setUnreadScrollCount(0);
+      setUnreadScrollCount(0); 
   };
 
   useEffect(() => {
@@ -335,7 +346,6 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
   useEffect(() => {
     if (arrivalMessage) {
         setMessages((prev) => [...prev, arrivalMessage]);
-        // --- NEW: INCREMENT UNREAD COUNT IF SCROLLED UP ---
         if (isScrolledUpRef.current) {
             setUnreadScrollCount(prev => prev + 1);
         }
@@ -492,10 +502,13 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
     if (msg.isViewOnce && !msg.fromSelf && !msg.viewed) return <button className="view-once-btn" onClick={() => handleOpenViewOnce(msg.id)}><FaFire /> View Once Media</button>;
     if (msg.isViewOnce && (msg.viewed || msg.message === "💣 Media Expired")) return <p className="deleted-text">💣 Media Expired</p>;
 
+    // --- SEARCH HIGHLIGHTING ENABLED ---
+    if (msg.type === "text") return <p><HighlightedText text={msg.message} query={searchQuery}/></p>;
+
     if (msg.type === "link" && msg.linkMetadata) {
         return (
             <div className="link-preview">
-                <p>{msg.message}</p>
+                <p><HighlightedText text={msg.message} query={searchQuery}/></p>
                 <a href={msg.linkMetadata.url} target="_blank" rel="noreferrer" className="preview-card">
                     {msg.linkMetadata.image && <img src={msg.linkMetadata.image} alt="preview" />}
                     <div className="preview-info">
@@ -591,48 +604,70 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
         </Lightbox>
       )}
 
-      {showMediaGallery && (
-        <MediaGalleryPanel $themeType={theme}>
+      {/* --- FIX: SIDE INFO PANEL COMPONENT RENDERED PROPERLY --- */}
+      {showSidePanel && (
+        <SideInfoPanel $themeType={theme}>
             <div className="panel-header">
-                <h3>Shared Content</h3>
-                <button onClick={() => setShowMediaGallery(false)} title="Close Panel"><FaTimes /></button>
+                <h3>{activeSideTab === 'about' ? 'Contact Details' : 'Shared Media'}</h3>
+                <button onClick={() => setShowSidePanel(false)}><FaTimes /></button>
             </div>
             <div className="tabs">
-                <button className={activeMediaTab === 'media' ? 'active' : ''} onClick={() => setActiveMediaTab('media')}>Media</button>
-                <button className={activeMediaTab === 'links' ? 'active' : ''} onClick={() => setActiveMediaTab('links')}>Links</button>
+                <button className={activeSideTab === 'about' ? 'active' : ''} onClick={() => setActiveSideTab('about')}>About</button>
+                <button className={activeSideTab === 'media' ? 'active' : ''} onClick={() => setActiveSideTab('media')}>Media</button>
+                <button className={activeSideTab === 'links' ? 'active' : ''} onClick={() => setActiveSideTab('links')}>Links</button>
             </div>
             <div className="panel-content">
-                {isFetchingMedia ? <div className="loader"><FaSpinner className="fa-spin" /></div> : (
-                   activeMediaTab === 'media' ? (
-                       chatMedia.media.length === 0 ? <p className="empty-state">No media shared yet.</p> :
-                       <div className="media-grid">
-                           {chatMedia.media.map(m => (
-                               m.type === 'image' ? <img key={m.id} src={m.message} alt="shared" onClick={() => setLightboxImage(m.message)} /> :
-                               <video key={m.id} src={m.message} controls />
-                           ))}
-                       </div>
-                   ) : (
-                       chatMedia.links.length === 0 ? <p className="empty-state">No links shared yet.</p> :
-                       <div className="links-list">
-                           {chatMedia.links.map(m => (
-                               <a key={m.id} href={m.linkMetadata?.url || m.message} target="_blank" rel="noreferrer" className="link-item">
-                                  <div className="link-icon"><FaLink /></div>
-                                  <div className="link-info">
-                                      <h4>{m.linkMetadata?.title || m.message}</h4>
-                                      <p>{m.linkMetadata?.url || m.message}</p>
-                                  </div>
-                               </a>
-                           ))}
-                       </div>
-                   )
+                {activeSideTab === 'about' ? (
+                    <div className="about-section">
+                        <div className="profile-hero">
+                             <img src={currentChat.avatarImage ? `https://avatar.iran.liara.run/public/${currentChat.avatarImage}` : getSmallAvatar(currentChat.username)} alt="hero" />
+                             <h3>{currentChat.username}</h3>
+                             <p className="presence">{isOnline ? "Online Now" : formatLastSeen(lastSeen)}</p>
+                        </div>
+                        <div className="info-card">
+                            <label>Bio</label>
+                            <p>{currentChat.bio || "No bio available."}</p>
+                        </div>
+                        <div className="info-card">
+                            <label>Interests</label>
+                            <div className="interests-grid">
+                                {currentChat.interests?.length > 0 ? currentChat.interests.map((i, idx) => <span key={idx} className="interest-tag">{i}</span>) : <span>No interests listed.</span>}
+                            </div>
+                        </div>
+                    </div>
+                ) : (
+                    isFetchingMedia ? <div className="loader"><FaSpinner className="fa-spin" /></div> : (
+                       activeSideTab === 'media' ? (
+                           chatMedia.media.length === 0 ? <p className="empty-state">No media shared yet.</p> :
+                           <div className="media-grid">
+                               {chatMedia.media.map(m => (
+                                   m.type === 'image' ? <img key={m.id} src={m.message} alt="shared" onClick={() => setLightboxImage(m.message)} /> :
+                                   <video key={m.id} src={m.message} controls />
+                               ))}
+                           </div>
+                       ) : (
+                           chatMedia.links.length === 0 ? <p className="empty-state">No links shared yet.</p> :
+                           <div className="links-list">
+                               {chatMedia.links.map(m => (
+                                   <a key={m.id} href={m.linkMetadata?.url || m.message} target="_blank" rel="noreferrer" className="link-item">
+                                      <div className="link-icon"><FaLink /></div>
+                                      <div className="link-info">
+                                          <h4>{m.linkMetadata?.title || m.message}</h4>
+                                          <p>{m.linkMetadata?.url || m.message}</p>
+                                      </div>
+                                   </a>
+                               ))}
+                           </div>
+                       )
+                    )
                 )}
             </div>
-        </MediaGalleryPanel>
+        </SideInfoPanel>
       )}
 
       <div className="chat-header">
         <div className="user-details">
-          <div className="header-info">
+          <div className="header-info" onClick={() => { setShowSidePanel(true); setActiveSideTab('about'); }} style={{cursor: 'pointer'}}>
               <h3>{currentChat.name || currentChat.username} {isBlocked && <span style={{color: 'red', fontSize: '10px'}}>(Blocked)</span>}</h3>
               {!currentChat.admin && (
                   <div className="presence-info">
@@ -654,7 +689,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
                   <input type="text" placeholder="Search chat..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="chat-search-input" />
               )}
               <FaSearch className="action-icon" title="Search messages" onClick={() => setShowSearch(!showSearch)} />
-              <FaImage className="action-icon" title="Media & Links" onClick={() => setShowMediaGallery(!showMediaGallery)} />
+              <FaInfoCircle className="action-icon" title="Contact Info & Media" onClick={() => { setShowSidePanel(!showSidePanel); setActiveSideTab('about'); }} />
               
               <button className="huddle-btn"><FaMicrophoneAlt /> Start Huddle</button>
               {!currentChat.admin && (
@@ -699,13 +734,26 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
                 startReached={loadMoreMessages}
                 atBottomStateChange={(bottom) => {
                     setShowScrollBtn(!bottom);
-                    // --- NEW: AUTO-RESET UNREAD COUNT WHEN USER REACHES BOTTOM ---
                     if (bottom) setUnreadScrollCount(0); 
                 }}
                 followOutput={(isAtBottom) => isAtBottom ? 'smooth' : false}
                 components={{
                     Header: () => isLoadingMore ? <div className="loading-older"><FaSpinner className="fa-spin" /> Loading older messages...</div> : null,
-                    Footer: () => isTyping ? <div className="typing-indicator"><span>{typeof isTyping === 'string' ? `${isTyping} is typing...` : "Someone is typing..."}</span></div> : <div style={{ height: '20px' }} />
+                    
+                    Footer: () => isTyping ? (
+                        <div className="message-wrapper" style={{ paddingBottom: '10px' }}>
+                            <div className="message recieved typing-msg">
+                                <div className="content tail-physics" style={{ minWidth: '60px', padding: '0.8rem 1.2rem' }}>
+                                    {typeof isTyping === 'string' && currentChat.admin && (
+                                        <span className="sender-name" style={{ marginBottom: '2px' }}>{isTyping}</span>
+                                    )}
+                                    <div className="typing-dots">
+                                        <span></span><span></span><span></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    ) : <div style={{ height: '20px' }} />
                 }}
                 itemContent={(index, message) => {
                     const prevMsg = index > 0 ? filteredMessages[index - 1] : null;
@@ -813,7 +861,6 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
       {showScrollBtn && (
         <ScrollButton onClick={scrollToBottom}>
             <FaArrowDown />
-            {/* --- NEW: UNREAD BADGE INJECTED --- */}
             {unreadScrollCount > 0 && (
                 <span className="unread-badge">
                     {unreadScrollCount > 99 ? '99+' : unreadScrollCount}

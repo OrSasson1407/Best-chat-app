@@ -35,6 +35,12 @@ export const Container = styled.div`
   .fa-spin { animation: spin 2s infinite linear; }
   @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(359deg); } }
 
+  /* --- NEW: SEARCH HIGHLIGHT STYLING --- */
+  .search-highlight {
+      background: #ffcc00; color: #000; padding: 0 2px; border-radius: 3px; font-weight: bold;
+      box-shadow: 0 0 8px rgba(255, 204, 0, 0.6);
+  }
+
   .pinned-banner {
       background: rgba(0, 255, 136, 0.1); border-bottom: 1px solid rgba(0, 255, 136, 0.3);
       padding: 0.5rem 2rem; display: flex; align-items: center; gap: 1rem; color: #00ff88; cursor: pointer;
@@ -399,23 +405,24 @@ export const Lightbox = styled.div`
     }
 `;
 
-export const MediaGalleryPanel = styled.div`
+// --- NEW: SIDE INFO PANEL (Replaced MediaGalleryPanel) ---
+export const SideInfoPanel = styled.div`
   position: absolute;
   top: 0;
   right: 0;
   height: 100%;
-  width: 320px;
-  background: rgba(10, 10, 25, 0.95);
-  backdrop-filter: blur(20px);
+  width: 340px;
+  background: rgba(13, 13, 35, 0.98);
+  backdrop-filter: blur(25px);
   border-left: 1px solid rgba(255, 255, 255, 0.1);
   z-index: 50;
   display: flex;
   flex-direction: column;
   animation: slideInRight 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-  box-shadow: -10px 0 30px rgba(0, 0, 0, 0.5);
+  box-shadow: -10px 0 40px rgba(0, 0, 0, 0.7);
 
   ${({ $themeType }) => $themeType === 'cyberpunk' && css`
-    background: rgba(13, 2, 33, 0.95); border-left: 1px solid #00ff88; box-shadow: -10px 0 30px rgba(0, 255, 136, 0.1);
+    background: rgba(13, 2, 33, 0.98); border-left: 1px solid #00ff88; box-shadow: -10px 0 40px rgba(0, 255, 136, 0.1);
   `}
 
   @keyframes slideInRight {
@@ -425,39 +432,57 @@ export const MediaGalleryPanel = styled.div`
 
   .panel-header {
     display: flex; justify-content: space-between; align-items: center;
-    padding: 1.2rem; border-bottom: 1px solid rgba(255,255,255,0.05);
-    h3 { color: white; font-size: 1.1rem; }
+    padding: 1.5rem; border-bottom: 1px solid rgba(255,255,255,0.05);
+    h3 { color: white; font-size: 1.1rem; margin: 0; }
     button { background: none; border: none; color: #888; cursor: pointer; font-size: 1.2rem; transition: 0.2s; &:hover { color: #ff4e4e; transform: scale(1.1) rotate(90deg); } }
   }
 
   .tabs {
     display: flex; border-bottom: 1px solid rgba(255,255,255,0.05);
-    button { flex: 1; background: none; border: none; padding: 1rem; color: #888; font-weight: 600; cursor: pointer; transition: 0.2s;
-      &.active { color: #4e0eff; border-bottom: 2px solid #4e0eff; background: rgba(78, 14, 255, 0.1); }
+    button { flex: 1; background: none; border: none; padding: 1rem; color: #888; font-weight: bold; cursor: pointer; transition: 0.2s;
+      &.active { color: #4e0eff; border-bottom: 3px solid #4e0eff; background: rgba(78, 14, 255, 0.05); }
       &:hover:not(.active) { color: white; background: rgba(255,255,255,0.05); }
     }
   }
 
   .panel-content {
-    flex: 1; overflow-y: auto; padding: 1rem;
+    flex: 1; overflow-y: auto; padding: 1.5rem;
     &::-webkit-scrollbar { width: 4px; } &::-webkit-scrollbar-thumb { background-color: rgba(255, 255, 255, 0.15); border-radius: 10px; }
     
     .loader { display: flex; justify-content: center; align-items: center; height: 100px; color: #4e0eff; font-size: 1.5rem; }
     .empty-state { color: #666; text-align: center; margin-top: 2rem; font-style: italic; font-size: 0.9rem; }
 
+    .about-section {
+        .profile-hero { 
+            text-align: center; margin-bottom: 2rem; 
+            img { width: 100px; height: 100px; border-radius: 50%; border: 3px solid #4e0eff; margin-bottom: 1rem; object-fit: cover; } 
+            h3 { color: white; margin: 0; font-size: 1.2rem; } 
+            .presence { color: #00ff88; font-size: 0.85rem; font-style: italic; margin-top: 5px; } 
+        }
+        .info-card { 
+            background: rgba(255, 255, 255, 0.03); padding: 1.2rem; border-radius: 1rem; margin-bottom: 1rem; border: 1px solid rgba(255,255,255,0.05); 
+            label { font-size: 0.7rem; text-transform: uppercase; color: #4e0eff; font-weight: bold; display: block; margin-bottom: 0.5rem; } 
+            p { color: #ccc; font-size: 0.95rem; line-height: 1.5; margin: 0; } 
+        }
+        .interests-grid { 
+            display: flex; flex-wrap: wrap; gap: 8px; 
+            .interest-tag { background: rgba(78, 14, 255, 0.2); color: #9a86f3; padding: 4px 12px; border-radius: 1rem; font-size: 0.8rem; border: 1px solid rgba(78, 14, 255, 0.3); } 
+        }
+    }
+
     .media-grid {
       display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
-      img, video { width: 100%; height: 85px; object-fit: cover; border-radius: 8px; cursor: pointer; transition: 0.2s; border: 1px solid transparent; }
+      img, video { width: 100%; height: 90px; object-fit: cover; border-radius: 8px; cursor: pointer; transition: 0.2s; border: 1px solid transparent; }
       img:hover { transform: scale(1.05); border-color: #4e0eff; z-index: 2; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
     }
 
     .links-list {
       display: flex; flex-direction: column; gap: 10px;
       .link-item {
-        display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,0.03); padding: 10px; border-radius: 8px; text-decoration: none; transition: 0.2s; border: 1px solid transparent;
+        display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,0.03); padding: 12px; border-radius: 10px; text-decoration: none; transition: 0.2s; border: 1px solid transparent; margin-bottom: 8px;
         &:hover { background: rgba(255,255,255,0.08); border-color: rgba(78, 14, 255, 0.3); transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
         .link-icon { background: rgba(78, 14, 255, 0.2); color: #9a86f3; padding: 10px; border-radius: 8px; font-size: 1.2rem; display: flex; align-items: center; justify-content: center; }
-        .link-info { overflow: hidden; h4 { color: white; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px; } p { color: #888; font-size: 0.7rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } }
+        .link-info { overflow: hidden; h4 { color: white; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px; margin-top: 0; } p { color: #888; font-size: 0.7rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 0; } }
       }
     }
   }
