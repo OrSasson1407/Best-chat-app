@@ -93,7 +93,13 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
 
             fetchedMessages.forEach((msg) => {
                 if (!msg.fromSelf && msg.status !== "read" && socket.current) {
-                    socket.current.emit("mark-as-read", { messageId: msg.id, from: currentUser._id, to: currentChat._id });
+                    socket.current.emit("mark-as-read", { 
+                        messageId: msg.id, 
+                        from: currentUser._id, 
+                        to: currentChat._id,
+                        isGroup: !!currentChat.admin,
+                        username: currentUser.username
+                    });
                 }
             });
 
@@ -177,17 +183,55 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
             createdAt: data.createdAt, username: data.username, replyTo: data.replyTo,
             reactions: [], status: "delivered", isDeleted: false, isEdited: false,
             isForwarded: data.isForwarded, isViewOnce: data.isViewOnce, viewed: false,
-            isStarred: false, pollData: data.pollData, linkMetadata: data.linkMetadata
+            isStarred: false, pollData: data.pollData, linkMetadata: data.linkMetadata,
+            readBy: []
         });
-        s.emit("mark-as-read", { messageId: data.id, from: currentUser._id, to: data.from });
+        s.emit("mark-as-read", { 
+            messageId: data.id, 
+            from: currentUser._id, 
+            to: data.from,
+            isGroup: !!currentChat.admin,
+            username: currentUser.username
+        });
       };
 
       const handleReactionReceive = (data) => {
           setMessages(prev => prev.map(msg => msg.id === data.messageId ? { ...msg, reactions: data.reactions } : msg));
       };
 
-      const handleMsgReadUpdate = ({ messageId }) => {
-          setMessages((prev) => prev.map(msg => msg.id === messageId ? { ...msg, status: "read" } : msg));
+      // --- DYNAMIC READ RECEIPT HANDLERS ---
+      const handleMsgReadUpdate = ({ messageId, status, newReader }) => {
+          setMessages((prev) => prev.map(msg => {
+              if (msg.id === messageId) {
+                  const updatedReadBy = msg.readBy ? [...msg.readBy] : [];
+                  if (newReader && !updatedReadBy.some(r => r.userId === newReader.userId)) {
+                      updatedReadBy.push(newReader);
+                  }
+                  return { ...msg, status: status || msg.status, readBy: updatedReadBy };
+              }
+              return msg;
+          }));
+      };
+
+      const handleGroupMsgReadUpdate = ({ messageId, newReader }) => {
+          setMessages((prev) => prev.map(msg => {
+              if (msg.id === messageId) {
+                  const updatedReadBy = msg.readBy ? [...msg.readBy] : [];
+                  if (newReader && !updatedReadBy.some(r => r.userId === newReader.userId)) {
+                      updatedReadBy.push(newReader);
+                  }
+                  return { ...msg, readBy: updatedReadBy };
+              }
+              return msg;
+          }));
+          
+          // Instantly update the modal if it is currently open
+          if (readReceiptsMsg && readReceiptsMsg.id === messageId) {
+             setReadReceiptsMsg(prev => ({
+                 ...prev, 
+                 readBy: prev.readBy ? [...prev.readBy, newReader] : [newReader]
+             }));
+          }
       };
 
       const handleMsgDeleted = ({ messageId }) => {
@@ -203,15 +247,17 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
       s.on("msg-recieve", handleMsgRecieve);
       s.on("receive-reaction", handleReactionReceive);
       s.on("msg-read-update", handleMsgReadUpdate);
+      s.on("group-msg-read-update", handleGroupMsgReadUpdate);
       s.on("msg-deleted", handleMsgDeleted);
       s.on("msg-edited", handleMsgEdited);
 
       return () => {
           s.off("presence-response"); s.off("user-status-change"); s.off("msg-recieve");
-          s.off("receive-reaction"); s.off("msg-read-update"); s.off("msg-deleted"); s.off("msg-edited");
+          s.off("receive-reaction"); s.off("msg-read-update"); s.off("group-msg-read-update");
+          s.off("msg-deleted"); s.off("msg-edited");
       };
     }
-  }, [socket, currentUser, currentChat]);
+  }, [socket, currentUser, currentChat, readReceiptsMsg]);
 
   useEffect(() => {
     if (arrivalMessage) {
@@ -249,7 +295,8 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
               id: newMessageId, fromSelf: true, message: msg, type: socketData.type, createdAt: time, 
               replyTo: socketData.replyTo, reactions: [], status: "sent", isDeleted: false, isEdited: false,
               isForwarded: payload.isForwarded, isViewOnce: payload.isViewOnce, viewed: false, 
-              pollData: payload.pollData, linkMetadata: generatedLinkData, timer: payload.timer
+              pollData: payload.pollData, linkMetadata: generatedLinkData, timer: payload.timer,
+              readBy: []
             }
         ]);
         setReplyingTo(null); 
@@ -341,7 +388,9 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
         if (isGroup) setReadReceiptsMsg(msg);
     };
 
-    if (msg.status === "read") return <span className="tick-read" onClick={handleClick} style={{color: '#34B7F1', cursor: isGroup ? 'pointer' : 'default'}} title={isGroup ? "View read receipts" : ""}>✓✓</span>;
+    if (msg.status === "read" || (isGroup && msg.readBy && msg.readBy.length > 0)) {
+        return <span className="tick-read" onClick={handleClick} style={{color: '#34B7F1', cursor: isGroup ? 'pointer' : 'default'}} title={isGroup ? "View read receipts" : ""}>✓✓</span>;
+    }
     if (msg.status === "delivered") return <span className="tick-delivered" onClick={handleClick} style={{cursor: isGroup ? 'pointer' : 'default'}} title={isGroup ? "View read receipts" : ""}>✓✓</span>;
     return <span className="tick-sent">✓</span>;
   };
@@ -420,18 +469,32 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
         </Lightbox>
       )}
 
-      {/* READ RECEIPTS MODAL (GROUPS ONLY) */}
+      {/* READ RECEIPTS MODAL (DYNAMIC UI UPDATED) */}
       {readReceiptsMsg && (
         <Lightbox onClick={() => setReadReceiptsMsg(null)}>
             <div className="receipt-modal" onClick={(e) => e.stopPropagation()}>
                 <button className="close-btn-small" onClick={() => setReadReceiptsMsg(null)}><FaTimes /></button>
                 <h3>Message Info</h3>
-                <div className="msg-preview">{readReceiptsMsg.message?.substring(0, 40)}...</div>
+                <div className="msg-preview">
+                    {readReceiptsMsg.message?.substring(0, 40)}
+                    {readReceiptsMsg.message?.length > 40 ? "..." : ""}
+                </div>
                 <div className="readers-list">
-                    <h4><FaCheckDouble color="#34B7F1"/> Read by</h4>
-                    <div className="reader-item">
-                        <div className="dot online"></div> Everyone in group
-                    </div>
+                    <h4><FaCheckDouble color="#34B7F1"/> Read by ({readReceiptsMsg.readBy?.length || 0})</h4>
+                    
+                    {(!readReceiptsMsg.readBy || readReceiptsMsg.readBy.length === 0) ? (
+                        <p style={{color: '#888', fontStyle: 'italic', fontSize: '0.9rem', marginTop: '10px'}}>No one has read this yet.</p>
+                    ) : (
+                        readReceiptsMsg.readBy.map((reader, index) => (
+                            <div key={index} className="reader-item">
+                                <div className="reader-info">
+                                    <div className="dot online"></div> 
+                                    <span className="reader-name">{reader.username}</span>
+                                </div>
+                                <span className="reader-time">{formatTime(reader.readAt)}</span>
+                            </div>
+                        ))
+                    )}
                 </div>
             </div>
         </Lightbox>

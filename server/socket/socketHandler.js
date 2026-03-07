@@ -14,7 +14,7 @@ module.exports = (io) => {
       
       io.emit("get-online-users", Array.from(global.onlineUsers.keys()));
 
-      // --- NEW FEATURE: Broadcast real-time presence ---
+      // Broadcast real-time presence
       socket.broadcast.emit("user-status-change", { 
         userId, 
         isOnline: true 
@@ -28,7 +28,7 @@ module.exports = (io) => {
       }
     });
 
-    // --- NEW FEATURE: Client requests the current status of a specific chat ---
+    // Client requests the current status of a specific chat
     socket.on("check-presence", async (targetUserId) => {
       const isOnline = global.onlineUsers.has(targetUserId);
       if (isOnline) {
@@ -48,7 +48,7 @@ module.exports = (io) => {
       }
     });
 
-    // --- FEATURE: Heartbeat System ---
+    // Heartbeat System
     // The client sends this periodically to confirm they are still active
     socket.on("heartbeat", async (userId) => {
        global.onlineUsers.set(userId, socket.id); // Refresh mapping
@@ -77,7 +77,11 @@ module.exports = (io) => {
               createdAt: new Date().toISOString(),
               isGroup: true,
               replyTo: data.replyTo,
-              status: "delivered"
+              status: "delivered",
+              pollData: data.pollData,
+              linkMetadata: data.linkMetadata,
+              isForwarded: data.isForwarded,
+              isViewOnce: data.isViewOnce
           });
       } else {
           const receiverSocket = global.onlineUsers.get(data.to);
@@ -90,7 +94,11 @@ module.exports = (io) => {
                   createdAt: new Date().toISOString(),
                   isGroup: false,
                   replyTo: data.replyTo,
-                  status: "delivered"
+                  status: "delivered",
+                  pollData: data.pollData,
+                  linkMetadata: data.linkMetadata,
+                  isForwarded: data.isForwarded,
+                  isViewOnce: data.isViewOnce
               });
 
               // Automatically mark as delivered in DB if user is online
@@ -135,19 +143,46 @@ module.exports = (io) => {
         }
     });
 
-    // 6. Handle Read Receipts (Blue Ticks)
-    socket.on("mark-as-read", async ({ messageId, from, to }) => {
+    // 6. Handle Read Receipts (Advanced Blue Ticks)
+    socket.on("mark-as-read", async ({ messageId, from, to, isGroup, username }) => {
       try {
-        // Save read status to database so it stays blue on refresh
-        await Message.findByIdAndUpdate(messageId, { status: "read" });
+        const message = await Message.findById(messageId);
+        if (!message) return;
+
+        // Prevent duplicate reads by the same user
+        const alreadyRead = message.readBy?.some(r => r.userId.toString() === from);
+        
+        if (!alreadyRead) {
+            const readData = { userId: from, username: username || "User", readAt: new Date() };
+            message.readBy.push(readData);
+            
+            // For direct messages, 1 read means fully read. 
+            // For groups, we keep status as delivered until we implement a check for ALL members
+            if (!isGroup) {
+                message.status = "read";
+            }
+            await message.save();
+
+            // Notify the original sender so their UI ticks turn blue instantly
+            const senderSocket = global.onlineUsers.get(message.sender.toString());
+            if (senderSocket) {
+                socket.to(senderSocket).emit("msg-read-update", { 
+                    messageId, 
+                    status: message.status,
+                    newReader: readData 
+                });
+            }
+
+            // If it's a group, broadcast to the whole room so everyone's modals update
+            if (isGroup) {
+                io.to(to).emit("group-msg-read-update", { 
+                    messageId, 
+                    newReader: readData 
+                });
+            }
+        }
       } catch (err) {
         console.error("Error updating read status in DB:", err);
-      }
-
-      // Notify the sender that their message was read
-      const senderSocket = global.onlineUsers.get(from);
-      if (senderSocket) {
-        socket.to(senderSocket).emit("msg-read-update", { messageId });
       }
     });
 
@@ -205,7 +240,7 @@ module.exports = (io) => {
         io.emit("get-online-users", Array.from(global.onlineUsers.keys()));
         io.emit("user-offline", { userId: disconnectedUser, lastSeen: offlineTime });
 
-        // --- NEW FEATURE: Tell active chats this user just went offline ---
+        // Tell active chats this user just went offline
         socket.broadcast.emit("user-status-change", { 
           userId: disconnectedUser, 
           isOnline: false,

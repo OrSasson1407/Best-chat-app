@@ -100,6 +100,17 @@ const MessageSchema = mongoose.Schema(
         type: Boolean, 
         default: true 
     }, // False if scheduled for the future
+
+    // ==========================================
+    // NEW: ADVANCED READ RECEIPTS
+    // ==========================================
+    readBy: [
+      {
+        userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        username: { type: String }, 
+        readAt: { type: Date, default: Date.now }
+      }
+    ]
   },
   {
     timestamps: true,

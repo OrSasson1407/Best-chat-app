@@ -13,6 +13,25 @@ const femaleTops = "longHairBob,longHairBun,longHairCurly,longHairCurvy,longHair
 const maleTops = "shortHairDreads01,shortHairDreads02,shortHairFrizzle,shortHairShaggy,shortHairShortCurly,shortHairShortFlat,shortHairShortRound,shortHairShortWaved,shortHairSides";
 const backgroundColors = "b6e3f4,c0aede,d1d4f9,ffdfbf,ffd5dc";
 
+// Helper function to format the Last Seen timestamp dynamically
+const formatLastSeen = (dateString) => {
+    if (!dateString) return "Offline";
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffMins < 1) return "Last seen just now";
+    if (diffMins < 60) return `Last seen ${diffMins}m ago`;
+    if (diffHours < 24) return `Last seen ${diffHours}h ago`;
+    if (diffDays === 1) return "Last seen yesterday";
+    if (diffDays < 7) return `Last seen ${diffDays}d ago`;
+    
+    return `Last seen ${date.toLocaleDateString(undefined, { month: 'short', day: 'numeric'})}`;
+};
+
 export default function Contacts({ 
   contacts, 
   changeChat, 
@@ -22,12 +41,13 @@ export default function Contacts({
   theme,
   setTheme,
   isCompact,
-  setIsCompact
+  setIsCompact,
+  typingUsers = [] // New Prop: Array of user IDs currently typing
 }) {
   const [currentUserName, setCurrentUserName] = useState(undefined);
   const [currentSelected, setCurrentSelected] = useState(undefined);
   
-  // Phase 2 State: Folders and Pinning
+  // Folders and Pinning
   const [activeFolder, setActiveFolder] = useState("all"); 
   const [pinnedIds, setPinnedIds] = useState(() => {
     const saved = localStorage.getItem(`pinned-chats-${currentUser?._id}`);
@@ -97,7 +117,7 @@ export default function Contacts({
     changeChat(contact, isGroup); 
   };
 
-  // Phase 2 Logic: Filtering & Sorting Data
+  // Filtering & Sorting Data
   const displayedItems = useMemo(() => {
     let all = [
       ...contacts.map(c => ({ ...c, isGroup: false })),
@@ -188,34 +208,17 @@ export default function Contacts({
             <h3>Snappy</h3>
           </div>
           
-          {/* Phase 2: Folder System */}
           <div className="folders-bar">
-            <FolderBtn 
-              className={activeFolder === "all" ? "active" : ""} 
-              onClick={() => setActiveFolder("all")} 
-              title="All Conversations"
-            >
+            <FolderBtn className={activeFolder === "all" ? "active" : ""} onClick={() => setActiveFolder("all")} title="All Conversations">
                 <MdOutlineAllInclusive />
             </FolderBtn>
-            <FolderBtn 
-              className={activeFolder === "personal" ? "active" : ""} 
-              onClick={() => setActiveFolder("personal")} 
-              title="Personal"
-            >
+            <FolderBtn className={activeFolder === "personal" ? "active" : ""} onClick={() => setActiveFolder("personal")} title="Personal">
                 <BsChatDotsFill />
             </FolderBtn>
-            <FolderBtn 
-              className={activeFolder === "groups" ? "active" : ""} 
-              onClick={() => setActiveFolder("groups")} 
-              title="Groups"
-            >
+            <FolderBtn className={activeFolder === "groups" ? "active" : ""} onClick={() => setActiveFolder("groups")} title="Groups">
                 <BsPeopleFill />
             </FolderBtn>
-            <FolderBtn 
-              className={activeFolder === "unread" ? "active" : ""} 
-              onClick={() => setActiveFolder("unread")} 
-              title="Unread"
-            >
+            <FolderBtn className={activeFolder === "unread" ? "active" : ""} onClick={() => setActiveFolder("unread")} title="Unread">
                 <FaRegEnvelope />
             </FolderBtn>
           </div>
@@ -241,38 +244,61 @@ export default function Contacts({
                 {activeFolder === "groups" && (
                     <div className="create-group-btn" onClick={() => setShowGroupModal(true)}><FaPlus /> Create New Group</div>
                 )}
-                {displayedItems.map((item) => {
-                    const isOnline = !item.isGroup && onlineUsers.includes(item._id);
-                    const isPinned = pinnedIds.includes(item._id);
-                    return (
-                        <ContactItem 
-                          key={item._id} 
-                          className={`contact ${item._id === currentSelected ? "selected" : ""}`} 
-                          onClick={() => changeCurrentChat(item, item.isGroup)}
-                          $isCompact={isCompact}
-                          $themeType={theme}
-                          $selected={item._id === currentSelected}
-                          $isPinned={isPinned}
-                        >
-                            {!isCompact && (
-                                <div className="avatar">
-                                    {item.isGroup ? <div className="group-avatar">#</div> : <img src={getAvatarUrl(item)} alt="avatar" />}
+                {displayedItems.length === 0 ? (
+                    <div className="empty-state">No chats found.</div>
+                ) : (
+                    displayedItems.map((item) => {
+                        const isOnline = !item.isGroup && onlineUsers.includes(item._id);
+                        const isPinned = pinnedIds.includes(item._id);
+                        const isTyping = !item.isGroup && typingUsers.includes(item._id);
+
+                        return (
+                            <ContactItem 
+                              key={item._id} 
+                              className={`contact ${item._id === currentSelected ? "selected" : ""}`} 
+                              onClick={() => changeCurrentChat(item, item.isGroup)}
+                              $isCompact={isCompact}
+                              $themeType={theme}
+                              $selected={item._id === currentSelected}
+                              $isPinned={isPinned}
+                            >
+                                {!isCompact && (
+                                    <div className="avatar">
+                                        {item.isGroup ? <div className="group-avatar">#</div> : <img src={getAvatarUrl(item)} alt="avatar" />}
+                                    </div>
+                                )}
+                                
+                                <div className="username">
+                                    <h3>{item.username}</h3>
+                                    {item.isGroup ? (
+                                        <p className="status-text group-text">Group Chat</p>
+                                    ) : (
+                                        <div className="presence-container">
+                                            {isTyping ? (
+                                                <p className="status-text typing-text">typing...</p>
+                                            ) : (
+                                                <p className="status-text">
+                                                    {isOnline ? (
+                                                        <span className="online-text">Online</span>
+                                                    ) : (
+                                                        <span className="offline-text">{formatLastSeen(item.lastSeen)}</span>
+                                                    )}
+                                                </p>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
-                            )}
-                            <div className="username">
-                                <h3>{item.username}</h3>
-                                <p className="status-text">{item.statusIcon || "✨"} {item.statusMessage || "Available"}</p>
-                            </div>
-                            
-                            <div className="contact-meta">
-                              {isOnline && <div className="online-indicator" />}
-                              <button className={`pin-btn ${isPinned ? "pinned" : ""}`} onClick={(e) => togglePin(e, item._id)}>
-                                <FaThumbtack />
-                              </button>
-                            </div>
-                        </ContactItem>
-                    );
-                })}
+                                
+                                <div className="contact-meta">
+                                  {isOnline && <div className="online-indicator" />}
+                                  <button className={`pin-btn ${isPinned ? "pinned" : ""}`} onClick={(e) => togglePin(e, item._id)}>
+                                    <FaThumbtack />
+                                  </button>
+                                </div>
+                            </ContactItem>
+                        );
+                    })
+                )}
               </>
             )}
           </div>
@@ -380,92 +406,16 @@ const glassShine = keyframes`
   100% { left: 100%; opacity: 0; }
 `;
 
-const FolderBtn = styled.button`
-    background: transparent; border: none; color: #777; cursor: pointer;
-    font-size: 1.2rem; display: flex; align-items: center; justify-content: center;
-    transition: 0.3s; width: 42px; height: 42px; border-radius: 12px;
-    &:hover { color: #fff; background: rgba(255,255,255,0.08); }
-    &.active { color: #4e0eff; background: rgba(78, 14, 255, 0.12); box-shadow: 0 0 10px rgba(78, 14, 255, 0.1); }
-`;
-
-const ContactItem = styled.div`
-  background: rgba(255, 255, 255, 0.03); 
-  padding: ${({ $isCompact }) => $isCompact ? '0.5rem' : '0.8rem'}; 
-  width: 92%; 
-  border-radius: 1rem;
-  display: flex; align-items: center; gap: 1rem; 
-  cursor: pointer; border: 1px solid transparent; position: relative;
-  transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), background 0.2s ease;
-
-  ${({ $isPinned }) => $isPinned && css`
-    background: rgba(255, 255, 255, 0.06);
-    border-left: 3.5px solid #4e0eff;
-  `}
-
-  &:hover { 
-    background: rgba(255, 255, 255, 0.08); 
-    transform: scale(1.02) translateY(-2px); 
-    .pin-btn { opacity: 1; }
-  }
-
-  ${({ $selected, $themeType }) => $selected && css`
-      background: rgba(78, 14, 255, 0.15); 
-      border-color: rgba(78, 14, 255, 0.4);
-      transform: scale(1.02);
-      ${$themeType === 'cyberpunk' && css`background: rgba(0, 255, 136, 0.1); border-color: #00ff88;`}
-  `}
-
-  .avatar { 
-    height: 3rem; width: 3rem; border-radius: 50%; overflow: hidden; 
-    display: flex; align-items: center; justify-content: center; 
-    background: #1a1a2e; transition: box-shadow 0.3s ease;
-    img { width: 100%; height: 100%; object-fit: cover; } 
-    .group-avatar { font-weight: bold; color: #4e0eff; font-size: 1.3rem; }
-    ${({ $selected }) => $selected && css`box-shadow: 0 0 15px rgba(78, 14, 255, 0.5);`}
-  }
-
-  .username { 
-    flex-grow: 1; display: flex; flex-direction: column; justify-content: center; 
-    h3 { color: #e0e0e0; font-size: 0.95rem; margin-bottom: 2px;} 
-    .status-text { color: #888; font-size: 0.75rem; font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px; } 
-  }
-  
-  .contact-meta {
-    display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
-    .online-indicator { height: 8px; width: 8px; background: #00ff88; border-radius: 50%; box-shadow: 0 0 10px #00ff88; }
-    .pin-btn {
-      background: none; border: none; color: #555; cursor: pointer; transition: 0.2s; font-size: 0.85rem;
-      opacity: ${({ $isPinned }) => $isPinned ? 1 : 0};
-      &:hover { color: #fff; transform: scale(1.2); }
-      &.pinned { color: #4e0eff; }
-    }
-  }
-`;
-
-const Modal = styled.div`
-    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-    background: rgba(0,0,0,0.85); display: flex; justify-content: center; align-items: center; 
-    z-index: 100; backdrop-filter: blur(12px);
-    .modal-content {
-        background: #0d0d30; padding: 2.2rem; border-radius: 1.5rem; width: 440px;
-        border: 1px solid rgba(255, 255, 255, 0.12); box-shadow: 0 15px 40px rgba(0,0,0,0.6);
-        h3 { color: white; margin-bottom: 1.5rem; text-align: center; font-weight: 600; font-size: 1.3rem; }
-        .divider { border-color: rgba(255,255,255,0.1); margin: 1.5rem 0; }
-        .settings-row { display: flex; gap: 1rem; }
-        select, input, textarea { width: 100%; padding: 0.9rem; margin-bottom: 0.8rem; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(78, 14, 255, 0.3); color: white; border-radius: 0.8rem; font-family: inherit; transition: 0.3s; &:focus { outline: none; border-color: #9a86f3; background: rgba(255,255,255,0.08); } }
-        .toggle-btn { padding: 0.9rem; background: rgba(255,255,255,0.05); color: white; border: 1px solid rgba(78, 14, 255, 0.3); border-radius: 0.8rem; cursor: pointer; width: 100%; transition: 0.3s; font-weight: 500;}
-        .toggle-btn.active { background: #4e0eff; border-color: #4e0eff; box-shadow: 0 4px 15px rgba(78, 14, 255, 0.3); }
-        textarea { resize: none; height: 95px; }
-        .input-group { display: flex; flex-direction: column; flex: 1; label { color: #888; font-size: 0.75rem; margin-bottom: 0.4rem; text-transform: uppercase; letter-spacing: 0.05rem; } }
-        .member-select { max-height: 180px; overflow-y: auto; margin-bottom: 1.5rem; h4 { color: #888; margin-bottom: 0.6rem; font-size: 0.8rem; text-transform: uppercase; } .select-item { padding: 0.75rem; color: #ddd; cursor: pointer; border-radius: 0.6rem; margin: 4px 0; transition: 0.2s; &:hover { background: rgba(255,255,255,0.06); } &.selected { background: #4e0eff; color: white; font-weight: 600; } } }
-        .modal-actions { display: flex; gap: 1rem; justify-content: center; margin-top: 1rem; button { padding: 0.8rem 2.4rem; border: none; border-radius: 0.8rem; cursor: pointer; background: #4e0eff; color: white; font-weight: bold; transition: 0.3s; &:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(78, 14, 255, 0.4); } } .cancel { background: #ff4e4e; &:hover { box-shadow: 0 5px 15px rgba(255, 78, 78, 0.4); } } }
-    }
-`;
+// THE FIXES ARE IN THE 3 COMPONENTS BELOW:
 
 const Container = styled.div`
   display: grid; 
   grid-template-rows: 10% 7.5% 8.5% 59% 15%; 
-  overflow: hidden;
+  
+  height: 100%; /* ABSOLUTE FIX: Locks the height completely */
+  width: 100%;  /* ABSOLUTE FIX: Locks the width completely */
+  overflow: hidden; /* Prevents container itself from scrolling */
+  
   background: rgba(0, 0, 0, 0.2); 
   border-right: 1px solid rgba(255, 255, 255, 0.05);
   
@@ -498,13 +448,25 @@ const Container = styled.div`
   }
   
   .contacts {
-    display: flex; flex-direction: column; align-items: center; overflow: auto; 
+    display: flex; flex-direction: column; align-items: center; 
+    
+    /* FIX: Force list container to strictly obey parent grid bounds */
+    height: 100%; 
+    width: 100%; 
+    overflow-y: auto; /* Only shows scrollbar when list goes past height */
+    overflow-x: hidden; 
+    
     gap: 0.8rem; padding: 1.2rem 0.6rem;
-    &::-webkit-scrollbar { width: 3px; } &::-webkit-scrollbar-thumb { background-color: rgba(255, 255, 255, 0.1); border-radius: 10px; }
     
-    .create-group-btn { width: 92%; background: linear-gradient(90deg, #4e0eff, #9a86f3); padding: 0.9rem; text-align: center; border-radius: 0.8rem; cursor: pointer; color: white; display: flex; align-items: center; justify-content: center; gap: 0.6rem; font-weight: bold; font-size: 0.9rem; box-shadow: 0 4px 15px rgba(0,0,0,0.3); transition: 0.3s; &:hover { transform: translateY(-3px); box-shadow: 0 8px 20px rgba(78, 14, 255, 0.3); } }
+    &::-webkit-scrollbar { width: 4px; } 
+    &::-webkit-scrollbar-track { background: transparent; }
+    &::-webkit-scrollbar-thumb { background-color: rgba(255, 255, 255, 0.15); border-radius: 10px; }
     
-    .skeleton-box { background: rgba(255,255,255,0.02) !important; border: none !important; cursor: default; &:hover { transform: none; } }
+    .empty-state { color: #666; font-style: italic; margin-top: 2rem; font-size: 0.9rem; }
+    
+    .create-group-btn { width: 92%; background: linear-gradient(90deg, #4e0eff, #9a86f3); padding: 0.9rem; text-align: center; border-radius: 0.8rem; cursor: pointer; color: white; display: flex; align-items: center; justify-content: center; gap: 0.6rem; font-weight: bold; font-size: 0.9rem; flex-shrink: 0; box-shadow: 0 4px 15px rgba(0,0,0,0.3); transition: 0.3s; &:hover { transform: translateY(-3px); box-shadow: 0 8px 20px rgba(78, 14, 255, 0.3); } }
+    
+    .skeleton-box { background: rgba(255,255,255,0.02) !important; border: none !important; cursor: default; flex-shrink: 0; &:hover { transform: none; } }
     .skeleton-anim { background: #1a1a2e; background-image: linear-gradient(to right, #1a1a2e 0%, #2a2a3e 20%, #1a1a2e 40%, #1a1a2e 100%); background-repeat: no-repeat; background-size: 800px 100%; animation: ${shimmer} 1.5s infinite linear forwards; }
     .skeleton-line { height: 12px; width: 100px; border-radius: 4px; margin-bottom: 6px; }
     .skeleton-line.short { width: 60px; height: 10px; }
@@ -513,6 +475,7 @@ const Container = styled.div`
   .current-user {
       background: rgba(0, 0, 0, 0.3); padding: 1.2rem; display: flex; justify-content: center; align-items: center;
       border-top: 1px solid rgba(255,255,255,0.05);
+      height: 100%; /* Ensure footer stays pinned */
       .user-info {
           display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 12px;
           .current-user-avatar { height: 2.8rem; min-width: 2.8rem; width: 2.8rem; border-radius: 50%; overflow: hidden; border: 2px solid rgba(0, 255, 136, 0.2); img { width: 100%; height: 100%; object-fit: cover; } }
@@ -520,4 +483,99 @@ const Container = styled.div`
           .actions { display: flex; gap: 0.6rem; align-items: center; button { border: none; border-radius: 0.6rem; color: white; cursor: pointer; font-size: 0.8rem; font-weight: bold; padding: 0.5rem 0.9rem; display: flex; align-items: center; justify-content: center; transition: 0.3s; } .profile-btn { background: rgba(78, 14, 255, 0.2); color: #9a86f3; &:hover { background: #4e0eff; color: white; } } .logout-btn { background: rgba(255, 78, 78, 0.1); color: #ff4e4e; &:hover { background: #ff4e4e; color: white; } } }
       }
   }
+`;
+
+const ContactItem = styled.div`
+  background: rgba(255, 255, 255, 0.03); 
+  padding: ${({ $isCompact }) => $isCompact ? '0.5rem' : '0.8rem'}; 
+  width: 90%; 
+  flex-shrink: 0; /* FIX: Items will no longer squish when scrollbar appears */
+  border-radius: 1rem;
+  display: flex; align-items: center; gap: 1rem; 
+  cursor: pointer; border: 1px solid transparent; position: relative;
+  transition: transform 0.2s ease, background 0.2s ease;
+  overflow: hidden; 
+
+  ${({ $isPinned }) => $isPinned && css`
+    background: rgba(255, 255, 255, 0.06);
+    border-left: 3.5px solid #4e0eff;
+  `}
+
+  &:hover { 
+    background: rgba(255, 255, 255, 0.08); 
+    transform: scale(1.02) translateY(-2px); 
+    .pin-btn { opacity: 1; }
+  }
+
+  ${({ $selected, $themeType }) => $selected && css`
+      background: rgba(78, 14, 255, 0.15); 
+      border-color: rgba(78, 14, 255, 0.4);
+      transform: scale(1.02);
+      ${$themeType === 'cyberpunk' && css`background: rgba(0, 255, 136, 0.1); border-color: #00ff88;`}
+  `}
+
+  .avatar { 
+    height: 3rem; width: 3rem; min-width: 3rem; 
+    border-radius: 50%; overflow: hidden; 
+    display: flex; align-items: center; justify-content: center; 
+    background: #1a1a2e; transition: box-shadow 0.3s ease;
+    img { width: 100%; height: 100%; object-fit: cover; } 
+    .group-avatar { font-weight: bold; color: #4e0eff; font-size: 1.3rem; }
+    ${({ $selected }) => $selected && css`box-shadow: 0 0 15px rgba(78, 14, 255, 0.5);`}
+  }
+
+  .username { 
+    flex-grow: 1; display: flex; flex-direction: column; justify-content: center; 
+    overflow: hidden; 
+    h3 { 
+        color: #e0e0e0; font-size: 0.95rem; margin-bottom: 2px;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    } 
+    
+    .presence-container { display: flex; align-items: center; gap: 5px; }
+    .status-text { color: #888; font-size: 0.75rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px; } 
+    .typing-text { color: #00ff88; font-style: italic; font-weight: 600; letter-spacing: 0.5px; animation: ${glassShine} 2s infinite linear; }
+    .online-text { color: #00ff88; font-weight: 500; }
+    .offline-text { color: #888; font-style: italic; }
+  }
+  
+  .contact-meta {
+    display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+    min-width: 20px; 
+    .online-indicator { height: 8px; width: 8px; background: #00ff88; border-radius: 50%; box-shadow: 0 0 10px #00ff88; }
+    .pin-btn {
+      background: none; border: none; color: #555; cursor: pointer; transition: 0.2s; font-size: 0.85rem;
+      opacity: ${({ $isPinned }) => $isPinned ? 1 : 0};
+      &:hover { color: #fff; transform: scale(1.2); }
+      &.pinned { color: #4e0eff; }
+    }
+  }
+`;
+
+const FolderBtn = styled.button`
+    background: transparent; border: none; color: #777; cursor: pointer;
+    font-size: 1.2rem; display: flex; align-items: center; justify-content: center;
+    transition: 0.3s; width: 42px; height: 42px; border-radius: 12px;
+    &:hover { color: #fff; background: rgba(255,255,255,0.08); }
+    &.active { color: #4e0eff; background: rgba(78, 14, 255, 0.12); box-shadow: 0 0 10px rgba(78, 14, 255, 0.1); }
+`;
+
+const Modal = styled.div`
+    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+    background: rgba(0,0,0,0.85); display: flex; justify-content: center; align-items: center; 
+    z-index: 100; backdrop-filter: blur(12px);
+    .modal-content {
+        background: #0d0d30; padding: 2.2rem; border-radius: 1.5rem; width: 440px;
+        border: 1px solid rgba(255, 255, 255, 0.12); box-shadow: 0 15px 40px rgba(0,0,0,0.6);
+        h3 { color: white; margin-bottom: 1.5rem; text-align: center; font-weight: 600; font-size: 1.3rem; }
+        .divider { border-color: rgba(255,255,255,0.1); margin: 1.5rem 0; }
+        .settings-row { display: flex; gap: 1rem; }
+        select, input, textarea { width: 100%; padding: 0.9rem; margin-bottom: 0.8rem; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(78, 14, 255, 0.3); color: white; border-radius: 0.8rem; font-family: inherit; transition: 0.3s; &:focus { outline: none; border-color: #9a86f3; background: rgba(255,255,255,0.08); } }
+        .toggle-btn { padding: 0.9rem; background: rgba(255,255,255,0.05); color: white; border: 1px solid rgba(78, 14, 255, 0.3); border-radius: 0.8rem; cursor: pointer; width: 100%; transition: 0.3s; font-weight: 500;}
+        .toggle-btn.active { background: #4e0eff; border-color: #4e0eff; box-shadow: 0 4px 15px rgba(78, 14, 255, 0.3); }
+        textarea { resize: none; height: 95px; }
+        .input-group { display: flex; flex-direction: column; flex: 1; label { color: #888; font-size: 0.75rem; margin-bottom: 0.4rem; text-transform: uppercase; letter-spacing: 0.05rem; } }
+        .member-select { max-height: 180px; overflow-y: auto; margin-bottom: 1.5rem; h4 { color: #888; margin-bottom: 0.6rem; font-size: 0.8rem; text-transform: uppercase; } .select-item { padding: 0.75rem; color: #ddd; cursor: pointer; border-radius: 0.6rem; margin: 4px 0; transition: 0.2s; &:hover { background: rgba(255,255,255,0.06); } &.selected { background: #4e0eff; color: white; font-weight: 600; } } }
+        .modal-actions { display: flex; gap: 1rem; justify-content: center; margin-top: 1rem; button { padding: 0.8rem 2.4rem; border: none; border-radius: 0.8rem; cursor: pointer; background: #4e0eff; color: white; font-weight: bold; transition: 0.3s; &:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(78, 14, 255, 0.4); } } .cancel { background: #ff4e4e; &:hover { box-shadow: 0 5px 15px rgba(255, 78, 78, 0.4); } } }
+    }
 `;

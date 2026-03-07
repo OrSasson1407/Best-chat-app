@@ -18,7 +18,10 @@ export default function Chat() {
   const [currentUser, setCurrentUser] = useState(undefined);
   const [isLoaded, setIsLoaded] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState([]);
-  const [isTyping, setIsTyping] = useState(false);
+  
+  // --- Typing States ---
+  const [isTyping, setIsTyping] = useState(false); // For the currently open chat window
+  const [globalTypingUsers, setGlobalTypingUsers] = useState([]); // For the Contacts sidebar (Phase 2 feature)
 
   // --- UI State Management (Phase 1) ---
   const [theme, setTheme] = useState(localStorage.getItem("chat-theme") || "glass");
@@ -56,6 +59,16 @@ export default function Chat() {
       });
       
       socket.current.on("typing-status", (data) => {
+        // --- NEW FEATURE: Update global typing state for the Sidebar ---
+        setGlobalTypingUsers((prev) => {
+            if (data.isTyping) {
+                return prev.includes(data.from) ? prev : [...prev, data.from];
+            } else {
+                return prev.filter(id => id !== data.from);
+            }
+        });
+
+        // --- Maintain local typing state for the active chat ---
         if (currentChat) {
             if (data.isGroup) {
                 setIsTyping(data.isTyping ? data.username : false);
@@ -138,6 +151,7 @@ export default function Chat() {
             setTheme={setTheme}
             isCompact={isCompact}
             setIsCompact={setIsCompact}
+            typingUsers={globalTypingUsers} // <-- NEW PROP PASSED DOWN HERE
           />
         </div>
         
@@ -281,7 +295,7 @@ const Container = styled.div`
     }
   }
 
-  /* Responsive Logic (Phase 1 Updates) */
+  /* Responsive Logic */
   @media screen and (max-width: 1080px) {
     .glass-container {
       width: 95vw;
