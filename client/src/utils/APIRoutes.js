@@ -27,3 +27,4 @@ export const removeGroupMemberRoute = `${host}/api/groups/removemember`;
 export const blockUserRoute = `${host}/api/auth/block`;          // NEW: Block/Unblock users
 export const fcmTokenRoute = `${host}/api/auth/fcm-token`;       // NEW: Push notification tokens
 export const publicKeyRoute = `${host}/api/auth/public-key`;     // NEW: E2EE Public Key exchange
+export const getChatMediaRoute = `${host}/api/messages/getmedia`;

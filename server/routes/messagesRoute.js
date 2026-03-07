@@ -4,7 +4,8 @@ const {
   reactToMessage,
   deleteMessage,
   editMessage,
-  searchMessages 
+  searchMessages,
+  getChatMedia // <-- Destructured the new controller function
 } = require("../controllers/messageController");
 const auth = require("../middleware/authMiddleware"); // Security Middleware
 const router = require("express").Router();
@@ -20,5 +21,8 @@ router.post("/editmsg", auth, editMessage);
 
 // NEW: Search Route
 router.post("/search", auth, searchMessages);
+
+// NEW: Media Gallery Route
+router.post("/getmedia", auth, getChatMedia);
 
 module.exports = router;

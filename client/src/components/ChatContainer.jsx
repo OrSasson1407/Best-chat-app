@@ -10,7 +10,8 @@ import {
     reactMessageRoute,
     deleteMessageRoute, 
     editMessageRoute,
-    blockUserRoute 
+    blockUserRoute,
+    getChatMediaRoute // <-- ADDED: Phase 3 Media Gallery Route
 } from "../utils/APIRoutes";
 import { v4 as uuidv4 } from "uuid";
 import { toast } from "react-toastify";
@@ -18,11 +19,12 @@ import {
     FaUserPlus, FaShieldAlt, FaReply, FaSmile, FaTrash, FaPen, 
     FaInfoCircle, FaFileDownload, FaShare, FaStar, FaThumbtack, 
     FaFire, FaMicrophoneAlt, FaPoll, FaSearch, FaUserSlash, FaSpinner,
-    FaArrowDown, FaCloudUploadAlt, FaTimes, FaClock, FaCheckDouble
+    FaArrowDown, FaCloudUploadAlt, FaTimes, FaClock, FaCheckDouble,
+    FaImage, FaLink // <-- ADDED: Phase 3 Icons
 } from "react-icons/fa";
 
 // --- IMPORT STYLES FROM THE NEW FILE ---
-import { Container, DropOverlay, ScrollButton, Lightbox } from "./ChatContainer.styles";
+import { Container, DropOverlay, ScrollButton, Lightbox, MediaGalleryPanel } from "./ChatContainer.styles"; // <-- ADDED MediaGalleryPanel
 
 export default function ChatContainer({ currentChat, currentUser, socket, isTyping, theme, isCompact }) {
   const [messages, setMessages] = useState([]);
@@ -42,6 +44,12 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
   // --- PRESENCE STATE ---
   const [isOnline, setIsOnline] = useState(false);
   const [lastSeen, setLastSeen] = useState(null);
+
+  // --- PHASE 3: MEDIA GALLERY STATE ---
+  const [showMediaGallery, setShowMediaGallery] = useState(false);
+  const [chatMedia, setChatMedia] = useState({ media: [], links: [] });
+  const [activeMediaTab, setActiveMediaTab] = useState("media");
+  const [isFetchingMedia, setIsFetchingMedia] = useState(false);
 
   // --- PHASE 2 STATE: MEDIA & PRODUCTIVITY UX ---
   const [isDragging, setIsDragging] = useState(false);
@@ -113,6 +121,32 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
     }
     fetchHistory();
   }, [currentChat, currentUser]);
+
+  // Phase 3: Fetch Media Gallery Data
+  useEffect(() => {
+      if (showMediaGallery && currentChat) {
+          const fetchMedia = async () => {
+              setIsFetchingMedia(true);
+              try {
+                  const { data } = await axios.post(getChatMediaRoute, {
+                      from: currentUser._id,
+                      to: currentChat._id 
+                  }, getAuthHeader());
+
+                  if (data.status) {
+                      const mediaFiles = data.media.filter(m => m.type === 'image' || m.type === 'video');
+                      const linkFiles = data.media.filter(m => m.type === 'link');
+                      setChatMedia({ media: mediaFiles, links: linkFiles });
+                  }
+              } catch (err) {
+                  toast.error("Failed to load media gallery");
+              } finally {
+                  setIsFetchingMedia(false);
+              }
+          };
+          fetchMedia();
+      }
+  }, [showMediaGallery, currentChat, currentUser]);
 
   // Phase 3: Virtuoso Load More Logic
   const loadMoreMessages = async () => {
@@ -469,7 +503,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
         </Lightbox>
       )}
 
-      {/* READ RECEIPTS MODAL (DYNAMIC UI UPDATED) */}
+      {/* READ RECEIPTS MODAL */}
       {readReceiptsMsg && (
         <Lightbox onClick={() => setReadReceiptsMsg(null)}>
             <div className="receipt-modal" onClick={(e) => e.stopPropagation()}>
@@ -500,6 +534,46 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
         </Lightbox>
       )}
 
+      {/* PHASE 3: NEW MEDIA GALLERY RIGHT PANEL */}
+      {showMediaGallery && (
+        <MediaGalleryPanel $themeType={theme}>
+            <div className="panel-header">
+                <h3>Shared Content</h3>
+                <button onClick={() => setShowMediaGallery(false)} title="Close Panel"><FaTimes /></button>
+            </div>
+            <div className="tabs">
+                <button className={activeMediaTab === 'media' ? 'active' : ''} onClick={() => setActiveMediaTab('media')}>Media</button>
+                <button className={activeMediaTab === 'links' ? 'active' : ''} onClick={() => setActiveMediaTab('links')}>Links</button>
+            </div>
+            <div className="panel-content">
+                {isFetchingMedia ? <div className="loader"><FaSpinner className="fa-spin" /></div> : (
+                   activeMediaTab === 'media' ? (
+                       chatMedia.media.length === 0 ? <p className="empty-state">No media shared yet.</p> :
+                       <div className="media-grid">
+                           {chatMedia.media.map(m => (
+                               m.type === 'image' ? <img key={m.id} src={m.message} alt="shared" onClick={() => setLightboxImage(m.message)} /> :
+                               <video key={m.id} src={m.message} controls />
+                           ))}
+                       </div>
+                   ) : (
+                       chatMedia.links.length === 0 ? <p className="empty-state">No links shared yet.</p> :
+                       <div className="links-list">
+                           {chatMedia.links.map(m => (
+                               <a key={m.id} href={m.linkMetadata?.url || m.message} target="_blank" rel="noreferrer" className="link-item">
+                                  <div className="link-icon"><FaLink /></div>
+                                  <div className="link-info">
+                                      <h4>{m.linkMetadata?.title || m.message}</h4>
+                                      <p>{m.linkMetadata?.url || m.message}</p>
+                                  </div>
+                               </a>
+                           ))}
+                       </div>
+                   )
+                )}
+            </div>
+        </MediaGalleryPanel>
+      )}
+
       <div className="chat-header">
         <div className="user-details">
           <div className="header-info">
@@ -524,6 +598,10 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
                   <input type="text" placeholder="Search chat..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="chat-search-input" />
               )}
               <FaSearch className="action-icon" title="Search messages" onClick={() => setShowSearch(!showSearch)} />
+              
+              {/* ADDED: MEDIA GALLERY TOGGLE BUTTON */}
+              <FaImage className="action-icon" title="Media & Links" onClick={() => setShowMediaGallery(!showMediaGallery)} />
+              
               <button className="huddle-btn"><FaMicrophoneAlt /> Start Huddle</button>
               {!currentChat.admin && (
                   <FaUserSlash className={`action-icon ${isBlocked ? 'blocked' : ''}`} title={isBlocked ? "Unblock User" : "Block User"} onClick={handleToggleBlock} />

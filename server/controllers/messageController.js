@@ -35,6 +35,46 @@ module.exports.searchMessages = async (req, res, next) => {
   }
 };
 
+// --- PHASE 3: In-App Media Gallery Fetcher ---
+module.exports.getChatMedia = async (req, res, next) => {
+  try {
+    const { from, to } = req.body; 
+    
+    // Find messages between these two users that are media or links
+    const query = { 
+        users: { $all: [from, to] },
+        type: { $in: ["image", "video", "file", "link"] },
+        isDeleted: false // Don't show deleted media in the gallery
+    };
+
+    const messages = await Message.find(query).sort({ createdAt: -1 });
+
+    const mediaList = messages.map((msg) => {
+      // Check if view-once media was already viewed by the current user
+      const hasViewed = msg.viewed || (msg.viewedBy && msg.viewedBy.includes(from));
+      const isHiddenViewOnce = msg.isViewOnce && hasViewed && msg.sender.toString() !== from;
+
+      return {
+        id: msg._id,
+        fromSelf: msg.sender.toString() === from,
+        message: isHiddenViewOnce ? "💣 Media Expired" : msg.message.text,
+        type: msg.type,
+        createdAt: msg.createdAt, 
+        isViewOnce: msg.isViewOnce,
+        viewed: hasViewed,
+        linkMetadata: msg.linkMetadata,
+      };
+    }).filter(msg => msg.message !== "💣 Media Expired"); // Completely hide expired view-once media from the gallery
+
+    res.json({
+        status: true,
+        media: mediaList
+    });
+  } catch (ex) {
+    next(ex);
+  }
+};
+
 // --- NEW FEATURE: Infinite Scrolling & Phase 2 Scheduled Message Filter ---
 module.exports.getMessages = async (req, res, next) => {
   try {
@@ -87,6 +127,8 @@ module.exports.getMessages = async (req, res, next) => {
         timer: msg.timer,
         scheduledAt: msg.scheduledAt,
         isSent: msg.isSent,
+        
+        readBy: msg.readBy,
 
         replyTo: msg.replyTo ? {
             id: msg.replyTo._id,

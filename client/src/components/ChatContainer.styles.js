@@ -210,8 +210,8 @@ export const Container = styled.div`
       .content {
         background: linear-gradient(135deg, #4e0eff 0%, #9a41fe 100%);
         background-image: radial-gradient(at 0% 0%, #4e0eff 0, transparent 55%), 
-                         radial-gradient(at 50% 0%, #9a41fe 0, transparent 55%), 
-                         radial-gradient(at 100% 0%, #4e0eff 0, transparent 55%);
+                          radial-gradient(at 50% 0%, #9a41fe 0, transparent 55%), 
+                          radial-gradient(at 100% 0%, #4e0eff 0, transparent 55%);
         border-bottom-right-radius: 0.2rem;
         box-shadow: 0 4px 20px rgba(78, 14, 255, 0.25);
 
@@ -279,4 +279,68 @@ export const Lightbox = styled.div`
             .reader-item { display: flex; align-items: center; gap: 0.8rem; background: rgba(255,255,255,0.05); padding: 0.8rem; border-radius: 0.5rem; .dot { width: 8px; height: 8px; border-radius: 50%; &.online { background: #00ff88; box-shadow: 0 0 5px #00ff88; } } }
         }
     }
+`;
+
+export const MediaGalleryPanel = styled.div`
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: 320px;
+  background: rgba(10, 10, 25, 0.95);
+  backdrop-filter: blur(20px);
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  animation: slideInRight 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  box-shadow: -10px 0 30px rgba(0, 0, 0, 0.5);
+
+  ${({ $themeType }) => $themeType === 'cyberpunk' && css`
+    background: rgba(13, 2, 33, 0.95); border-left: 1px solid #00ff88; box-shadow: -10px 0 30px rgba(0, 255, 136, 0.1);
+  `}
+
+  @keyframes slideInRight {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+  }
+
+  .panel-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 1.2rem; border-bottom: 1px solid rgba(255,255,255,0.05);
+    h3 { color: white; font-size: 1.1rem; }
+    button { background: none; border: none; color: #888; cursor: pointer; font-size: 1.2rem; transition: 0.2s; &:hover { color: #ff4e4e; transform: scale(1.1); } }
+  }
+
+  .tabs {
+    display: flex; border-bottom: 1px solid rgba(255,255,255,0.05);
+    button { flex: 1; background: none; border: none; padding: 1rem; color: #888; font-weight: 600; cursor: pointer; transition: 0.2s;
+      &.active { color: #4e0eff; border-bottom: 2px solid #4e0eff; background: rgba(78, 14, 255, 0.1); }
+      &:hover:not(.active) { color: white; background: rgba(255,255,255,0.05); }
+    }
+  }
+
+  .panel-content {
+    flex: 1; overflow-y: auto; padding: 1rem;
+    &::-webkit-scrollbar { width: 4px; } &::-webkit-scrollbar-thumb { background-color: rgba(255, 255, 255, 0.15); border-radius: 10px; }
+    
+    .loader { display: flex; justify-content: center; align-items: center; height: 100px; color: #4e0eff; font-size: 1.5rem; }
+    .empty-state { color: #666; text-align: center; margin-top: 2rem; font-style: italic; font-size: 0.9rem; }
+
+    .media-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+      img, video { width: 100%; height: 85px; object-fit: cover; border-radius: 8px; cursor: pointer; transition: 0.2s; border: 1px solid transparent; }
+      img:hover { transform: scale(1.05); border-color: #4e0eff; z-index: 2; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
+    }
+
+    .links-list {
+      display: flex; flex-direction: column; gap: 10px;
+      .link-item {
+        display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,0.03); padding: 10px; border-radius: 8px; text-decoration: none; transition: 0.2s; border: 1px solid transparent;
+        &:hover { background: rgba(255,255,255,0.08); border-color: rgba(78, 14, 255, 0.3); }
+        .link-icon { background: rgba(78, 14, 255, 0.2); color: #9a86f3; padding: 10px; border-radius: 8px; font-size: 1.2rem; display: flex; align-items: center; justify-content: center; }
+        .link-info { overflow: hidden; h4 { color: white; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px; } p { color: #888; font-size: 0.7rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } }
+      }
+    }
+  }
 `;
