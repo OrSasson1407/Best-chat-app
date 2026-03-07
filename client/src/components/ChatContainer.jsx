@@ -23,12 +23,15 @@ import {
     FaInfoCircle, FaFileDownload, FaShare, FaStar, FaThumbtack, 
     FaFire, FaMicrophoneAlt, FaPoll, FaSearch, FaUserSlash, FaSpinner,
     FaArrowDown, FaCloudUploadAlt, FaTimes, FaClock, FaCheckDouble,
-    FaImage, FaLink 
+    FaImage, FaLink, FaRegClock // <-- NEW: Imported FaRegClock for pending status
 } from "react-icons/fa";
 
 // FIX: Imported SideInfoPanel instead of MediaGalleryPanel
 import { Container, DropOverlay, ScrollButton, Lightbox, SideInfoPanel } from "./ChatContainer.styles"; 
 import CallModal from "./CallModal"; // <-- MERGE UPDATE: Imported CallModal
+
+// --- NEW: IMPORT ZUSTAND STORE ---
+import useChatStore from "../store/chatStore";
 
 // Helper for tiny avatars
 const getSmallAvatar = (seed) => {
@@ -81,7 +84,12 @@ const HighlightedText = ({ text, query }) => {
     );
 };
 
-export default function ChatContainer({ currentChat, currentUser, socket, isTyping, theme, isCompact }) {
+// MERGE UPDATE: Removed currentChat, currentUser, theme, isCompact from props
+export default function ChatContainer({ socket, isTyping }) {
+  
+  // --- PULL GLOBAL STATE FROM ZUSTAND ---
+  const { currentChat, currentUser, theme, isCompact } = useChatStore();
+
   const [messages, setMessages] = useState([]);
   const [arrivalMessage, setArrivalMessage] = useState(null);
   const [replyingTo, setReplyingTo] = useState(null);
@@ -373,7 +381,6 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
       };
 
       const handleMsgEdited = ({ messageId, newText }) => {
-          // You could add decryption here for live edits, assuming they encrypted the edit too
           setMessages((prev) => prev.map(msg => msg.id === messageId ? { ...msg, isEdited: true, message: newText } : msg));
       };
 
@@ -413,6 +420,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
   const handleSendMsg = async (msg, type = "text", replyToId = null, extraData = {}) => {
     const time = new Date().toISOString();
     let finalMessageContent = msg;
+    const newMessageId = uuidv4(); // Generate ID upfront for Optimistic UI
 
     try {
         // --- MERGE UPDATE: E2EE ENCRYPTION ON SEND ---
@@ -443,40 +451,55 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
             timer: extraData.timer || null 
         };
 
-        const res = await axios.post(sendMessageRoute, payload, getAuthHeader());
-        const newMessageId = res.data.data?._id || uuidv4();
-        const generatedLinkData = res.data.data?.linkMetadata || null;
-
         const socketData = {
             id: newMessageId, 
             to: currentChat._id, 
             from: currentUser._id, 
             msg: finalMessageContent, // Send encrypted data via Socket
-            type: res.data.data?.type || type, 
+            type: type, 
             isGroup: !!currentChat.admin, 
             username: currentUser.username, 
             replyTo: replyingTo ? { id: replyingTo.id, text: replyingTo.text, type: replyingTo.type, isSelfQuote: replyingTo.isSelfQuote } : null,
             ...payload, 
-            linkMetadata: generatedLinkData
+            linkMetadata: null // Will be updated after API call
         };
         
-        socket.current.emit("send-msg", socketData);
-
-        // Instantly push the PLAINTEXT message to the local sender's UI so they can read what they just wrote
+        // --- OPTIMISTIC UI: Instantly push the message as PENDING ---
         setMessages((prev) => [
             ...prev, 
             { 
-              id: newMessageId, fromSelf: true, message: msg, type: socketData.type, createdAt: time, 
-              replyTo: socketData.replyTo, reactions: [], status: "sent", isDeleted: false, isEdited: false,
+              id: newMessageId, fromSelf: true, message: msg, type: type, createdAt: time, 
+              replyTo: socketData.replyTo, reactions: [], status: "pending", isDeleted: false, isEdited: false,
               isForwarded: payload.isForwarded, isViewOnce: payload.isViewOnce, viewed: false, 
-              pollData: payload.pollData, linkMetadata: generatedLinkData, timer: payload.timer,
+              pollData: payload.pollData, linkMetadata: null, timer: payload.timer,
               readBy: []
             }
         ]);
         setReplyingTo(null); 
+
+        // 1. Send to Database
+        const res = await axios.post(sendMessageRoute, payload, getAuthHeader());
+        const generatedLinkData = res.data.data?.linkMetadata || null;
+        socketData.linkMetadata = generatedLinkData;
+
+        // 2. Broadcast via Socket with Callback to confirm server received it
+        socket.current.emit("send-msg", socketData, (response) => {
+            if (response && response.status) {
+                // Update message status from 'pending' to 'sent' or 'delivered'
+                setMessages((prev) => prev.map(m => m.id === newMessageId ? { 
+                    ...m, 
+                    status: response.status, 
+                    linkMetadata: generatedLinkData 
+                } : m));
+            }
+        });
+
     } catch (error) {
         if (error.response && error.response.status === 403) toast.error(error.response.data.msg || "You are blocked.");
         else toast.error("Failed to send message");
+        
+        // Revert Optimistic UI message if completely failed
+        setMessages((prev) => prev.filter(m => m.id !== newMessageId));
     }
   };
 
@@ -588,7 +611,10 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
                 </div>
             )}
             
-            {(msg.status === "read" || hasReaders) ? (
+            {/* --- MERGE UPDATE: NEW PENDING UI CHECK --- */}
+            {msg.status === "pending" ? (
+                <span className="tick-pending" style={{color: '#888', opacity: 0.7}}><FaRegClock size={11}/></span>
+            ) : (msg.status === "read" || hasReaders) ? (
                 <span className="tick-read" style={{color: '#34B7F1', cursor: isGroup ? 'pointer' : 'default'}}>✓✓</span>
             ) : msg.status === "delivered" ? (
                 <span className="tick-delivered" style={{cursor: isGroup ? 'pointer' : 'default'}}>✓✓</span>

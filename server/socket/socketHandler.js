@@ -65,8 +65,8 @@ module.exports = (io) => {
       socket.join(groupId);
     });
 
-    // 3. Send Message (Direct & Group)
-    socket.on("send-msg", async (data) => {
+    // 3. Send Message (Direct & Group) - ADDED CALLBACK FOR OPTIMISTIC UI
+    socket.on("send-msg", async (data, callback) => {
       if (data.isGroup) {
           socket.to(data.to).emit("msg-recieve", {
               id: data.id,
@@ -83,6 +83,9 @@ module.exports = (io) => {
               isForwarded: data.isForwarded,
               isViewOnce: data.isViewOnce
           });
+          
+          // Acknowledge back to sender that message reached the server
+          if (callback) callback({ status: "sent", id: data.id });
       } else {
           const receiverSocket = global.onlineUsers.get(data.to);
           if (receiverSocket) {
@@ -107,6 +110,12 @@ module.exports = (io) => {
               } catch (err) {
                  console.error("Error updating delivered status:", err);
               }
+              
+              // Acknowledge back to sender that message was delivered
+              if (callback) callback({ status: "delivered", id: data.id });
+          } else {
+              // Acknowledge back to sender that message reached the server (but user is offline)
+              if (callback) callback({ status: "sent", id: data.id });
           }
       }
     });
@@ -186,8 +195,8 @@ module.exports = (io) => {
       }
     });
 
-    // 7. Delete Message (Real-time)
-    socket.on("delete-msg", (data) => {
+    // 7. Delete Message (Real-time) - ADDED CALLBACK
+    socket.on("delete-msg", (data, callback) => {
       if (data.isGroup) {
         socket.to(data.to).emit("msg-deleted", { messageId: data.messageId });
       } else {
@@ -196,10 +205,12 @@ module.exports = (io) => {
           socket.to(receiverSocket).emit("msg-deleted", { messageId: data.messageId });
         }
       }
+      
+      if (callback) callback({ success: true, id: data.messageId });
     });
 
-    // 8. Edit Message (Real-time)
-    socket.on("edit-msg", (data) => {
+    // 8. Edit Message (Real-time) - ADDED CALLBACK
+    socket.on("edit-msg", (data, callback) => {
       if (data.isGroup) {
         socket.to(data.to).emit("msg-edited", { messageId: data.messageId, newText: data.newText });
       } else {
@@ -208,6 +219,8 @@ module.exports = (io) => {
           socket.to(receiverSocket).emit("msg-edited", { messageId: data.messageId, newText: data.newText });
         }
       }
+      
+      if (callback) callback({ success: true, id: data.messageId });
     });
 
     // --- MERGE UPDATE: WEBRTC SIGNALING (VOICE/VIDEO CALLS) ---

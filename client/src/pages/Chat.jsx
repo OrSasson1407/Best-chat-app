@@ -8,31 +8,29 @@ import Contacts from "../components/Contacts";
 import Welcome from "../components/Welcome";
 import ChatContainer from "../components/ChatContainer";
 
+// --- ZUSTAND GLOBAL STORE ---
+import useChatStore from "../store/chatStore";
+
 export default function Chat() {
   const navigate = useNavigate();
   const socket = useRef();
   
-  // --- State Initialization ---
+  // --- GLOBAL STATE ---
+  // Only pulling what Chat.jsx specifically needs to function or render its own wrapper
+  const {
+    currentUser, setCurrentUser,
+    currentChat, setCurrentChat,
+    setOnlineUsers,
+    setGlobalTypingUsers,
+    theme,
+    isCompact
+  } = useChatStore();
+
+  // --- LOCAL COMPONENT STATE ---
   const [contacts, setContacts] = useState([]); 
-  const [currentChat, setCurrentChat] = useState(undefined);
-  const [currentUser, setCurrentUser] = useState(undefined);
   const [isLoaded, setIsLoaded] = useState(false);
-  const [onlineUsers, setOnlineUsers] = useState([]);
-  
-  // --- Typing States ---
-  const [isTyping, setIsTyping] = useState(false); // For the currently open chat window
-  const [globalTypingUsers, setGlobalTypingUsers] = useState([]); // For the Contacts sidebar (Phase 2 feature)
-
-  // --- UI State Management (Phase 1) ---
-  const [theme, setTheme] = useState(localStorage.getItem("chat-theme") || "glass");
-  const [isCompact, setIsCompact] = useState(localStorage.getItem("chat-compact") === "true");
+  const [isTyping, setIsTyping] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-
-  // Persist UI preferences
-  useEffect(() => {
-    localStorage.setItem("chat-theme", theme);
-    localStorage.setItem("chat-compact", isCompact);
-  }, [theme, isCompact]);
 
   // 1. Authentication Check & Data Retrieval
   useEffect(() => {
@@ -46,9 +44,9 @@ export default function Chat() {
       }
     }
     checkAuth();
-  }, [navigate]);
+  }, [navigate, setCurrentUser]);
 
-  // 2. Socket Connection & Global Listeners
+  // 2. Setup STABLE Socket Connection (Runs ONLY when currentUser logs in)
   useEffect(() => {
     if (currentUser && currentUser._id) {
       socket.current = io(host);
@@ -57,9 +55,18 @@ export default function Chat() {
       socket.current.on("get-online-users", (users) => {
         setOnlineUsers(users);
       });
-      
-      socket.current.on("typing-status", (data) => {
-        // --- NEW FEATURE: Update global typing state for the Sidebar ---
+
+      return () => {
+        if (socket.current) socket.current.disconnect();
+      };
+    }
+  }, [currentUser, setOnlineUsers]);
+
+  // 3. Dynamic Socket Listeners (Updates when currentChat changes WITHOUT disconnecting socket)
+  useEffect(() => {
+    if (socket.current) {
+      const handleTypingStatus = (data) => {
+        // Update global typing state for the Sidebar
         setGlobalTypingUsers((prev) => {
             if (data.isTyping) {
                 return prev.includes(data.from) ? prev : [...prev, data.from];
@@ -68,7 +75,7 @@ export default function Chat() {
             }
         });
 
-        // --- Maintain local typing state for the active chat ---
+        // Maintain local typing state for the active chat window
         if (currentChat) {
             if (data.isGroup) {
                 setIsTyping(data.isTyping ? data.username : false);
@@ -77,16 +84,21 @@ export default function Chat() {
                     setIsTyping(data.isTyping ? data.username : false);
                 }
             }
+        } else {
+            setIsTyping(false);
         }
-      });
+      };
 
+      socket.current.on("typing-status", handleTypingStatus);
+
+      // Cleanup listener on chat change to prevent memory leaks
       return () => {
-        if (socket.current) socket.current.disconnect();
+        socket.current.off("typing-status", handleTypingStatus);
       };
     }
-  }, [currentUser, currentChat]);
+  }, [currentChat, setGlobalTypingUsers]);
 
-  // 3. Fetch Contacts (WITH JWT SECURITY FIX)
+  // 4. Fetch Contacts 
   useEffect(() => {
     async function fetchContacts() {
       if (currentUser && currentUser._id) {
@@ -114,11 +126,13 @@ export default function Chat() {
   const handleChatChange = (chat) => {
     setCurrentChat(chat);
     setIsTyping(false);
-    setIsMobileMenuOpen(false); // Phase 1: Close drawer on selection
+    setIsMobileMenuOpen(false); 
   };
 
   const handleLogout = () => {
     sessionStorage.clear();
+    setCurrentUser(undefined);
+    setCurrentChat(undefined);
     navigate("/login");
   };
 
@@ -131,7 +145,6 @@ export default function Chat() {
       <div className="bg-orb orb-1"></div>
       <div className="bg-orb orb-2"></div>
       
-      {/* Mobile Toggle Button (Phase 1) */}
       <button 
         className="mobile-toggle" 
         onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
@@ -141,17 +154,11 @@ export default function Chat() {
 
       <div className={`glass-container ${isCompact ? "compact-mode" : ""}`}>
         <div className={`sidebar-wrapper ${isMobileMenuOpen ? "open" : ""}`}>
+          {/* MERGE UPDATE: Removed 7 redundant props! */}
           <Contacts 
             contacts={contacts} 
-            currentUser={currentUser} 
             changeChat={handleChatChange} 
-            onlineUsers={onlineUsers}
             handleLogout={handleLogout}
-            theme={theme}
-            setTheme={setTheme}
-            isCompact={isCompact}
-            setIsCompact={setIsCompact}
-            typingUsers={globalTypingUsers} // <-- NEW PROP PASSED DOWN HERE
           />
         </div>
         
@@ -160,13 +167,10 @@ export default function Chat() {
             <Welcome />
           ) : (
             currentChat && (
+              /* MERGE UPDATE: Removed 4 redundant props! */
               <ChatContainer 
-                currentChat={currentChat} 
-                currentUser={currentUser} 
                 socket={socket} 
                 isTyping={isTyping} 
-                theme={theme}
-                isCompact={isCompact}
               />
             )
           )}

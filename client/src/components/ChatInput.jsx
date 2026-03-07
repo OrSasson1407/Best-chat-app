@@ -1,12 +1,17 @@
 import React, { useState, useRef, useEffect } from "react";
 import styled, { keyframes, css } from "styled-components";
 import EmojiPicker, { Theme } from "emoji-picker-react";
+import axios from "axios"; // <-- NEW: Imported axios for direct Cloudinary uploads
 import { IoMdSend, IoMdClose, IoMdCheckmark } from "react-icons/io";
 import { 
     BsEmojiSmileFill, BsPaperclip, BsMicFill, 
     BsStopCircleFill, BsCodeSlash, BsClockHistory 
 } from "react-icons/bs";
-import { FaBomb, FaFire, FaCalendarAlt, FaLink } from "react-icons/fa";
+import { FaBomb, FaFire, FaCalendarAlt, FaLink, FaSpinner } from "react-icons/fa"; // <-- NEW: Added FaSpinner
+
+// --- CLOUDINARY CONFIGURATION ---
+const CLOUDINARY_CLOUD_NAME = "dz6weueae"; 
+const CLOUDINARY_UPLOAD_PRESET = "chat_app_preset"; // MUST be an "Unsigned" preset in Cloudinary settings
 
 export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, setReplyingTo, editingMessage, setEditingMessage, handleEditMsgSubmit }) {
   const [msg, setMsg] = useState("");
@@ -14,6 +19,9 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
   const [isRecording, setIsRecording] = useState(false);
   const [isCodeMode, setIsCodeMode] = useState(false);
   const [mediaPreview, setMediaPreview] = useState(null); 
+  
+  // --- NEW: UPLOADING STATE ---
+  const [isUploading, setIsUploading] = useState(false);
   
   // --- STATE: PRODUCTIVITY & PRIVACY ---
   const [showTimerMenu, setShowTimerMenu] = useState(false);
@@ -82,35 +90,88 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
     handleTyping(e.target.value.length > 0);
   };
 
+  // --- MERGE UPDATE: STORE ACTUAL FILE OBJECT FOR CLOUD UPLOAD ---
+  const processFile = (file) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      let type = "file";
+      if (file.type.startsWith("image/")) type = "image";
+      else if (file.type.startsWith("video/")) type = "video";
+
+      // Store BOTH the local preview string (reader.result) AND the raw file object
+      setMediaPreview({ src: reader.result, type, rawFile: file }); 
+      setIsViewOnceMedia(false); 
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // --- NEW: CLIPBOARD PASTE SUPPORT ---
+  const handlePaste = (e) => {
+      if (e.clipboardData.files && e.clipboardData.files.length > 0) {
+          e.preventDefault();
+          const file = e.clipboardData.files[0];
+          processFile(file);
+      }
+  };
+
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        let type = "file";
-        if (file.type.startsWith("image/")) type = "image";
-        else if (file.type.startsWith("video/")) type = "video";
-
-        setMediaPreview({ src: reader.result, type }); 
-        setIsViewOnceMedia(false); 
-      };
-      reader.readAsDataURL(file);
+      processFile(file);
     }
     e.target.value = null; 
   };
 
-  const confirmSendMedia = () => {
-      handleSendMsg(mediaPreview.src, mediaPreview.type, replyingTo?.id, {
-          isViewOnce: isViewOnceMedia
-      });
-      setMediaPreview(null);
-      setReplyingTo(null);
-      
-      if (msg.length > 0) {
-          setTimeout(() => sendChat(), 200); 
+  // --- NEW: UPLOAD TO CLOUDINARY LOGIC ---
+  const uploadToCloudinary = async (file, resourceType = "auto") => {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+
+      try {
+          const response = await axios.post(
+              `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/${resourceType}/upload`, 
+              formData
+          );
+          return response.data.secure_url;
+      } catch (error) {
+          console.error("Cloudinary Upload Error:", error);
+          return null;
       }
   };
 
+  // --- MERGE UPDATE: UPLOAD MEDIA BEFORE SENDING ---
+  const confirmSendMedia = async () => {
+      if (!mediaPreview || !mediaPreview.rawFile) return;
+
+      setIsUploading(true);
+      
+      // Determine correct Cloudinary resource type
+      let resType = "auto";
+      if (mediaPreview.type === "video") resType = "video";
+      else if (mediaPreview.type === "image") resType = "image";
+      else resType = "raw"; // For documents like PDF, TXT
+
+      const cloudUrl = await uploadToCloudinary(mediaPreview.rawFile, resType);
+
+      setIsUploading(false);
+
+      if (cloudUrl) {
+          handleSendMsg(cloudUrl, mediaPreview.type, replyingTo?.id, {
+              isViewOnce: isViewOnceMedia
+          });
+          setMediaPreview(null);
+          setReplyingTo(null);
+          
+          if (msg.length > 0) {
+              setTimeout(() => sendChat(), 200); 
+          }
+      } else {
+          alert("Failed to upload media. Please ensure you created the 'chat_app_preset' Unsigned Preset in Cloudinary.");
+      }
+  };
+
+  // --- MERGE UPDATE: UPLOAD AUDIO BEFORE SENDING ---
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -122,14 +183,21 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
         if (event.data.size > 0) audioChunksRef.current.push(event.data);
       };
 
-      mediaRecorder.onstop = () => {
+      mediaRecorder.onstop = async () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: "audio/mp3" });
-        const reader = new FileReader();
-        reader.readAsDataURL(audioBlob);
-        reader.onloadend = () => {
-           handleSendMsg(reader.result, "audio", replyingTo?.id, { timer: timerDuration }); 
-           setReplyingTo(null);
-        };
+        const audioFile = new File([audioBlob], `voice_record_${Date.now()}.mp3`, { type: "audio/mp3" });
+        
+        setIsUploading(true);
+        // Cloudinary treats audio uploads as "video" resource type natively
+        const cloudUrl = await uploadToCloudinary(audioFile, "video"); 
+        setIsUploading(false);
+
+        if (cloudUrl) {
+            handleSendMsg(cloudUrl, "audio", replyingTo?.id, { timer: timerDuration }); 
+            setReplyingTo(null);
+        } else {
+            alert("Failed to upload audio message.");
+        }
       };
 
       mediaRecorder.start();
@@ -193,7 +261,7 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
               <div className="preview-container">
                   <div className="preview-header">
                       <span>Preview {mediaPreview.type}</span>
-                      <IoMdClose onClick={() => setMediaPreview(null)} className="close-btn" />
+                      {!isUploading && <IoMdClose onClick={() => setMediaPreview(null)} className="close-btn" />}
                   </div>
                   
                   {mediaPreview.type === "image" && <img src={mediaPreview.src} alt="Preview" />}
@@ -202,14 +270,16 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
 
                   <div className="media-options">
                       <label className={`view-once-toggle ${isViewOnceMedia ? 'active' : ''}`}>
-                          <input type="checkbox" checked={isViewOnceMedia} onChange={(e) => setIsViewOnceMedia(e.target.checked)} hidden />
+                          <input type="checkbox" disabled={isUploading} checked={isViewOnceMedia} onChange={(e) => setIsViewOnceMedia(e.target.checked)} hidden />
                           <FaFire /> {isViewOnceMedia ? "View Once Enabled" : "Send as View Once"}
                       </label>
                   </div>
 
                   <div className="preview-actions">
-                      <input type="text" placeholder="Add a caption..." value={msg} onChange={(e) => setMsg(e.target.value)} />
-                      <button onClick={confirmSendMedia}><IoMdSend /></button>
+                      <input type="text" disabled={isUploading} placeholder="Add a caption..." value={msg} onChange={(e) => setMsg(e.target.value)} />
+                      <button disabled={isUploading} onClick={confirmSendMedia}>
+                          {isUploading ? <FaSpinner className="spin-icon" /> : <IoMdSend />}
+                      </button>
                   </div>
               </div>
           </PreviewOverlay>
@@ -226,13 +296,13 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
             )}
           </div>
 
-          <div className="upload" onClick={() => fileInputRef.current.click()} title="Attach File">
+          <div className="upload" onClick={() => !isUploading && fileInputRef.current.click()} title="Attach File">
             <BsPaperclip />
             <input type="file" ref={fileInputRef} style={{ display: "none" }} accept="image/*,video/*,.pdf,.doc,.docx,.txt" onChange={handleFileUpload} />
           </div>
 
           <div className="mic" onClick={isRecording ? stopRecording : startRecording} title="Record Audio">
-            {isRecording ? <BsStopCircleFill className="recording-active" /> : <BsMicFill />}
+            {isRecording ? <BsStopCircleFill className="recording-active" /> : (isUploading ? <FaSpinner className="spin-icon text-white" /> : <BsMicFill />)}
           </div>
 
           <div className={`tool-toggle ${timerDuration ? 'active' : ''}`} title="Self-Destruct Timer">
@@ -280,19 +350,28 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
                </div>
             </div>
           ) : isCodeMode ? (
-            <textarea placeholder="Paste your code snippet here..." onChange={handleChange} value={msg} rows="2" />
+            <textarea 
+              placeholder="Paste your code snippet here..." 
+              onChange={handleChange} 
+              value={msg} 
+              onPaste={handlePaste} 
+              rows="2" 
+              disabled={isUploading}
+            />
           ) : (
             <input
               type="text"
-              placeholder="Type your message here..."
+              placeholder={isUploading ? "Uploading media..." : "Type or paste (Ctrl+V) an image..."}
               onChange={handleChange}
               value={msg}
+              onPaste={handlePaste}
               onBlur={() => handleTyping(false)}
+              disabled={isUploading}
             />
           )}
           
-          <button type="submit" className={scheduleDate ? 'schedule-btn' : ''} disabled={isRecording}>
-            {editingMessage ? <IoMdCheckmark /> : (scheduleDate ? <BsClockHistory /> : <IoMdSend />)}
+          <button type="submit" className={scheduleDate ? 'schedule-btn' : ''} disabled={isRecording || isUploading}>
+            {isUploading ? <FaSpinner className="spin-icon" /> : (editingMessage ? <IoMdCheckmark /> : (scheduleDate ? <BsClockHistory /> : <IoMdSend />))}
           </button>
         </form>
       </Container>
@@ -347,13 +426,15 @@ const PreviewOverlay = styled.div`
                 transition: 0.3s; border: 1px solid transparent;
                 &:hover { background: rgba(255,255,255,0.1); }
                 &.active { background: rgba(255, 85, 0, 0.1); color: #ff5500; border-color: #ff5500; font-weight: bold; }
+                input:disabled + svg { opacity: 0.5; }
             }
         }
 
         .preview-actions {
             display: flex; gap: 0.8rem;
-            input { flex: 1; padding: 0.9rem 1.2rem; border-radius: 2rem; border: none; background: rgba(255,255,255,0.08); color: white; outline: none; transition: 0.3s; &:focus { background: rgba(255,255,255,0.15); box-shadow: 0 0 10px rgba(78, 14, 255, 0.3); } }
-            button { background: #4e0eff; border: none; border-radius: 50%; min-width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: white; font-size: 1.2rem; transition: 0.3s; &:hover { background: #9a86f3; transform: scale(1.05); } }
+            input { flex: 1; padding: 0.9rem 1.2rem; border-radius: 2rem; border: none; background: rgba(255,255,255,0.08); color: white; outline: none; transition: 0.3s; &:focus { background: rgba(255,255,255,0.15); box-shadow: 0 0 10px rgba(78, 14, 255, 0.3); } &:disabled { opacity: 0.5; } }
+            button { background: #4e0eff; border: none; border-radius: 50%; min-width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: white; font-size: 1.2rem; transition: 0.3s; &:hover:not(:disabled) { background: #9a86f3; transform: scale(1.05); } &:disabled { background: #555; cursor: not-allowed; } }
+            .spin-icon { animation: fa-spin 1s infinite linear; }
         }
     }
 `;
@@ -377,6 +458,8 @@ const Wrapper = styled.div`
   }
   .edit-banner { background: rgba(0, 255, 136, 0.15); }
   .link-banner { background: rgba(52, 183, 241, 0.1); border-top: 1px solid rgba(52, 183, 241, 0.2); justify-content: flex-start; animation: ${popIn} 0.3s ease; }
+  
+  @keyframes fa-spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 `;
 
 const Container = styled.div`
@@ -441,8 +524,8 @@ const Container = styled.div`
         }
     }
 
-    input { width: 100%; height: 60%; background-color: transparent; color: white; border: none; padding-left: 1.5rem; font-size: 1.1rem; &::selection { background-color: #9a86f3; } &:focus { outline: none; } }
-    textarea { width: 100%; background-color: transparent; color: #00ff88; border: none; padding-left: 1.5rem; font-size: 1rem; resize: none; font-family: 'JetBrains Mono', monospace; &:focus { outline: none; } }
+    input { width: 100%; height: 60%; background-color: transparent; color: white; border: none; padding-left: 1.5rem; font-size: 1.1rem; &::selection { background-color: #9a86f3; } &:focus { outline: none; } &:disabled { opacity: 0.5; cursor: not-allowed; } }
+    textarea { width: 100%; background-color: transparent; color: #00ff88; border: none; padding-left: 1.5rem; font-size: 1rem; resize: none; font-family: 'JetBrains Mono', monospace; &:focus { outline: none; } &:disabled { opacity: 0.5; cursor: not-allowed; } }
     
     button {
       padding: 0.6rem 1.5rem; border-radius: 2rem; display: flex; justify-content: center; align-items: center;
@@ -451,6 +534,7 @@ const Container = styled.div`
       &:hover:not(:disabled) { transform: scale(1.05); box-shadow: 0 6px 20px rgba(78, 14, 255, 0.5); }
       &:disabled { background: #555; cursor: not-allowed; box-shadow: none; }
       &.schedule-btn { background: linear-gradient(135deg, #00ff88 0%, #00b35f 100%); box-shadow: 0 4px 15px rgba(0, 255, 136, 0.3); }
+      .spin-icon { animation: fa-spin 1s infinite linear; }
     }
   }
 `;

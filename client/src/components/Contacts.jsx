@@ -8,6 +8,9 @@ import { createGroupRoute, getUserGroupsRoute, updateProfileRoute, searchMessage
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
+// --- NEW: IMPORT ZUSTAND STORE ---
+import useChatStore from "../store/chatStore";
+
 // Safe API constants for Fallback avatar generation
 const femaleTops = "longHairBob,longHairBun,longHairCurly,longHairCurvy,longHairStraight,longHairNotTooLong";
 const maleTops = "shortHairDreads01,shortHairDreads02,shortHairFrizzle,shortHairShaggy,shortHairShortCurly,shortHairShortFlat,shortHairShortRound,shortHairShortWaved,shortHairSides";
@@ -32,18 +35,24 @@ const formatLastSeen = (dateString) => {
     return `Last seen ${date.toLocaleDateString(undefined, { month: 'short', day: 'numeric'})}`;
 };
 
+// MERGE UPDATE: Removed 7 props! Only kept the ones tightly coupled to Chat.jsx logic
 export default function Contacts({ 
   contacts, 
   changeChat, 
-  onlineUsers, 
-  handleLogout, 
-  currentUser,
-  theme,
-  setTheme,
-  isCompact,
-  setIsCompact,
-  typingUsers = [] 
+  handleLogout
 }) {
+  
+  // --- PULL GLOBAL STATE FROM ZUSTAND ---
+  const {
+      currentUser,
+      onlineUsers,
+      theme,
+      setTheme,
+      isCompact,
+      setIsCompact,
+      globalTypingUsers
+  } = useChatStore();
+
   const [currentUserName, setCurrentUserName] = useState(undefined);
   const [currentSelected, setCurrentSelected] = useState(undefined);
   
@@ -323,7 +332,7 @@ export default function Contacts({
                     displayedItems.map((item) => {
                         const isOnline = !item.isGroup && onlineUsers.includes(item._id);
                         const isPinned = pinnedIds.includes(item._id);
-                        const isTyping = !item.isGroup && typingUsers.includes(item._id);
+                        const isTyping = !item.isGroup && globalTypingUsers.includes(item._id); // USING ZUSTAND STATE
 
                         return (
                             <ContactItem 
@@ -477,7 +486,6 @@ export default function Contacts({
                           <input type="text" placeholder="Coding, Music, Gaming..." value={profileData.interests} onChange={(e) => setProfileData({...profileData, interests: e.target.value})} />
                       </div>
 
-                      {/* --- MERGE UPDATE: APP LOCK PIN SETTINGS --- */}
                       <hr className="divider" />
                       <div className="input-group" style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                           <div>
