@@ -69,9 +69,12 @@ export default function Contacts({
 
   useEffect(() => {
     const fetchGroups = async () => {
-      if(currentUser) {
+      if(currentUser && currentUser.token) {
           try {
-              const { data } = await axios.get(`${getUserGroupsRoute}/${currentUser._id}`);
+              // [FIX APPLIED]: Added Authorization Header
+              const { data } = await axios.get(`${getUserGroupsRoute}/${currentUser._id}`, {
+                  headers: { "x-auth-token": currentUser.token }
+              });
               setGroups(data);
           } catch (error) { 
               console.error("Error fetching groups:", error); 
@@ -157,8 +160,11 @@ export default function Contacts({
     if (groupName.length < 3) return toast.error("Group name must be > 3 characters");
     if (selectedMembers.length < 1) return toast.error("Select at least 1 member");
     try {
+        // [FIX APPLIED]: Added Authorization Header
         const { data } = await axios.post(createGroupRoute, {
             name: groupName, members: [...selectedMembers, currentUser._id], admin: currentUser._id
+        }, {
+            headers: { "x-auth-token": currentUser.token }
         });
         if (data.status) {
             setGroups([...groups, data.group]); 
@@ -174,8 +180,11 @@ export default function Contacts({
             ? profileData.interests.split(",").map(i => i.trim()).filter(i => i !== "") 
             : [];
             
+          // [FIX APPLIED]: Added Authorization Header
           const { data } = await axios.post(`${updateProfileRoute}/${currentUser._id}`, {
               ...profileData, interests: interestsArray
+          }, {
+              headers: { "x-auth-token": currentUser.token }
           });
           
           if(data.status) {
@@ -184,7 +193,9 @@ export default function Contacts({
               setShowProfileModal(false);
               setTimeout(() => window.location.reload(), 1000); 
           }
-      } catch (error) { toast.error("Failed to update profile"); }
+      } catch (error) { 
+          toast.error("Failed to update profile. Your session may have expired."); 
+      }
   };
 
   const getAvatarUrl = (user) => {

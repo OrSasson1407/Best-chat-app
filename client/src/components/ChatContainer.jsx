@@ -477,9 +477,17 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
     return <p>{msg.message}</p>;
   };
 
-  const filteredMessages = messages.filter(msg => 
-    msg.message && msg.type === "text" && msg.message.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // [FIX APPLIED]: Updated filter to show media files when not searching.
+  const filteredMessages = messages.filter(msg => {
+      // If there's no search query, show all message types
+      if (!searchQuery) return true;
+      
+      // If the user is actively searching, only filter text/link messages
+      if (msg.type !== "text" && msg.type !== "link") return false;
+      
+      // Perform the search
+      return msg.message && msg.message.toLowerCase().includes(searchQuery.toLowerCase());
+  });
 
   return (
     <Container $themeType={theme} $isCompact={isCompact} $hasPinned={!!pinnedMessage} onDragOver={handleDragOver}>
