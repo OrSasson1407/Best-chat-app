@@ -35,16 +35,23 @@ module.exports.searchMessages = async (req, res, next) => {
   }
 };
 
-// --- PHASE 3: In-App Media Gallery Fetcher ---
+// --- PHASE 3: In-App Media Gallery Fetcher (Updated with Filtering) ---
 module.exports.getChatMedia = async (req, res, next) => {
   try {
-    const { from, to } = req.body; 
+    const { from, to, filterType } = req.body; 
     
+    // Determine which types to fetch based on frontend request
+    let typesToFetch = ["image", "video", "file", "link"];
+    if (filterType === 'media') typesToFetch = ["image", "video"];
+    if (filterType === 'links') typesToFetch = ["link"];
+    if (filterType === 'files') typesToFetch = ["file"];
+
     // Find messages between these two users that are media or links
     const query = { 
         users: { $all: [from, to] },
-        type: { $in: ["image", "video", "file", "link"] },
-        isDeleted: false // Don't show deleted media in the gallery
+        type: { $in: typesToFetch },
+        isDeleted: false, // Don't show deleted media in the gallery
+        deletedFor: { $ne: from } // Hide media if user deleted it for themselves
     };
 
     const messages = await Message.find(query).sort({ createdAt: -1 });
@@ -80,9 +87,10 @@ module.exports.getMessages = async (req, res, next) => {
   try {
     const { from, to, cursor, limit = 50 } = req.body; 
 
-    // PHASE 2: Only show messages that have been sent, OR show unsent scheduled messages ONLY if the current user is the sender
+    // PHASE 2 & 3: Filter for sent status AND deletedFor
     let query = { 
         users: { $all: [from, to] },
+        deletedFor: { $ne: from }, 
         $or: [
             { isSent: true },
             { sender: from, isSent: false }
@@ -215,7 +223,8 @@ module.exports.addMessage = async (req, res, next) => {
       timer: timer || null,
       expireAt,
       scheduledAt: scheduledAt ? new Date(scheduledAt) : null,
-      isSent
+      isSent,
+      deletedFor: [] // Initialize empty array for deletes
     });
 
     if (isSent && !global.onlineUsers.has(to) && receiver && receiver.fcmToken) {
@@ -263,6 +272,7 @@ module.exports.reactToMessage = async (req, res, next) => {
   }
 };
 
+// Delete for Everyone
 module.exports.deleteMessage = async (req, res, next) => {
   try {
     const { messageId } = req.body;
@@ -281,6 +291,28 @@ module.exports.deleteMessage = async (req, res, next) => {
     await message.save();
 
     return res.json({ msg: "Message deleted successfully." });
+  } catch (ex) {
+    next(ex);
+  }
+};
+
+// --- NEW Delete for Me Controller ---
+module.exports.deleteMessageForMe = async (req, res, next) => {
+  try {
+    const { messageId, userId } = req.body;
+    const message = await Message.findById(messageId);
+    if (!message) return res.status(404).json({ msg: "Message not found" });
+
+    // Initialize array if it doesn't exist in the older schema records
+    if (!message.deletedFor) message.deletedFor = [];
+    
+    // Add user to the deleted list
+    if (!message.deletedFor.includes(userId)) {
+        message.deletedFor.push(userId);
+        await message.save();
+    }
+
+    return res.json({ msg: "Message deleted for you." });
   } catch (ex) {
     next(ex);
   }

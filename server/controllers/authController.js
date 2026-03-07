@@ -106,27 +106,57 @@ module.exports.refreshToken = async (req, res) => {
   });
 };
 
-// --- LEVEL 2: CACHING IN ACTION ---
+// --- HIGH-PERFORMANCE REDIS MGET CACHING ---
 module.exports.getAllUsers = async (req, res, next) => {
   try {
-    const cacheKey = `allusers_${req.params.id}`;
-    
-    // 1. Check Redis Cache
-    const cachedUsers = await cacheClient.get(cacheKey);
-    if (cachedUsers) {
-      return res.json(JSON.parse(cachedUsers));
+    const currentUserId = req.params.id;
+
+    // Step 1: Get all user IDs except the current user (Very fast index scan)
+    const usersBasic = await User.find({ _id: { $ne: currentUserId } }).select("_id");
+    if (usersBasic.length === 0) return res.json([]);
+
+    const userIds = usersBasic.map(u => u._id.toString());
+    const cacheKeys = userIds.map(id => `user_profile:${id}`);
+
+    // Step 2: Fetch all profiles from Redis simultaneously
+    const cachedProfiles = await cacheClient.mGet(cacheKeys);
+
+    let finalUsers = [];
+    let cacheMisses = []; // Keep track of whose data isn't in Redis yet
+
+    // Step 3: Parse cached hits and identify misses
+    cachedProfiles.forEach((profileStr, index) => {
+      if (profileStr) {
+        finalUsers.push(JSON.parse(profileStr));
+      } else {
+        cacheMisses.push(userIds[index]);
+      }
+    });
+
+    // Step 4: If some users weren't in the cache, fetch them from MongoDB
+    if (cacheMisses.length > 0) {
+      const missedUsers = await User.find({ _id: { $in: cacheMisses } }).select([
+        "email", "username", "avatarImage", "gender", "_id", 
+        "statusMessage", "statusIcon", "bio", "interests"
+      ]);
+
+      // Prepare data for multi-set (MSET) in Redis to cache them for next time
+      const msetArgs = [];
+      missedUsers.forEach(user => {
+        const userObj = user.toObject();
+        finalUsers.push(userObj);
+        msetArgs.push(`user_profile:${user._id.toString()}`);
+        msetArgs.push(JSON.stringify(userObj));
+      });
+
+      // Save misses to cache
+      if (msetArgs.length > 0) {
+        await cacheClient.mSet(msetArgs);
+        missedUsers.forEach(user => cacheClient.expire(`user_profile:${user._id.toString()}`, 3600));
+      }
     }
 
-    // 2. Fallback to MongoDB
-    const users = await User.find({ _id: { $ne: req.params.id } }).select([
-      "email", "username", "avatarImage", "gender", "_id", 
-      "statusMessage", "statusIcon", "bio", "interests"
-    ]);
-
-    // 3. Save to Cache for 5 minutes (300 seconds)
-    await cacheClient.setEx(cacheKey, 300, JSON.stringify(users));
-
-    return res.json(users);
+    return res.json(finalUsers);
   } catch (ex) {
     next(ex);
   }
@@ -141,16 +171,16 @@ module.exports.updateProfile = async (req, res, next) => {
       userId,
       { statusMessage, statusIcon, bio, interests },
       { new: true }
-    );
-
-    // If profile is updated, invalidate the cache so fresh data is fetched next time
-    // This loops through all keys and deletes them (simplified cache invalidation)
-    const keys = await cacheClient.keys('allusers_*');
-    if (keys.length > 0) await cacheClient.del(keys);
+    ).select([
+        "email", "username", "avatarImage", "gender", "_id", 
+        "statusMessage", "statusIcon", "bio", "interests"
+    ]);
 
     const userResponse = user.toObject();
-    delete userResponse.password;
     
+    // TARGETED INVALIDATION: Update only this user's cache immediately
+    await cacheClient.setEx(`user_profile:${userId}`, 3600, JSON.stringify(userResponse));
+
     return res.json({ status: true, user: userResponse });
   } catch (ex) {
     next(ex);

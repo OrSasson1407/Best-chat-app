@@ -3,16 +3,19 @@ import ChatInput from "./ChatInput";
 import axios from "axios";
 import { Virtuoso } from "react-virtuoso"; 
 import { 
+    host, // <-- MERGE UPDATE: Imported host for the public key route
     sendMessageRoute, 
     receiveMessageRoute, 
     getGroupMessagesRoute, 
     addGroupMemberRoute,
     reactMessageRoute,
     deleteMessageRoute, 
+    deleteMessageForMeRoute, 
     editMessageRoute,
     blockUserRoute,
     getChatMediaRoute 
 } from "../utils/APIRoutes";
+import { encryptMessage, decryptMessage } from "../utils/crypto"; // <-- MERGE UPDATE: Imported E2EE Crypto Utils
 import { v4 as uuidv4 } from "uuid";
 import { toast } from "react-toastify";
 import { 
@@ -25,6 +28,7 @@ import {
 
 // FIX: Imported SideInfoPanel instead of MediaGalleryPanel
 import { Container, DropOverlay, ScrollButton, Lightbox, SideInfoPanel } from "./ChatContainer.styles"; 
+import CallModal from "./CallModal"; // <-- MERGE UPDATE: Imported CallModal
 
 // Helper for tiny avatars
 const getSmallAvatar = (seed) => {
@@ -94,7 +98,6 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
   const [isOnline, setIsOnline] = useState(false);
   const [lastSeen, setLastSeen] = useState(null);
 
-  // FIX: Synced state names to showSidePanel
   const [showSidePanel, setShowSidePanel] = useState(false);
   const [chatMedia, setChatMedia] = useState({ media: [], links: [] });
   const [activeSideTab, setActiveSideTab] = useState("about");
@@ -112,6 +115,10 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [isBlocked, setIsBlocked] = useState(false);
+
+  // --- WEBRTC STATE ---
+  const [showCallModal, setShowCallModal] = useState(false);
+  const [incomingCallData, setIncomingCallData] = useState(null);
 
   const getAuthHeader = () => ({
     headers: { "x-auth-token": currentUser.token },
@@ -142,7 +149,23 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
             }
 
             const fetchedMessages = response.data.messages ? response.data.messages : response.data;
-            setMessages(fetchedMessages);
+            
+            // --- MERGE UPDATE: E2EE DECRYPTION FOR FETCHED HISTORY ---
+            const myPrivateKeyRaw = localStorage.getItem(`privateKey_${currentUser._id}`);
+            const myPrivateKey = myPrivateKeyRaw ? JSON.parse(myPrivateKeyRaw) : null;
+
+            const decryptedMessages = await Promise.all(fetchedMessages.map(async (msg) => {
+                // Decrypt incoming 1-on-1 text messages
+                if (msg.type === "text" && !currentChat.admin && !msg.fromSelf && myPrivateKey && !msg.isDeleted) {
+                    const decryptedText = await decryptMessage(msg.message, myPrivateKey);
+                    return { ...msg, message: decryptedText };
+                }
+                return msg;
+            }));
+
+            setMessages(decryptedMessages);
+            // --------------------------------------------------------
+
             setUnreadScrollCount(0); 
 
             if (response.data.nextCursor !== undefined) {
@@ -178,20 +201,24 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
     fetchHistory();
   }, [currentChat, currentUser]);
 
+  // Targeted Media Fetching (Performance Upgrade)
   useEffect(() => {
-      if (showSidePanel && currentChat) {
+      if (showSidePanel && currentChat && (activeSideTab === 'media' || activeSideTab === 'links')) {
           const fetchMedia = async () => {
               setIsFetchingMedia(true);
               try {
                   const { data } = await axios.post(getChatMediaRoute, {
                       from: currentUser._id,
-                      to: currentChat._id 
+                      to: currentChat._id,
+                      filterType: activeSideTab 
                   }, getAuthHeader());
 
                   if (data.status) {
-                      const mediaFiles = data.media.filter(m => m.type === 'image' || m.type === 'video');
-                      const linkFiles = data.media.filter(m => m.type === 'link');
-                      setChatMedia({ media: mediaFiles, links: linkFiles });
+                      if (activeSideTab === 'media') {
+                          setChatMedia(prev => ({ ...prev, media: data.media }));
+                      } else if (activeSideTab === 'links') {
+                          setChatMedia(prev => ({ ...prev, links: data.media }));
+                      }
                   }
               } catch (err) {
                   toast.error("Failed to load media gallery");
@@ -201,7 +228,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
           };
           fetchMedia();
       }
-  }, [showSidePanel, currentChat, currentUser]);
+  }, [showSidePanel, currentChat, currentUser, activeSideTab]);
 
   const loadMoreMessages = async () => {
     if (hasMore && !isLoadingMore) {
@@ -216,7 +243,19 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
 
           const newMessages = response.data.messages ? response.data.messages : response.data;
           
-          setMessages((prev) => [...newMessages, ...prev]);
+          // Decrypt older messages as they load
+          const myPrivateKeyRaw = localStorage.getItem(`privateKey_${currentUser._id}`);
+          const myPrivateKey = myPrivateKeyRaw ? JSON.parse(myPrivateKeyRaw) : null;
+          
+          const decryptedNewMessages = await Promise.all(newMessages.map(async (msg) => {
+              if (msg.type === "text" && !currentChat.admin && !msg.fromSelf && myPrivateKey && !msg.isDeleted) {
+                  const decryptedText = await decryptMessage(msg.message, myPrivateKey);
+                  return { ...msg, message: decryptedText };
+              }
+              return msg;
+          }));
+
+          setMessages((prev) => [...decryptedNewMessages, ...prev]);
           
           if (response.data.nextCursor !== undefined) {
               setCursor(response.data.nextCursor);
@@ -263,15 +302,26 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
         if (data.userId === currentChat._id) { setIsOnline(data.isOnline); setLastSeen(data.lastSeen); }
       };
 
-      const handleMsgRecieve = (data) => {
+      const handleMsgRecieve = async (data) => {
+        // --- MERGE UPDATE: E2EE DECRYPTION ON REAL-TIME RECEIVE ---
+        let decryptedText = data.msg;
+        if (data.type === "text" && !data.isGroup) {
+            const myPrivateKeyRaw = localStorage.getItem(`privateKey_${currentUser._id}`);
+            const myPrivateKey = myPrivateKeyRaw ? JSON.parse(myPrivateKeyRaw) : null;
+            if (myPrivateKey) {
+                decryptedText = await decryptMessage(data.msg, myPrivateKey);
+            }
+        }
+
         setArrivalMessage({ 
-            id: data.id, fromSelf: false, message: data.msg, type: data.type, 
+            id: data.id, fromSelf: false, message: decryptedText, type: data.type, 
             createdAt: data.createdAt, username: data.username, replyTo: data.replyTo,
             reactions: [], status: "delivered", isDeleted: false, isEdited: false,
             isForwarded: data.isForwarded, isViewOnce: data.isViewOnce, viewed: false,
             isStarred: false, pollData: data.pollData, linkMetadata: data.linkMetadata,
             readBy: []
         });
+        
         s.emit("mark-as-read", { 
             messageId: data.id, 
             from: currentUser._id, 
@@ -323,7 +373,13 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
       };
 
       const handleMsgEdited = ({ messageId, newText }) => {
+          // You could add decryption here for live edits, assuming they encrypted the edit too
           setMessages((prev) => prev.map(msg => msg.id === messageId ? { ...msg, isEdited: true, message: newText } : msg));
+      };
+
+      const handleIncomingCall = (data) => {
+          setIncomingCallData(data);
+          setShowCallModal(true);
       };
 
       s.on("presence-response", handlePresenceResponse);
@@ -334,11 +390,13 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
       s.on("group-msg-read-update", handleGroupMsgReadUpdate);
       s.on("msg-deleted", handleMsgDeleted);
       s.on("msg-edited", handleMsgEdited);
+      s.on("incoming-call", handleIncomingCall);
 
       return () => {
           s.off("presence-response"); s.off("user-status-change"); s.off("msg-recieve");
           s.off("receive-reaction"); s.off("msg-read-update"); s.off("group-msg-read-update");
           s.off("msg-deleted"); s.off("msg-edited");
+          s.off("incoming-call"); 
       };
     }
   }, [socket, currentUser, currentChat, readReceiptsMsg]);
@@ -354,11 +412,34 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
 
   const handleSendMsg = async (msg, type = "text", replyToId = null, extraData = {}) => {
     const time = new Date().toISOString();
+    let finalMessageContent = msg;
+
     try {
+        // --- MERGE UPDATE: E2EE ENCRYPTION ON SEND ---
+        if (type === "text" && !currentChat.admin) {
+            try {
+                // Fetch the receiver's public key
+                const pkResponse = await axios.get(`${host}/api/auth/publickey/${currentChat._id}`, getAuthHeader());
+                const receiverPublicKey = pkResponse.data.publicKey;
+
+                if (receiverPublicKey) {
+                    finalMessageContent = await encryptMessage(msg, receiverPublicKey);
+                }
+            } catch (err) {
+                console.error("Could not fetch public key for encryption");
+            }
+        }
+        // ---------------------------------------------
+
         const payload = {
-            from: currentUser._id, to: currentChat._id, message: msg, type,
-            replyTo: replyToId, isForwarded: extraData.isForwarded || false,
-            isViewOnce: extraData.isViewOnce || false, pollData: extraData.pollData || null,
+            from: currentUser._id, 
+            to: currentChat._id, 
+            message: finalMessageContent, // Send encrypted data to DB
+            type,
+            replyTo: replyToId, 
+            isForwarded: extraData.isForwarded || false,
+            isViewOnce: extraData.isViewOnce || false, 
+            pollData: extraData.pollData || null,
             timer: extraData.timer || null 
         };
 
@@ -367,14 +448,21 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
         const generatedLinkData = res.data.data?.linkMetadata || null;
 
         const socketData = {
-            id: newMessageId, to: currentChat._id, from: currentUser._id, 
-            msg, type: res.data.data?.type || type, isGroup: !!currentChat.admin, 
-            username: currentUser.username, replyTo: replyingTo ? { id: replyingTo.id, text: replyingTo.text, type: replyingTo.type, isSelfQuote: replyingTo.isSelfQuote } : null,
-            ...payload, linkMetadata: generatedLinkData
+            id: newMessageId, 
+            to: currentChat._id, 
+            from: currentUser._id, 
+            msg: finalMessageContent, // Send encrypted data via Socket
+            type: res.data.data?.type || type, 
+            isGroup: !!currentChat.admin, 
+            username: currentUser.username, 
+            replyTo: replyingTo ? { id: replyingTo.id, text: replyingTo.text, type: replyingTo.type, isSelfQuote: replyingTo.isSelfQuote } : null,
+            ...payload, 
+            linkMetadata: generatedLinkData
         };
         
         socket.current.emit("send-msg", socketData);
 
+        // Instantly push the PLAINTEXT message to the local sender's UI so they can read what they just wrote
         setMessages((prev) => [
             ...prev, 
             { 
@@ -401,14 +489,28 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
       } catch (error) { toast.error("Failed to edit message"); }
   };
 
-  const handleDeleteMsg = async (messageId) => {
-      if(window.confirm("Delete message for everyone?")) {
-          try {
+  const handleDeleteMsg = async (messageId, fromSelf) => {
+      const options = fromSelf 
+          ? "Press OK to 'Delete for Everyone', or Cancel to 'Delete for Me'."
+          : "Delete this message for yourself?";
+
+      const deleteForEveryone = fromSelf ? window.confirm(options) : false;
+
+      try {
+          if (deleteForEveryone) {
               await axios.post(deleteMessageRoute, { messageId }, getAuthHeader()); 
               socket.current.emit("delete-msg", { messageId, to: currentChat._id, isGroup: !!currentChat.admin });
               setMessages((prev) => prev.map(msg => msg.id === messageId ? { ...msg, isDeleted: true, message: "🚫 This message was deleted", reactions: [], linkMetadata: null, pollData: null } : msg));
-          } catch (error) { toast.error("Failed to delete message"); }
-      }
+          } else {
+              const confirmDeleteForMe = fromSelf ? window.confirm("Delete for me then?") : window.confirm(options);
+              
+              if (confirmDeleteForMe) {
+                  await axios.post(deleteMessageForMeRoute, { messageId, userId: currentUser._id }, getAuthHeader());
+                  setMessages((prev) => prev.filter(msg => msg.id !== messageId));
+                  toast.success("Message deleted for you");
+              }
+          }
+      } catch (error) { toast.error("Failed to delete message"); }
   };
 
   const handleReaction = async (messageId, emoji) => {
@@ -502,7 +604,6 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
     if (msg.isViewOnce && !msg.fromSelf && !msg.viewed) return <button className="view-once-btn" onClick={() => handleOpenViewOnce(msg.id)}><FaFire /> View Once Media</button>;
     if (msg.isViewOnce && (msg.viewed || msg.message === "💣 Media Expired")) return <p className="deleted-text">💣 Media Expired</p>;
 
-    // --- SEARCH HIGHLIGHTING ENABLED ---
     if (msg.type === "text") return <p><HighlightedText text={msg.message} query={searchQuery}/></p>;
 
     if (msg.type === "link" && msg.linkMetadata) {
@@ -567,6 +668,19 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
         </DropOverlay>
       )}
 
+      {showCallModal && (
+          <CallModal 
+              socket={socket}
+              currentUser={currentUser}
+              currentChat={currentChat}
+              incomingCallData={incomingCallData}
+              closeModal={() => {
+                  setShowCallModal(false);
+                  setIncomingCallData(null);
+              }}
+          />
+      )}
+
       {lightboxImage && (
         <Lightbox onClick={() => setLightboxImage(null)}>
           <button className="close-btn"><FaTimes /></button>
@@ -604,7 +718,6 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
         </Lightbox>
       )}
 
-      {/* --- FIX: SIDE INFO PANEL COMPONENT RENDERED PROPERLY --- */}
       {showSidePanel && (
         <SideInfoPanel $themeType={theme}>
             <div className="panel-header">
@@ -691,7 +804,16 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
               <FaSearch className="action-icon" title="Search messages" onClick={() => setShowSearch(!showSearch)} />
               <FaInfoCircle className="action-icon" title="Contact Info & Media" onClick={() => { setShowSidePanel(!showSidePanel); setActiveSideTab('about'); }} />
               
-              <button className="huddle-btn"><FaMicrophoneAlt /> Start Huddle</button>
+              <button 
+                  className="huddle-btn" 
+                  onClick={() => {
+                      setIncomingCallData(null); 
+                      setShowCallModal(true);
+                  }}
+              >
+                  <FaMicrophoneAlt /> Start Huddle
+              </button>
+
               {!currentChat.admin && (
                   <FaUserSlash className={`action-icon ${isBlocked ? 'blocked' : ''}`} title={isBlocked ? "Unblock User" : "Block User"} onClick={handleToggleBlock} />
               )}
@@ -833,17 +955,31 @@ export default function ChatContainer({ currentChat, currentUser, socket, isTypi
                                             {message.fromSelf && message.type === "text" && (
                                                 <button onClick={() => setEditingMessage({ id: message.id, text: message.message })} title="Edit"><FaPen size={12}/></button>
                                             )}
-                                            {message.fromSelf && (
-                                                <button onClick={() => handleDeleteMsg(message.id)} title="Delete"><FaTrash size={12}/></button>
-                                            )}
+                                            <button onClick={() => handleDeleteMsg(message.id, message.fromSelf)} title="Delete"><FaTrash size={12}/></button>
                                         </div>
                                     )}
                                     
                                     {message.reactions?.length > 0 && !message.isDeleted && (
                                         <div className="reactions-display">
-                                            {message.reactions.map((r, i) => (
-                                                <div key={i} className="reaction-pill" title={r.username}>
-                                                    <span className="reaction-anim">{r.emoji}</span>
+                                            {Object.entries(
+                                                message.reactions.reduce((acc, r) => {
+                                                    acc[r.emoji] = acc[r.emoji] || { count: 0, users: [] };
+                                                    acc[r.emoji].count += 1;
+                                                    acc[r.emoji].users.push(r.username);
+                                                    return acc;
+                                                }, {})
+                                            ).map(([emoji, data]) => (
+                                                <div 
+                                                    key={emoji} 
+                                                    className="reaction-pill" 
+                                                    title={data.users.join(', ')} 
+                                                >
+                                                    <span className="reaction-anim">{emoji}</span>
+                                                    {data.count > 1 && (
+                                                        <span className="reaction-count" style={{ marginLeft: '4px', fontSize: '0.75rem', fontWeight: 'bold' }}>
+                                                            {data.count}
+                                                        </span>
+                                                    )}
                                                 </div>
                                             ))}
                                         </div>

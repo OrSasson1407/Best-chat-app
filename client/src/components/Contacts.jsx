@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo } from "react";
 import styled, { keyframes, css } from "styled-components";
-import { FaUserFriends, FaPlus, FaSearch, FaCog, FaThumbtack, FaRegEnvelope, FaTimes } from "react-icons/fa";
+import { FaUserFriends, FaPlus, FaSearch, FaCog, FaThumbtack, FaRegEnvelope, FaTimes, FaSpinner } from "react-icons/fa";
 import { BsChatDotsFill, BsPeopleFill } from "react-icons/bs";
 import { MdOutlineAllInclusive } from "react-icons/md";
 import axios from "axios";
-import { createGroupRoute, getUserGroupsRoute, updateProfileRoute } from "../utils/APIRoutes";
+import { createGroupRoute, getUserGroupsRoute, updateProfileRoute, searchMessageRoute } from "../utils/APIRoutes";
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
@@ -58,6 +58,10 @@ export default function Contacts({
   const [searchTerm, setSearchTerm] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   
+  // Global Message Search State
+  const [globalMessages, setGlobalMessages] = useState([]);
+  const [isSearchingGlobal, setIsSearchingGlobal] = useState(false);
+
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [groupName, setGroupName] = useState("");
   const [selectedMembers, setSelectedMembers] = useState([]);
@@ -66,6 +70,9 @@ export default function Contacts({
   const [profileData, setProfileData] = useState({
       statusIcon: "✨", statusMessage: "Available", bio: "", interests: ""
   });
+
+  // Force re-render of settings if pin changes locally
+  const [hasPin, setHasPin] = useState(!!localStorage.getItem("app-pin-code"));
 
   useEffect(() => {
     const fetchGroups = async () => {
@@ -102,6 +109,36 @@ export default function Contacts({
     }
   }, [pinnedIds, currentUser]);
 
+  // Debounced Global Search Effect
+  useEffect(() => {
+      if (!searchTerm || searchTerm.length < 3) {
+          setGlobalMessages([]);
+          return;
+      }
+      
+      const delayDebounceFn = setTimeout(async () => {
+          setIsSearchingGlobal(true);
+          try {
+              const { data } = await axios.post(searchMessageRoute, {
+                  userId: currentUser._id,
+                  query: searchTerm
+              }, {
+                  headers: { "x-auth-token": currentUser.token }
+              });
+              
+              if (data.status) {
+                  setGlobalMessages(data.messages);
+              }
+          } catch (error) {
+              console.error("Error searching messages:", error);
+          } finally {
+              setIsSearchingGlobal(false);
+          }
+      }, 600);
+
+      return () => clearTimeout(delayDebounceFn);
+  }, [searchTerm, currentUser]);
+
   const togglePin = (e, id) => {
     e.stopPropagation(); 
     if (pinnedIds.includes(id)) {
@@ -119,6 +156,26 @@ export default function Contacts({
     changeChat(contact, isGroup); 
   };
 
+  const handleGlobalMessageClick = (msg) => {
+      let targetChat = null;
+      let isGroupChat = false;
+
+      targetChat = groups.find(g => msg.users.includes(g._id));
+      if (targetChat) {
+          isGroupChat = true;
+      } else {
+          const otherUserId = msg.users.find(id => id !== currentUser._id);
+          targetChat = contacts.find(c => c._id === otherUserId);
+      }
+
+      if (targetChat) {
+          changeCurrentChat(targetChat, isGroupChat);
+          setSearchTerm(""); 
+      } else {
+          toast.error("Chat not found. It may have been deleted.");
+      }
+  };
+
   // Filtering & Sorting Data
   const displayedItems = useMemo(() => {
     let all = [
@@ -126,17 +183,14 @@ export default function Contacts({
       ...groups.map(g => ({ ...g, isGroup: true, username: g.name }))
     ];
 
-    // Filter by Search
     if (searchTerm) {
       all = all.filter(item => item.username.toLowerCase().includes(searchTerm.toLowerCase()));
     }
 
-    // Filter by Folder
     if (activeFolder === "personal") all = all.filter(i => !i.isGroup);
     if (activeFolder === "groups") all = all.filter(i => i.isGroup);
     if (activeFolder === "unread") all = all.filter(i => i.unreadCount > 0); 
 
-    // Sort: Pinned first, then by online status, then alphabetical
     return all.sort((a, b) => {
       const aPinned = pinnedIds.includes(a._id);
       const bPinned = pinnedIds.includes(b._id);
@@ -150,7 +204,6 @@ export default function Contacts({
     });
   }, [contacts, groups, searchTerm, activeFolder, pinnedIds, onlineUsers]);
 
-  // Dynamic Badge Counters calculation
   const unreadCount = contacts.filter(c => c.unreadCount > 0).length;
   const groupsCount = groups.length;
 
@@ -258,10 +311,13 @@ export default function Contacts({
                 ))
             ) : (
               <>
-                {activeFolder === "groups" && (
+                {activeFolder === "groups" && !searchTerm && (
                     <div className="create-group-btn" onClick={() => setShowGroupModal(true)}><FaPlus /> Create New Group</div>
                 )}
-                {displayedItems.length === 0 ? (
+                
+                {searchTerm.length >= 3 && <div className="search-section-title">Chats & Groups</div>}
+
+                {displayedItems.length === 0 && !searchTerm ? (
                     <div className="empty-state">No chats found.</div>
                 ) : (
                     displayedItems.map((item) => {
@@ -315,6 +371,31 @@ export default function Contacts({
                             </ContactItem>
                         );
                     })
+                )}
+
+                {searchTerm.length >= 3 && (
+                    <>
+                        <div className="search-section-title">Message History</div>
+                        {isSearchingGlobal ? (
+                            <div className="empty-state"><FaSpinner className="fa-spin" /> Searching DB...</div>
+                        ) : globalMessages.length === 0 ? (
+                            <div className="empty-state">No matching messages.</div>
+                        ) : (
+                            globalMessages.map(msg => {
+                                const msgText = msg.message?.text || msg.message;
+                                
+                                const isEncryptedBlob = typeof msgText === 'string' && msgText.length > 50 && !msgText.includes(" ");
+                                if (isEncryptedBlob) return null;
+
+                                return (
+                                    <div key={msg._id} className="global-msg-item" onClick={() => handleGlobalMessageClick(msg)}>
+                                        <p className="msg-text">"{msgText}"</p>
+                                        <span className="msg-date">{new Date(msg.createdAt).toLocaleDateString()}</span>
+                                    </div>
+                                );
+                            })
+                        )}
+                    </>
                 )}
               </>
             )}
@@ -395,6 +476,39 @@ export default function Contacts({
                           <label>Interests (Comma separated)</label>
                           <input type="text" placeholder="Coding, Music, Gaming..." value={profileData.interests} onChange={(e) => setProfileData({...profileData, interests: e.target.value})} />
                       </div>
+
+                      {/* --- MERGE UPDATE: APP LOCK PIN SETTINGS --- */}
+                      <hr className="divider" />
+                      <div className="input-group" style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div>
+                              <label style={{ margin: 0, color: '#e0e0e0', fontSize: '0.9rem', fontWeight: 'bold' }}>App Lock (PIN)</label>
+                              <p style={{ margin: 0, fontSize: '0.75rem', color: '#888', marginTop: '4px' }}>Require a 4-digit PIN to open the app.</p>
+                          </div>
+                          <button 
+                              className={`toggle-btn ${hasPin ? 'active' : ''}`} 
+                              style={{ width: 'auto', padding: '0.5rem 1rem' }}
+                              onClick={() => {
+                                  if (hasPin) {
+                                      localStorage.removeItem("app-pin-code");
+                                      setHasPin(false);
+                                      toast.info("App Lock Disabled");
+                                  } else {
+                                      const newPin = prompt("Enter a 4-digit PIN to lock your app:");
+                                      if (newPin && newPin.length === 4 && !isNaN(newPin)) {
+                                          localStorage.setItem("app-pin-code", newPin);
+                                          setHasPin(true);
+                                          toast.success("App Lock Enabled! It will activate next time you open the app.");
+                                      } else if (newPin) {
+                                          toast.error("Invalid PIN. Must be exactly 4 numbers.");
+                                      }
+                                  }
+                              }}
+                          >
+                              {hasPin ? "Disable" : "Setup PIN"}
+                          </button>
+                      </div>
+
+                      <hr className="divider" />
                       <div className="modal-actions">
                           <button onClick={handleUpdateProfile}>Save Changes</button>
                           <button className="cancel" onClick={() => setShowProfileModal(false)}>Cancel</button>
@@ -478,6 +592,21 @@ const Container = styled.div`
     .skeleton-anim { background: #1a1a2e; background-image: linear-gradient(to right, #1a1a2e 0%, #2a2a3e 20%, #1a1a2e 40%, #1a1a2e 100%); background-repeat: no-repeat; background-size: 800px 100%; animation: ${shimmer} 1.5s infinite linear forwards; }
     .skeleton-line { height: 12px; width: 100px; border-radius: 4px; margin-bottom: 6px; }
     .skeleton-line.short { width: 60px; height: 10px; }
+
+    .search-section-title {
+        width: 90%; text-transform: uppercase; color: #888; font-size: 0.75rem; 
+        font-weight: 700; margin: 15px 0 5px 0; letter-spacing: 1px; flex-shrink: 0;
+    }
+    
+    .global-msg-item {
+        background: rgba(255, 255, 255, 0.03); width: 90%; padding: 0.8rem; 
+        border-radius: 0.8rem; cursor: pointer; transition: 0.3s;
+        border: 1px solid rgba(78, 14, 255, 0.2); flex-shrink: 0;
+        
+        &:hover { background: rgba(78, 14, 255, 0.15); border-color: rgba(78, 14, 255, 0.4); transform: translateY(-2px); }
+        .msg-text { color: #e0e0e0; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-style: italic;}
+        .msg-date { color: #666; font-size: 0.65rem; display: block; margin-top: 6px; text-align: right;}
+    }
   }
 
   .current-user {

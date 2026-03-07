@@ -5,6 +5,7 @@ import { useNavigate, Link } from "react-router-dom";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { registerRoute } from "../utils/APIRoutes";
+import { generateKeyPair } from "../utils/crypto";
 
 export default function Register() {
   const navigate = useNavigate();

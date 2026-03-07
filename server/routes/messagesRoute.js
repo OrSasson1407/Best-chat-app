@@ -3,9 +3,10 @@ const {
   getMessages, 
   reactToMessage,
   deleteMessage,
+  deleteMessageForMe, // <-- MERGE UPDATE: Imported new controller function
   editMessage,
   searchMessages,
-  getChatMedia // <-- Destructured the new controller function
+  getChatMedia 
 } = require("../controllers/messageController");
 const auth = require("../middleware/authMiddleware"); // Security Middleware
 const router = require("express").Router();
@@ -17,6 +18,7 @@ router.post("/getmsg/", auth, getMessages);
 // Feature Routes
 router.post("/react", auth, reactToMessage);
 router.post("/deletemsg", auth, deleteMessage);
+router.post("/deletemsgforme", auth, deleteMessageForMe); // <-- MERGE UPDATE: New route for local deletion
 router.post("/editmsg", auth, editMessage);
 
 // NEW: Search Route

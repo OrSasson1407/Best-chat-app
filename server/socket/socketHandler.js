@@ -210,6 +210,50 @@ module.exports = (io) => {
       }
     });
 
+    // --- MERGE UPDATE: WEBRTC SIGNALING (VOICE/VIDEO CALLS) ---
+
+    // A. Initiate a call (Sends the initial WebRTC Offer)
+    socket.on("call-user", (data) => {
+      const receiverSocket = global.onlineUsers.get(data.userToCall);
+      if (receiverSocket) {
+        io.to(receiverSocket).emit("incoming-call", {
+          signal: data.signalData,
+          from: data.from,
+          name: data.name,
+          type: data.type // 'audio' or 'video'
+        });
+      } else {
+        // User is offline, immediately tell the caller
+        socket.emit("call-rejected", { reason: "User is currently offline." });
+      }
+    });
+
+    // B. Answer the call (Sends the WebRTC Answer back to the caller)
+    socket.on("answer-call", (data) => {
+      const callerSocket = global.onlineUsers.get(data.to);
+      if (callerSocket) {
+        io.to(callerSocket).emit("call-accepted", data.signal);
+      }
+    });
+
+    // C. Exchange ICE Candidates (Trickle ICE for network pathing)
+    socket.on("ice-candidate", (data) => {
+      const targetSocket = global.onlineUsers.get(data.target);
+      if (targetSocket) {
+        io.to(targetSocket).emit("ice-candidate-received", data.candidate);
+      }
+    });
+
+    // D. End, Reject, or Cancel the call
+    socket.on("end-call", (data) => {
+      const targetSocket = global.onlineUsers.get(data.to);
+      if (targetSocket) {
+        io.to(targetSocket).emit("call-ended", { reason: data.reason || "Call ended." });
+      }
+    });
+
+    // ----------------------------------------------------------
+
     // 9. Disconnect & Last Seen Update
     socket.on("disconnect", async () => {
       let disconnectedUser = socket.userId; // Prefer the explicitly attached ID

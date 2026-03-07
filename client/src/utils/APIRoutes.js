@@ -13,6 +13,7 @@ export const sendMessageRoute = `${host}/api/messages/addmsg`;
 export const receiveMessageRoute = `${host}/api/messages/getmsg`;
 export const reactMessageRoute = `${host}/api/messages/react`;
 export const deleteMessageRoute = `${host}/api/messages/deletemsg`;
+export const deleteMessageForMeRoute = `${host}/api/messages/deletemsgforme`; // <-- MERGE UPDATE: New endpoint added
 export const editMessageRoute = `${host}/api/messages/editmsg`;
 export const searchMessageRoute = `${host}/api/messages/search`; // NEW: Search messages
 

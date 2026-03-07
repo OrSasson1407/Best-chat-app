@@ -4,7 +4,9 @@ import styled from "styled-components";
 import { useNavigate, Link } from "react-router-dom";
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
-import { loginRoute } from "../utils/APIRoutes";
+// MERGE UPDATE: Make sure publicKeyRoute is imported
+import { loginRoute, publicKeyRoute } from "../utils/APIRoutes"; 
+import { generateKeyPair } from "../utils/crypto";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -55,6 +57,29 @@ export default function Login() {
             token: data.token,
           };
           sessionStorage.setItem("chat-app-user", JSON.stringify(userData));
+
+          // --- MERGE UPDATE: E2EE LOGIC ---
+          try {
+            // Generate Keys
+            const keys = await generateKeyPair();
+            
+            // Save Private Key locally (NEVER send this to the server)
+            // Storing in localStorage so it persists even if the tab closes, 
+            // but you can change this to sessionStorage if you prefer stricter session limits.
+            localStorage.setItem(`privateKey_${data.user._id}`, JSON.stringify(keys.privateKey));
+            
+            // Send Public Key to the Backend for other users to encrypt messages for this user
+            await axios.post(publicKeyRoute, {
+                userId: data.user._id,
+                publicKey: keys.publicKey
+            });
+          } catch (cryptoErr) {
+            console.error("Failed to generate or register E2EE keys", cryptoErr);
+            // Optionally notify the user, though we shouldn't block login
+            toast.error("Warning: Encryption keys could not be established.", toastOptions);
+          }
+          // --------------------------------
+
           navigate("/");
         }
       } catch (error) {
