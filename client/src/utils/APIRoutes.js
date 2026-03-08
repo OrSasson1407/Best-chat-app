@@ -1,4 +1,8 @@
-export const host = "http://localhost:5000";
+// --- MERGE UPDATE: Dynamic Environment Host ---
+// Replace the production URL with your actual deployed backend URL (e.g., Render, Railway, Heroku)
+export const host = process.env.NODE_ENV === "production" 
+    ? "https://your-backend-api-url.onrender.com" 
+    : "http://localhost:5000";
 
 // Auth & User Routes
 export const loginRoute = `${host}/api/auth/login`;
@@ -13,9 +17,9 @@ export const sendMessageRoute = `${host}/api/messages/addmsg`;
 export const receiveMessageRoute = `${host}/api/messages/getmsg`;
 export const reactMessageRoute = `${host}/api/messages/react`;
 export const deleteMessageRoute = `${host}/api/messages/deletemsg`;
-export const deleteMessageForMeRoute = `${host}/api/messages/deletemsgforme`; // <-- MERGE UPDATE: New endpoint added
+export const deleteMessageForMeRoute = `${host}/api/messages/deletemsgforme`; 
 export const editMessageRoute = `${host}/api/messages/editmsg`;
-export const searchMessageRoute = `${host}/api/messages/search`; // NEW: Search messages
+export const searchMessageRoute = `${host}/api/messages/search`; 
 
 // Group Routes
 export const createGroupRoute = `${host}/api/groups/create`;
@@ -25,7 +29,8 @@ export const addGroupMemberRoute = `${host}/api/groups/addmember`;
 export const removeGroupMemberRoute = `${host}/api/groups/removemember`;
 
 // Security & Advanced Feature Routes
-export const blockUserRoute = `${host}/api/auth/block`;          // NEW: Block/Unblock users
-export const fcmTokenRoute = `${host}/api/auth/fcm-token`;       // NEW: Push notification tokens
-export const publicKeyRoute = `${host}/api/auth/public-key`;     // NEW: E2EE Public Key exchange
+export const blockUserRoute = `${host}/api/auth/block`;          
+export const fcmTokenRoute = `${host}/api/auth/fcm-token`;       
+export const publicKeyRoute = `${host}/api/auth/public-key`;     
 export const getChatMediaRoute = `${host}/api/messages/getmedia`;
+export const updateFcmTokenRoute = `${host}/api/auth/update-fcm`;

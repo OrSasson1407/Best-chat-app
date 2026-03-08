@@ -70,6 +70,7 @@ module.exports.getChatMedia = async (req, res, next) => {
         isViewOnce: msg.isViewOnce,
         viewed: hasViewed,
         linkMetadata: msg.linkMetadata,
+        fileMetadata: msg.fileMetadata // --- MERGE UPDATE: Expose to Gallery
       };
     }).filter(msg => msg.message !== "💣 Media Expired"); // Completely hide expired view-once media from the gallery
 
@@ -130,6 +131,7 @@ module.exports.getMessages = async (req, res, next) => {
         isStarred: msg.starredBy.includes(from),
         pollData: msg.pollData,
         linkMetadata: msg.linkMetadata,
+        fileMetadata: msg.fileMetadata, // --- MERGE UPDATE: Expose to UI
 
         // Phase 2: Expose timer and schedule state to UI
         timer: msg.timer,
@@ -161,7 +163,8 @@ module.exports.getMessages = async (req, res, next) => {
 // --- Add Message (Updated with Phase 2 Expiration & Scheduling Logic) ---
 module.exports.addMessage = async (req, res, next) => {
   try {
-    const { from, to, message, type, replyTo, isForwarded, isViewOnce, pollData, timer, scheduledAt } = req.body;
+    // --- MERGE UPDATE: Destructure fileName and fileSize from frontend request ---
+    const { from, to, message, type, replyTo, isForwarded, isViewOnce, pollData, timer, scheduledAt, fileName, fileSize } = req.body;
 
     const receiver = await User.findById(to);
     if (receiver && receiver.blockedUsers.includes(from)) {
@@ -170,6 +173,7 @@ module.exports.addMessage = async (req, res, next) => {
 
     let finalContent = message;
     let linkMetadata = null;
+    let fileMetadata = null; // Prepare metadata object
     let finalType = type || "text";
 
     if (["image", "video", "audio", "file"].includes(type) && message.startsWith("data:")) {
@@ -178,6 +182,15 @@ module.exports.addMessage = async (req, res, next) => {
         folder: "best_chat_app_media", 
       });
       finalContent = uploadRes.secure_url; 
+      
+      // --- MERGE UPDATE: Save metadata so the UI knows the file's original name and size ---
+      if (type === "file") {
+        fileMetadata = {
+            fileName: fileName || "Attachment",
+            fileSize: fileSize || "Unknown size",
+            publicId: uploadRes.public_id
+        };
+      }
     }
 
     if (finalType === "text" || finalType === "link") {
@@ -219,6 +232,7 @@ module.exports.addMessage = async (req, res, next) => {
       isViewOnce: isViewOnce || false,
       pollData: pollData || null,
       linkMetadata: linkMetadata,
+      fileMetadata: fileMetadata, // --- MERGE UPDATE: Save metadata to DB
       
       timer: timer || null,
       expireAt,
@@ -287,6 +301,7 @@ module.exports.deleteMessage = async (req, res, next) => {
     message.message.text = "🚫 This message was deleted";
     message.reactions = []; 
     message.linkMetadata = null;
+    message.fileMetadata = null; // --- MERGE UPDATE: clear on delete
     message.pollData = null;
     await message.save();
 

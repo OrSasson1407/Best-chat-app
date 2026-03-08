@@ -67,6 +67,24 @@ const userSchema = new mongoose.Schema({
     type: [String],
     default: [],
   },
+
+  // --- MERGE UPDATE: PRIVACY CONTROLS ---
+  privacySettings: {
+    lastSeen: { 
+      type: String, 
+      enum: ["everyone", "contacts", "nobody"], 
+      default: "everyone" 
+    },
+    readReceipts: { 
+      type: Boolean, 
+      default: true 
+    },
+    profilePhoto: { 
+      type: String, 
+      enum: ["everyone", "contacts", "nobody"], 
+      default: "everyone" 
+    }
+  },
   
   // --- NEW FEATURES ---
   fcmToken: { 

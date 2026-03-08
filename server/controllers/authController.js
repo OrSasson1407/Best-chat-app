@@ -45,14 +45,16 @@ module.exports.register = async (req, res, next) => {
       gender,
       avatarImage: finalAvatar,
       isAvatarImageSet: true,
+      // Privacy settings default to schema defaults
     });
 
     const { accessToken, refreshToken } = generateTokens(user._id);
 
+    // --- PRODUCTION CORS FIX ---
     res.cookie("refreshToken", refreshToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "Strict",
+      secure: true, 
+      sameSite: "None", 
       maxAge: 7 * 24 * 60 * 60 * 1000, 
     });
 
@@ -79,10 +81,11 @@ module.exports.login = async (req, res, next) => {
 
     const { accessToken, refreshToken } = generateTokens(user._id);
 
+    // --- PRODUCTION CORS FIX ---
     res.cookie("refreshToken", refreshToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "Strict",
+      secure: true, 
+      sameSite: "None", 
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
@@ -90,6 +93,20 @@ module.exports.login = async (req, res, next) => {
     delete userResponse.password;
 
     return res.json({ status: true, user: userResponse, token: accessToken });
+  } catch (ex) {
+    next(ex);
+  }
+};
+
+module.exports.logout = (req, res, next) => {
+  try {
+    // --- PRODUCTION CORS FIX ---
+    res.clearCookie("refreshToken", {
+      httpOnly: true,
+      secure: true, 
+      sameSite: "None", 
+    });
+    return res.json({ status: true, msg: "Logged out successfully" });
   } catch (ex) {
     next(ex);
   }
@@ -106,55 +123,70 @@ module.exports.refreshToken = async (req, res) => {
   });
 };
 
-// --- HIGH-PERFORMANCE REDIS MGET CACHING ---
+// --- HIGH-PERFORMANCE REDIS MGET CACHING WITH PRIVACY ENFORCEMENT ---
 module.exports.getAllUsers = async (req, res, next) => {
   try {
     const currentUserId = req.params.id;
 
-    // Step 1: Get all user IDs except the current user (Very fast index scan)
-    const usersBasic = await User.find({ _id: { $ne: currentUserId } }).select("_id");
+    const searchQuery = req.query.search || "";
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 50; 
+    const skip = (page - 1) * limit;
+
+    const dbQuery = { _id: { $ne: currentUserId } };
+    
+    if (searchQuery) {
+        dbQuery.username = { $regex: searchQuery, $options: "i" };
+    }
+
+    const usersBasic = await User.find(dbQuery).select("_id").skip(skip).limit(limit);
+                                 
     if (usersBasic.length === 0) return res.json([]);
 
     const userIds = usersBasic.map(u => u._id.toString());
     const cacheKeys = userIds.map(id => `user_profile:${id}`);
 
-    // Step 2: Fetch all profiles from Redis simultaneously
     const cachedProfiles = await cacheClient.mGet(cacheKeys);
 
-    let finalUsers = [];
-    let cacheMisses = []; // Keep track of whose data isn't in Redis yet
+    let finalUsersRaw = [];
+    let cacheMisses = []; 
 
-    // Step 3: Parse cached hits and identify misses
     cachedProfiles.forEach((profileStr, index) => {
       if (profileStr) {
-        finalUsers.push(JSON.parse(profileStr));
+        finalUsersRaw.push(JSON.parse(profileStr));
       } else {
         cacheMisses.push(userIds[index]);
       }
     });
 
-    // Step 4: If some users weren't in the cache, fetch them from MongoDB
     if (cacheMisses.length > 0) {
       const missedUsers = await User.find({ _id: { $in: cacheMisses } }).select([
         "email", "username", "avatarImage", "gender", "_id", 
-        "statusMessage", "statusIcon", "bio", "interests"
+        "statusMessage", "statusIcon", "bio", "interests", "privacySettings" // Added privacySettings
       ]);
 
-      // Prepare data for multi-set (MSET) in Redis to cache them for next time
       const msetArgs = [];
       missedUsers.forEach(user => {
         const userObj = user.toObject();
-        finalUsers.push(userObj);
+        finalUsersRaw.push(userObj);
         msetArgs.push(`user_profile:${user._id.toString()}`);
         msetArgs.push(JSON.stringify(userObj));
       });
 
-      // Save misses to cache
       if (msetArgs.length > 0) {
         await cacheClient.mSet(msetArgs);
         missedUsers.forEach(user => cacheClient.expire(`user_profile:${user._id.toString()}`, 3600));
       }
     }
+
+    // --- MERGE UPDATE: Apply Privacy Settings before sending to frontend ---
+    const finalUsers = finalUsersRaw.map(u => {
+        // If they set profilePhoto to nobody, scrub it.
+        if (u.privacySettings?.profilePhoto === "nobody") {
+            u.avatarImage = ""; 
+        }
+        return u;
+    });
 
     return res.json(finalUsers);
   } catch (ex) {
@@ -165,15 +197,26 @@ module.exports.getAllUsers = async (req, res, next) => {
 module.exports.updateProfile = async (req, res, next) => {
   try {
     const userId = req.params.id;
-    const { statusMessage, statusIcon, bio, interests } = req.body;
+    const { statusMessage, statusIcon, bio, interests, privacySettings } = req.body;
     
+    // Merge new privacy settings with existing ones if provided
+    let updatePayload = { statusMessage, statusIcon, bio, interests };
+    
+    if (privacySettings) {
+        const currentUser = await User.findById(userId);
+        updatePayload.privacySettings = {
+            ...currentUser.privacySettings,
+            ...privacySettings
+        };
+    }
+
     const user = await User.findByIdAndUpdate(
       userId,
-      { statusMessage, statusIcon, bio, interests },
+      updatePayload,
       { new: true }
     ).select([
         "email", "username", "avatarImage", "gender", "_id", 
-        "statusMessage", "statusIcon", "bio", "interests"
+        "statusMessage", "statusIcon", "bio", "interests", "privacySettings"
     ]);
 
     const userResponse = user.toObject();

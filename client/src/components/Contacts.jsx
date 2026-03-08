@@ -1,15 +1,16 @@
 import React, { useState, useEffect, useMemo } from "react";
 import styled, { keyframes, css } from "styled-components";
-import { FaUserFriends, FaPlus, FaSearch, FaCog, FaThumbtack, FaRegEnvelope, FaTimes, FaSpinner } from "react-icons/fa";
+import { FaUserFriends, FaPlus, FaSearch, FaCog, FaThumbtack, FaRegEnvelope, FaTimes, FaSpinner, FaShieldAlt } from "react-icons/fa";
 import { BsChatDotsFill, BsPeopleFill } from "react-icons/bs";
 import { MdOutlineAllInclusive } from "react-icons/md";
 import axios from "axios";
-import { createGroupRoute, getUserGroupsRoute, updateProfileRoute, searchMessageRoute } from "../utils/APIRoutes";
+import { host, createGroupRoute, getUserGroupsRoute, updateProfileRoute, searchMessageRoute } from "../utils/APIRoutes";
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
-// --- NEW: IMPORT ZUSTAND STORE ---
+// --- NEW: IMPORT ZUSTAND STORE & CRYPTO ---
 import useChatStore from "../store/chatStore";
+import { generateGroupAESKey, encryptMessage } from "../utils/crypto"; 
 
 // Safe API constants for Fallback avatar generation
 const femaleTops = "longHairBob,longHairBun,longHairCurly,longHairCurvy,longHairStraight,longHairNotTooLong";
@@ -76,8 +77,18 @@ export default function Contacts({
   const [selectedMembers, setSelectedMembers] = useState([]);
 
   const [showProfileModal, setShowProfileModal] = useState(false);
+  
+  // --- MERGE UPDATE: Initialize Privacy Settings in State ---
   const [profileData, setProfileData] = useState({
-      statusIcon: "✨", statusMessage: "Available", bio: "", interests: ""
+      statusIcon: "✨", 
+      statusMessage: "Available", 
+      bio: "", 
+      interests: "",
+      privacySettings: {
+          lastSeen: "everyone",
+          readReceipts: true,
+          profilePhoto: "everyone"
+      }
   });
 
   // Force re-render of settings if pin changes locally
@@ -87,7 +98,8 @@ export default function Contacts({
     const fetchGroups = async () => {
       if(currentUser && currentUser.token) {
           try {
-              const { data } = await axios.get(`${getUserGroupsRoute}/${currentUser._id}`, {
+              // --- MERGE UPDATE: Removed /${currentUser._id} since the backend now uses the JWT securely ---
+              const { data } = await axios.get(getUserGroupsRoute, {
                   headers: { "x-auth-token": currentUser.token }
               });
               setGroups(data);
@@ -101,11 +113,18 @@ export default function Contacts({
 
     if (currentUser) {
       setCurrentUserName(currentUser.username);
+      
+      // --- MERGE UPDATE: Load user's existing privacy settings from DB ---
       setProfileData({
           statusIcon: currentUser.statusIcon || "✨",
           statusMessage: currentUser.statusMessage || "Available",
           bio: currentUser.bio || "",
-          interests: currentUser.interests ? currentUser.interests.join(", ") : ""
+          interests: currentUser.interests ? currentUser.interests.join(", ") : "",
+          privacySettings: currentUser.privacySettings || {
+              lastSeen: "everyone",
+              readReceipts: true,
+              profilePhoto: "everyone"
+          }
       });
       fetchGroups();
     }
@@ -221,21 +240,56 @@ export default function Contacts({
     else setSelectedMembers([...selectedMembers, id]);
   };
 
+  // --- MERGE UPDATE: E2EE GROUP KEY GENERATION & DISTRIBUTION ---
   const handleCreateGroup = async () => {
     if (groupName.length < 3) return toast.error("Group name must be > 3 characters");
     if (selectedMembers.length < 1) return toast.error("Select at least 1 member");
+    
     try {
+        const allMembers = [...selectedMembers, currentUser._id];
+        toast.info("Generating secure E2EE keys...", { autoClose: 2000 });
+
+        // 1. Generate the shared AES Group Key
+        const aesKeyJwk = await generateGroupAESKey();
+        const aesKeyString = JSON.stringify(aesKeyJwk); // We must stringify it so RSA can encrypt it
+        const groupKeys = [];
+
+        // 2. Fetch RSA public keys for ALL members and encrypt the AES key for each of them individually
+        for (let userId of allMembers) {
+            try {
+                const pkResponse = await axios.get(`${host}/api/auth/public-key/${userId}`, {
+                    headers: { "x-auth-token": currentUser.token }
+                });
+                const userPublicKey = pkResponse.data.publicKey;
+                
+                if (userPublicKey) {
+                    const encryptedKey = await encryptMessage(aesKeyString, userPublicKey);
+                    groupKeys.push({ userId, encryptedKey });
+                }
+            } catch (err) {
+                console.error(`Could not fetch public key for user ${userId}`);
+            }
+        }
+
+        // 3. Send the group creation payload + the encrypted keys array
         const { data } = await axios.post(createGroupRoute, {
-            name: groupName, members: [...selectedMembers, currentUser._id], admin: currentUser._id
+            name: groupName, 
+            members: allMembers, 
+            admin: currentUser._id,
+            groupKeys // Backend now saves this!
         }, {
             headers: { "x-auth-token": currentUser.token }
         });
+        
         if (data.status) {
             setGroups([...groups, data.group]); 
             setShowGroupModal(false); setGroupName(""); setSelectedMembers([]);
-            toast.success("Group created successfully!");
+            toast.success("Secure Group created successfully!");
         }
-    } catch (error) { toast.error("Failed to create group"); }
+    } catch (error) { 
+        toast.error("Failed to create secure group"); 
+        console.error(error);
+    }
   };
 
   const handleUpdateProfile = async () => {
@@ -245,7 +299,9 @@ export default function Contacts({
             : [];
             
           const { data } = await axios.post(`${updateProfileRoute}/${currentUser._id}`, {
-              ...profileData, interests: interestsArray
+              ...profileData, 
+              interests: interestsArray
+              // profileData.privacySettings is already included via spread operator
           }, {
               headers: { "x-auth-token": currentUser.token }
           });
@@ -332,7 +388,7 @@ export default function Contacts({
                     displayedItems.map((item) => {
                         const isOnline = !item.isGroup && onlineUsers.includes(item._id);
                         const isPinned = pinnedIds.includes(item._id);
-                        const isTyping = !item.isGroup && globalTypingUsers.includes(item._id); // USING ZUSTAND STATE
+                        const isTyping = !item.isGroup && globalTypingUsers.includes(item._id);
 
                         return (
                             <ContactItem 
@@ -469,28 +525,51 @@ export default function Contacts({
                               </button>
                           </div>
                       </div>
+
+                      {/* --- MERGE UPDATE: NEW PRIVACY CONTROLS UI --- */}
                       <hr className="divider" />
-                      <div className="input-group">
-                          <label>Status Icon & Message</label>
-                          <div style={{display:'flex', gap:'10px'}}>
-                            <input type="text" maxLength="2" value={profileData.statusIcon} onChange={(e) => setProfileData({...profileData, statusIcon: e.target.value})} style={{width: '60px'}}/>
-                            <input type="text" placeholder="Status..." maxLength="50" value={profileData.statusMessage} onChange={(e) => setProfileData({...profileData, statusMessage: e.target.value})} />
+                      <h4 style={{ color: '#00ff88', marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <FaShieldAlt /> Privacy & Security
+                      </h4>
+                      <div className="settings-row">
+                          <div className="input-group">
+                              <label>Last Seen</label>
+                              <select 
+                                  value={profileData.privacySettings.lastSeen} 
+                                  onChange={(e) => setProfileData({...profileData, privacySettings: {...profileData.privacySettings, lastSeen: e.target.value}})}
+                              >
+                                  <option value="everyone">Everyone</option>
+                                  <option value="nobody">Nobody</option>
+                              </select>
+                          </div>
+                          <div className="input-group">
+                              <label>Profile Photo</label>
+                              <select 
+                                  value={profileData.privacySettings.profilePhoto} 
+                                  onChange={(e) => setProfileData({...profileData, privacySettings: {...profileData.privacySettings, profilePhoto: e.target.value}})}
+                              >
+                                  <option value="everyone">Everyone</option>
+                                  <option value="nobody">Nobody</option>
+                              </select>
                           </div>
                       </div>
-                      <div className="input-group">
-                          <label>Short Bio</label>
-                          <textarea placeholder="Tell people about yourself..." maxLength="150" value={profileData.bio} onChange={(e) => setProfileData({...profileData, bio: e.target.value})} />
-                      </div>
-                      <div className="input-group">
-                          <label>Interests (Comma separated)</label>
-                          <input type="text" placeholder="Coding, Music, Gaming..." value={profileData.interests} onChange={(e) => setProfileData({...profileData, interests: e.target.value})} />
-                      </div>
-
-                      <hr className="divider" />
-                      <div className="input-group" style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div className="input-group" style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px' }}>
                           <div>
-                              <label style={{ margin: 0, color: '#e0e0e0', fontSize: '0.9rem', fontWeight: 'bold' }}>App Lock (PIN)</label>
-                              <p style={{ margin: 0, fontSize: '0.75rem', color: '#888', marginTop: '4px' }}>Require a 4-digit PIN to open the app.</p>
+                              <label style={{ margin: 0, color: '#e0e0e0', fontSize: '0.85rem', fontWeight: 'bold' }}>Read Receipts</label>
+                              <p style={{ margin: 0, fontSize: '0.7rem', color: '#888', marginTop: '4px' }}>If turned off, you won't send or receive blue ticks.</p>
+                          </div>
+                          <button 
+                              className={`toggle-btn ${profileData.privacySettings.readReceipts ? 'active' : ''}`} 
+                              style={{ width: 'auto', padding: '0.5rem 1rem' }}
+                              onClick={() => setProfileData({...profileData, privacySettings: {...profileData.privacySettings, readReceipts: !profileData.privacySettings.readReceipts}})}
+                          >
+                              {profileData.privacySettings.readReceipts ? "Enabled" : "Disabled"}
+                          </button>
+                      </div>
+                      <div className="input-group" style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px' }}>
+                          <div>
+                              <label style={{ margin: 0, color: '#e0e0e0', fontSize: '0.85rem', fontWeight: 'bold' }}>App Lock (PIN)</label>
+                              <p style={{ margin: 0, fontSize: '0.7rem', color: '#888', marginTop: '4px' }}>Require a 4-digit PIN to open the app.</p>
                           </div>
                           <button 
                               className={`toggle-btn ${hasPin ? 'active' : ''}`} 
@@ -514,6 +593,24 @@ export default function Contacts({
                           >
                               {hasPin ? "Disable" : "Setup PIN"}
                           </button>
+                      </div>
+
+                      <hr className="divider" />
+                      <h4 style={{ color: '#34B7F1', marginBottom: '15px' }}>Public Profile</h4>
+                      <div className="input-group">
+                          <label>Status Icon & Message</label>
+                          <div style={{display:'flex', gap:'10px'}}>
+                            <input type="text" maxLength="2" value={profileData.statusIcon} onChange={(e) => setProfileData({...profileData, statusIcon: e.target.value})} style={{width: '60px'}}/>
+                            <input type="text" placeholder="Status..." maxLength="50" value={profileData.statusMessage} onChange={(e) => setProfileData({...profileData, statusMessage: e.target.value})} />
+                          </div>
+                      </div>
+                      <div className="input-group">
+                          <label>Short Bio</label>
+                          <textarea placeholder="Tell people about yourself..." maxLength="150" value={profileData.bio} onChange={(e) => setProfileData({...profileData, bio: e.target.value})} />
+                      </div>
+                      <div className="input-group">
+                          <label>Interests (Comma separated)</label>
+                          <input type="text" placeholder="Coding, Music, Gaming..." value={profileData.interests} onChange={(e) => setProfileData({...profileData, interests: e.target.value})} />
                       </div>
 
                       <hr className="divider" />
@@ -713,6 +810,12 @@ const Modal = styled.div`
     .modal-content {
         background: #0d0d30; padding: 2.2rem; border-radius: 1.5rem; width: 440px;
         border: 1px solid rgba(255, 255, 255, 0.12); box-shadow: 0 15px 40px rgba(0,0,0,0.6);
+        max-height: 90vh; overflow-y: auto;
+        
+        &::-webkit-scrollbar { width: 4px; } 
+        &::-webkit-scrollbar-track { background: transparent; }
+        &::-webkit-scrollbar-thumb { background-color: rgba(78, 14, 255, 0.5); border-radius: 10px; }
+
         h3 { color: white; margin-bottom: 1.5rem; text-align: center; font-weight: 600; font-size: 1.3rem; }
         .divider { border-color: rgba(255,255,255,0.1); margin: 1.5rem 0; }
         .settings-row { display: flex; gap: 1rem; }

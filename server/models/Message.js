@@ -37,6 +37,13 @@ const MessageSchema = mongoose.Schema(
       type: Boolean,
       default: false,
     },
+
+    // --- MERGE UPDATE: Critical Bug Fix ---
+    // This allows users to delete messages locally without deleting for everyone
+    deletedFor: [
+      { type: mongoose.Schema.Types.ObjectId, ref: "User" }
+    ],
+
     isEdited: {
       type: Boolean,
       default: false,
@@ -65,6 +72,13 @@ const MessageSchema = mongoose.Schema(
       description: String,
       image: String,
       url: String
+    },
+
+    // --- MERGE UPDATE: Step 11 File Metadata ---
+    fileMetadata: {
+      fileName: String,
+      fileSize: String,
+      publicId: String // Useful if you ever want to delete files from Cloudinary
     },
 
     // ==========================================

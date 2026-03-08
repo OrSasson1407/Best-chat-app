@@ -1,5 +1,9 @@
 // client/src/utils/crypto.js
 
+// ====================================================
+// 1-ON-1 CHAT ENCRYPTION (ASYMMETRIC RSA)
+// ====================================================
+
 // 1. Generate an RSA Key Pair for the user
 export const generateKeyPair = async () => {
     const keyPair = await window.crypto.subtle.generateKey(
@@ -42,7 +46,10 @@ export const encryptMessage = async (messageText, receiverPublicKeyJwk) => {
         return btoa(String.fromCharCode(...new Uint8Array(ciphertextBuffer)));
     } catch (err) {
         console.error("Encryption failed:", err);
-        return messageText; // Fallback to plaintext if encryption fails
+        // --- MERGE UPDATE: Strict Security ---
+        // NEVER fallback to plaintext. If encryption fails, throw an error 
+        // so the frontend can catch it and alert the user instead of leaking data.
+        throw new Error("Encryption failed. Cannot send message securely.");
     }
 };
 
@@ -73,6 +80,93 @@ export const decryptMessage = async (base64Ciphertext, myPrivateKeyJwk) => {
         return new TextDecoder().decode(decryptedBuffer);
     } catch (err) {
         console.error("Decryption failed (might be a plaintext message or wrong key):", err);
-        return base64Ciphertext; // If it fails, it might just be an older, unencrypted message
+        // --- MERGE UPDATE: Graceful degradation for legacy messages ---
+        // It's acceptable to return the original string ONLY on decryption, 
+        // as it might be an older message sent before E2EE was implemented.
+        return base64Ciphertext; 
+    }
+};
+
+// ====================================================
+// GROUP CHAT ENCRYPTION (HYMMETRIC AES-GCM + RSA)
+// ====================================================
+
+// 4. Generate a highly secure, random AES Key for a new Group
+export const generateGroupAESKey = async () => {
+    const key = await window.crypto.subtle.generateKey(
+        { name: "AES-GCM", length: 256 },
+        true,
+        ["encrypt", "decrypt"]
+    );
+    // Export it to JWK so we can easily stringify and encrypt it with RSA later
+    return await window.crypto.subtle.exportKey("jwk", key); 
+};
+
+// 5. Encrypt a group message using the shared AES Group Key
+export const encryptGroupMessage = async (messageText, aesKeyJwk) => {
+    try {
+        const key = await window.crypto.subtle.importKey(
+            "jwk",
+            aesKeyJwk,
+            { name: "AES-GCM" },
+            false,
+            ["encrypt"]
+        );
+
+        const encodedMessage = new TextEncoder().encode(messageText);
+        
+        // AES-GCM requires a random Initialization Vector (IV) for every single message
+        const iv = window.crypto.getRandomValues(new Uint8Array(12)); 
+        
+        const ciphertextBuffer = await window.crypto.subtle.encrypt(
+            { name: "AES-GCM", iv: iv },
+            key,
+            encodedMessage
+        );
+
+        // We must store the IV WITH the ciphertext so the receiver can decrypt it.
+        // We do this by prepending the 12-byte IV to the front of the ciphertext.
+        const combinedBuffer = new Uint8Array(iv.length + ciphertextBuffer.byteLength);
+        combinedBuffer.set(iv, 0);
+        combinedBuffer.set(new Uint8Array(ciphertextBuffer), iv.length);
+
+        return btoa(String.fromCharCode(...combinedBuffer));
+    } catch (err) {
+        console.error("Group AES Encryption failed:", err);
+        throw new Error("Group encryption failed. Cannot send message securely.");
+    }
+};
+
+// 6. Decrypt a group message using the shared AES Group Key
+export const decryptGroupMessage = async (base64Ciphertext, aesKeyJwk) => {
+    try {
+        const key = await window.crypto.subtle.importKey(
+            "jwk",
+            aesKeyJwk,
+            { name: "AES-GCM" },
+            false,
+            ["decrypt"]
+        );
+
+        const binaryString = atob(base64Ciphertext);
+        const combinedBuffer = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+            combinedBuffer[i] = binaryString.charCodeAt(i);
+        }
+
+        // Slice the combined buffer to separate the 12-byte IV from the actual ciphertext
+        const iv = combinedBuffer.slice(0, 12);
+        const ciphertextBuffer = combinedBuffer.slice(12);
+
+        const decryptedBuffer = await window.crypto.subtle.decrypt(
+            { name: "AES-GCM", iv: iv },
+            key,
+            ciphertextBuffer
+        );
+
+        return new TextDecoder().decode(decryptedBuffer);
+    } catch (err) {
+        console.error("Group AES Decryption failed:", err);
+        return base64Ciphertext; // Fallback for unencrypted legacy group messages
     }
 };

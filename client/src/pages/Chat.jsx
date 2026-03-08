@@ -3,20 +3,23 @@ import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { io } from "socket.io-client";
 import styled, { keyframes, css } from "styled-components";
-import { allUsersRoute, host } from "../utils/APIRoutes";
+import { allUsersRoute, host, updateFcmTokenRoute } from "../utils/APIRoutes"; // --- MERGE UPDATE: Imported FCM Route
 import Contacts from "../components/Contacts";
 import Welcome from "../components/Welcome";
 import ChatContainer from "../components/ChatContainer";
 
 // --- ZUSTAND GLOBAL STORE ---
 import useChatStore from "../store/chatStore";
+import { ToastContainer, toast } from "react-toastify";
+
+// --- MERGE UPDATE: Import Firebase utilities ---
+import { requestForToken, onMessageListener } from "../firebase"; 
 
 export default function Chat() {
   const navigate = useNavigate();
   const socket = useRef();
   
   // --- GLOBAL STATE ---
-  // Only pulling what Chat.jsx specifically needs to function or render its own wrapper
   const {
     currentUser, setCurrentUser,
     currentChat, setCurrentChat,
@@ -49,7 +52,20 @@ export default function Chat() {
   // 2. Setup STABLE Socket Connection (Runs ONLY when currentUser logs in)
   useEffect(() => {
     if (currentUser && currentUser._id) {
-      socket.current = io(host);
+      socket.current = io(host, {
+        auth: {
+          token: currentUser.token 
+        }
+      });
+
+      socket.current.on("connect_error", (err) => {
+        console.error("Socket Connection Error:", err.message);
+        if (err.message.includes("Authentication error")) {
+          sessionStorage.clear();
+          navigate("/login");
+        }
+      });
+
       socket.current.emit("add-user", currentUser._id);
       
       socket.current.on("get-online-users", (users) => {
@@ -60,13 +76,12 @@ export default function Chat() {
         if (socket.current) socket.current.disconnect();
       };
     }
-  }, [currentUser, setOnlineUsers]);
+  }, [currentUser, navigate, setOnlineUsers]);
 
   // 3. Dynamic Socket Listeners (Updates when currentChat changes WITHOUT disconnecting socket)
   useEffect(() => {
     if (socket.current) {
       const handleTypingStatus = (data) => {
-        // Update global typing state for the Sidebar
         setGlobalTypingUsers((prev) => {
             if (data.isTyping) {
                 return prev.includes(data.from) ? prev : [...prev, data.from];
@@ -75,7 +90,6 @@ export default function Chat() {
             }
         });
 
-        // Maintain local typing state for the active chat window
         if (currentChat) {
             if (data.isGroup) {
                 setIsTyping(data.isTyping ? data.username : false);
@@ -91,7 +105,6 @@ export default function Chat() {
 
       socket.current.on("typing-status", handleTypingStatus);
 
-      // Cleanup listener on chat change to prevent memory leaks
       return () => {
         socket.current.off("typing-status", handleTypingStatus);
       };
@@ -122,18 +135,69 @@ export default function Chat() {
     fetchContacts();
   }, [currentUser, navigate]);
 
-  // --- Handlers ---
+  // --- MERGE UPDATE: 5. Firebase Push Notification Setup ---
+  useEffect(() => {
+    if (currentUser && currentUser.token) {
+      
+      const setupPushNotifications = async () => {
+        const token = await requestForToken();
+        if (token) {
+           try {
+              await axios.post(updateFcmTokenRoute, {
+                 userId: currentUser._id,
+                 fcmToken: token
+              }, {
+                 headers: { "x-auth-token": currentUser.token }
+              });
+           } catch (err) {
+              console.error("Failed to save FCM token to DB", err);
+           }
+        }
+      };
+
+      setupPushNotifications();
+
+      // Listen for foreground messages (when app is open)
+      onMessageListener()
+        .then((payload) => {
+          // Display a custom toast notification instead of system push
+          toast.info(`📬 ${payload.notification.title}: ${payload.notification.body}`, {
+             position: "top-right",
+             autoClose: 5000,
+             hideProgressBar: false,
+             closeOnClick: true,
+             pauseOnHover: true,
+             draggable: true,
+             theme: "dark",
+          });
+        })
+        .catch((err) => console.log('Failed to listen to foreground messages: ', err));
+    }
+  }, [currentUser]);
+  // --------------------------------------------------------
+
+  const handleLogout = async () => {
+    try {
+      await axios.get(`${host}/api/auth/logout`, { withCredentials: true }); 
+      
+      sessionStorage.clear();
+      setCurrentUser(undefined);
+      setCurrentChat(undefined);
+      navigate("/login");
+    } catch (err) {
+      console.error("Logout API failed:", err);
+      sessionStorage.clear();
+      setCurrentUser(undefined);
+      setCurrentChat(undefined);
+      navigate("/login");
+    }
+  };
+
   const handleChatChange = (chat) => {
     setCurrentChat(chat);
     setIsTyping(false);
-    setIsMobileMenuOpen(false); 
-  };
-
-  const handleLogout = () => {
-    sessionStorage.clear();
-    setCurrentUser(undefined);
-    setCurrentChat(undefined);
-    navigate("/login");
+    // Close mobile menu when a chat is selected
+    if (isMobileMenuOpen) setIsMobileMenuOpen(false);
   };
 
   return (
@@ -154,7 +218,6 @@ export default function Chat() {
 
       <div className={`glass-container ${isCompact ? "compact-mode" : ""}`}>
         <div className={`sidebar-wrapper ${isMobileMenuOpen ? "open" : ""}`}>
-          {/* MERGE UPDATE: Removed 7 redundant props! */}
           <Contacts 
             contacts={contacts} 
             changeChat={handleChatChange} 
@@ -167,7 +230,6 @@ export default function Chat() {
             <Welcome />
           ) : (
             currentChat && (
-              /* MERGE UPDATE: Removed 4 redundant props! */
               <ChatContainer 
                 socket={socket} 
                 isTyping={isTyping} 
@@ -176,6 +238,7 @@ export default function Chat() {
           )}
         </div>
       </div>
+      <ToastContainer />
     </Container>
   );
 }

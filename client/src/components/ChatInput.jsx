@@ -90,7 +90,16 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
     handleTyping(e.target.value.length > 0);
   };
 
-  // --- MERGE UPDATE: STORE ACTUAL FILE OBJECT FOR CLOUD UPLOAD ---
+  // --- MERGE UPDATE: FORMAT FILE SIZE HELPER ---
+  const formatFileSize = (bytes) => {
+      if (bytes === 0) return '0 Bytes';
+      const k = 1024;
+      const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  // --- MERGE UPDATE: STORE ACTUAL FILE OBJECT & METADATA FOR CLOUD UPLOAD ---
   const processFile = (file) => {
     const reader = new FileReader();
     reader.onloadend = () => {
@@ -98,8 +107,14 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
       if (file.type.startsWith("image/")) type = "image";
       else if (file.type.startsWith("video/")) type = "video";
 
-      // Store BOTH the local preview string (reader.result) AND the raw file object
-      setMediaPreview({ src: reader.result, type, rawFile: file }); 
+      // Store BOTH the local preview string (reader.result) AND the raw file object + metadata
+      setMediaPreview({ 
+          src: reader.result, 
+          type, 
+          rawFile: file,
+          fileName: file.name,
+          fileSize: formatFileSize(file.size)
+      }); 
       setIsViewOnceMedia(false); 
     };
     reader.readAsDataURL(file);
@@ -140,7 +155,7 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
       }
   };
 
-  // --- MERGE UPDATE: UPLOAD MEDIA BEFORE SENDING ---
+  // --- MERGE UPDATE: UPLOAD MEDIA & FILE METADATA BEFORE SENDING ---
   const confirmSendMedia = async () => {
       if (!mediaPreview || !mediaPreview.rawFile) return;
 
@@ -157,9 +172,13 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
       setIsUploading(false);
 
       if (cloudUrl) {
+          // --- MERGE UPDATE: Pass the file metadata directly to your handleSendMsg prop ---
           handleSendMsg(cloudUrl, mediaPreview.type, replyingTo?.id, {
-              isViewOnce: isViewOnceMedia
+              isViewOnce: isViewOnceMedia,
+              fileName: mediaPreview.fileName,
+              fileSize: mediaPreview.fileSize
           });
+          
           setMediaPreview(null);
           setReplyingTo(null);
           
@@ -204,6 +223,7 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
       setIsRecording(true);
     } catch (error) {
       console.error("Error accessing microphone:", error);
+      alert("Microphone access denied. Please allow permissions in your browser.");
     }
   };
 
@@ -266,7 +286,12 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
                   
                   {mediaPreview.type === "image" && <img src={mediaPreview.src} alt="Preview" />}
                   {mediaPreview.type === "video" && <video src={mediaPreview.src} controls />}
-                  {mediaPreview.type === "file" && <div className="file-preview-icon">📄 Document attached</div>}
+                  {/* --- MERGE UPDATE: SHOW FILE NAME IN PREVIEW --- */}
+                  {mediaPreview.type === "file" && (
+                    <div className="file-preview-icon">
+                        📄 {mediaPreview.fileName} <br/> ({mediaPreview.fileSize})
+                    </div>
+                  )}
 
                   <div className="media-options">
                       <label className={`view-once-toggle ${isViewOnceMedia ? 'active' : ''}`}>
@@ -298,7 +323,7 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
 
           <div className="upload" onClick={() => !isUploading && fileInputRef.current.click()} title="Attach File">
             <BsPaperclip />
-            <input type="file" ref={fileInputRef} style={{ display: "none" }} accept="image/*,video/*,.pdf,.doc,.docx,.txt" onChange={handleFileUpload} />
+            <input type="file" ref={fileInputRef} style={{ display: "none" }} accept="image/*,video/*,.pdf,.doc,.docx,.txt,.zip,.rar" onChange={handleFileUpload} />
           </div>
 
           <div className="mic" onClick={isRecording ? stopRecording : startRecording} title="Record Audio">
@@ -343,7 +368,7 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
           {/* --- NEW: AUDIO WAVEFORM UI --- */}
           {isRecording ? (
             <div className="recording-ui">
-               <span className="rec-text">Recording Audio...</span>
+               <span className="rec-text">Recording Audio... (Click Stop)</span>
                <div className="waveform">
                    <span className="bar"></span><span className="bar"></span><span className="bar"></span>
                    <span className="bar"></span><span className="bar"></span><span className="bar"></span>
@@ -361,7 +386,7 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
           ) : (
             <input
               type="text"
-              placeholder={isUploading ? "Uploading media..." : "Type or paste (Ctrl+V) an image..."}
+              placeholder={isUploading ? "Uploading media..." : "Type a message or paste (Ctrl+V) an image..."}
               onChange={handleChange}
               value={msg}
               onPaste={handlePaste}
@@ -416,7 +441,7 @@ const PreviewOverlay = styled.div`
         }
 
         img, video { width: 100%; max-height: 250px; object-fit: contain; border-radius: 0.8rem; background: rgba(0,0,0,0.5); }
-        .file-preview-icon { height: 120px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.05); color: white; border-radius: 0.8rem; border: 2px dashed rgba(255,255,255,0.2); }
+        .file-preview-icon { height: 120px; display: flex; align-items: center; justify-content: center; text-align: center; background: rgba(255,255,255,0.05); color: white; border-radius: 0.8rem; border: 2px dashed rgba(255,255,255,0.2); }
 
         .media-options {
             display: flex; justify-content: center;

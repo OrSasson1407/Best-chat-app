@@ -4,25 +4,31 @@ const Message = require("../models/Message");
 module.exports = (io) => {
   // Use a map to track online users
   global.onlineUsers = new Map();
+  
+  // Track when we last wrote the heartbeat to the DB for each user
+  const heartbeatThrottles = new Map();
 
   io.on("connection", (socket) => {
     
     // 1. User Online Status
     socket.on("add-user", async (userId) => {
       global.onlineUsers.set(userId, socket.id);
-      socket.userId = userId; // Attach userId to the socket object for easy access on disconnect
+      socket.userId = userId; 
       
+      // Let everyone know this socket ID is active (basic presence)
       io.emit("get-online-users", Array.from(global.onlineUsers.keys()));
 
-      // Broadcast real-time presence
-      socket.broadcast.emit("user-status-change", { 
-        userId, 
-        isOnline: true 
-      });
-
       try {
-         // Update the database to reflect they are online
-         await User.findByIdAndUpdate(userId, { isOnline: true });
+         const user = await User.findByIdAndUpdate(userId, { isOnline: true }, { new: true });
+         heartbeatThrottles.set(userId, Date.now());
+
+         // --- MERGE UPDATE: Check Privacy Settings before broadcasting 'online' status ---
+         if (user && user.privacySettings?.lastSeen !== "nobody") {
+             socket.broadcast.emit("user-status-change", { 
+               userId, 
+               isOnline: true 
+             });
+         }
       } catch (err) {
          console.error("Failed to update online status:", err);
       }
@@ -30,33 +36,49 @@ module.exports = (io) => {
 
     // Client requests the current status of a specific chat
     socket.on("check-presence", async (targetUserId) => {
-      const isOnline = global.onlineUsers.has(targetUserId);
-      if (isOnline) {
-        socket.emit("presence-response", { userId: targetUserId, isOnline: true });
-      } else {
-        try {
-            // If offline, fetch their last seen time from the database
-            const user = await User.findById(targetUserId).select("lastSeen");
+      try {
+          const user = await User.findById(targetUserId).select("lastSeen privacySettings");
+          
+          // --- MERGE UPDATE: Enforce 'nobody' privacy rule for Last Seen ---
+          if (user?.privacySettings?.lastSeen === "nobody") {
+              // Always pretend they are offline and have no last seen timestamp
+              socket.emit("presence-response", { 
+                  userId: targetUserId, 
+                  isOnline: false, 
+                  lastSeen: null 
+              });
+              return;
+          }
+
+          const isOnline = global.onlineUsers.has(targetUserId);
+          if (isOnline) {
+            socket.emit("presence-response", { userId: targetUserId, isOnline: true });
+          } else {
             socket.emit("presence-response", { 
               userId: targetUserId, 
               isOnline: false, 
               lastSeen: user?.lastSeen || null 
             });
-        } catch (err) {
-            console.error("Failed to fetch presence:", err);
-        }
+          }
+      } catch (err) {
+          console.error("Failed to fetch presence:", err);
       }
     });
 
     // Heartbeat System
-    // The client sends this periodically to confirm they are still active
     socket.on("heartbeat", async (userId) => {
-       global.onlineUsers.set(userId, socket.id); // Refresh mapping
-       try {
-           // Update last seen in the database silently
-           await User.findByIdAndUpdate(userId, { lastSeen: new Date(), isOnline: true });
-       } catch (err) { 
-           console.error("Heartbeat update failed", err); 
+       global.onlineUsers.set(userId, socket.id); 
+       
+       const now = Date.now();
+       const lastDbUpdate = heartbeatThrottles.get(userId) || 0;
+
+       if (now - lastDbUpdate > 60000) {
+           heartbeatThrottles.set(userId, now);
+           try {
+               await User.findByIdAndUpdate(userId, { lastSeen: new Date(now), isOnline: true });
+           } catch (err) { 
+               console.error("Heartbeat update failed", err); 
+           }
        }
     });
 
@@ -65,7 +87,7 @@ module.exports = (io) => {
       socket.join(groupId);
     });
 
-    // 3. Send Message (Direct & Group) - ADDED CALLBACK FOR OPTIMISTIC UI
+    // 3. Send Message (Direct & Group)
     socket.on("send-msg", async (data, callback) => {
       if (data.isGroup) {
           socket.to(data.to).emit("msg-recieve", {
@@ -81,10 +103,10 @@ module.exports = (io) => {
               pollData: data.pollData,
               linkMetadata: data.linkMetadata,
               isForwarded: data.isForwarded,
-              isViewOnce: data.isViewOnce
+              isViewOnce: data.isViewOnce,
+              fileMetadata: data.fileMetadata 
           });
           
-          // Acknowledge back to sender that message reached the server
           if (callback) callback({ status: "sent", id: data.id });
       } else {
           const receiverSocket = global.onlineUsers.get(data.to);
@@ -101,20 +123,18 @@ module.exports = (io) => {
                   pollData: data.pollData,
                   linkMetadata: data.linkMetadata,
                   isForwarded: data.isForwarded,
-                  isViewOnce: data.isViewOnce
+                  isViewOnce: data.isViewOnce,
+                  fileMetadata: data.fileMetadata
               });
 
-              // Automatically mark as delivered in DB if user is online
               try {
                  await Message.findByIdAndUpdate(data.id, { status: "delivered" });
               } catch (err) {
                  console.error("Error updating delivered status:", err);
               }
               
-              // Acknowledge back to sender that message was delivered
               if (callback) callback({ status: "delivered", id: data.id });
           } else {
-              // Acknowledge back to sender that message reached the server (but user is offline)
               if (callback) callback({ status: "sent", id: data.id });
           }
       }
@@ -152,50 +172,58 @@ module.exports = (io) => {
         }
     });
 
-    // 6. Handle Read Receipts (Advanced Blue Ticks)
+    // 6. Handle Read Receipts
     socket.on("mark-as-read", async ({ messageId, from, to, isGroup, username }) => {
       try {
-        const message = await Message.findById(messageId);
+        // --- MERGE UPDATE: Fetch user's read receipt privacy preference first ---
+        const readerUser = await User.findById(from).select("privacySettings");
+        
+        // If readReceipts is false, DO NOT record the read or emit the event!
+        if (readerUser && readerUser.privacySettings?.readReceipts === false) {
+            return; 
+        }
+
+        const readData = { userId: from, username: username || "User", readAt: new Date() };
+        
+        const updateQuery = { $push: { readBy: readData } };
+        
+        if (!isGroup) {
+            updateQuery.$set = { status: "read" };
+        }
+
+        const message = await Message.findOneAndUpdate(
+            { 
+                _id: messageId, 
+                "readBy.userId": { $ne: from } 
+            },
+            updateQuery,
+            { new: true } 
+        );
+
         if (!message) return;
 
-        // Prevent duplicate reads by the same user
-        const alreadyRead = message.readBy?.some(r => r.userId.toString() === from);
-        
-        if (!alreadyRead) {
-            const readData = { userId: from, username: username || "User", readAt: new Date() };
-            message.readBy.push(readData);
-            
-            // For direct messages, 1 read means fully read. 
-            // For groups, we keep status as delivered until we implement a check for ALL members
-            if (!isGroup) {
-                message.status = "read";
-            }
-            await message.save();
-
-            // Notify the original sender so their UI ticks turn blue instantly
-            const senderSocket = global.onlineUsers.get(message.sender.toString());
-            if (senderSocket) {
-                socket.to(senderSocket).emit("msg-read-update", { 
-                    messageId, 
-                    status: message.status,
-                    newReader: readData 
-                });
-            }
-
-            // If it's a group, broadcast to the whole room so everyone's modals update
-            if (isGroup) {
-                io.to(to).emit("group-msg-read-update", { 
-                    messageId, 
-                    newReader: readData 
-                });
-            }
+        const senderSocket = global.onlineUsers.get(message.sender.toString());
+        if (senderSocket) {
+            socket.to(senderSocket).emit("msg-read-update", { 
+                messageId, 
+                status: message.status,
+                newReader: readData 
+            });
         }
+
+        if (isGroup) {
+            io.to(to).emit("group-msg-read-update", { 
+                messageId, 
+                newReader: readData 
+            });
+        }
+        
       } catch (err) {
-        console.error("Error updating read status in DB:", err);
+        console.error("Error atomically updating read status in DB:", err);
       }
     });
 
-    // 7. Delete Message (Real-time) - ADDED CALLBACK
+    // 7. Delete Message
     socket.on("delete-msg", (data, callback) => {
       if (data.isGroup) {
         socket.to(data.to).emit("msg-deleted", { messageId: data.messageId });
@@ -209,7 +237,7 @@ module.exports = (io) => {
       if (callback) callback({ success: true, id: data.messageId });
     });
 
-    // 8. Edit Message (Real-time) - ADDED CALLBACK
+    // 8. Edit Message 
     socket.on("edit-msg", (data, callback) => {
       if (data.isGroup) {
         socket.to(data.to).emit("msg-edited", { messageId: data.messageId, newText: data.newText });
@@ -223,9 +251,8 @@ module.exports = (io) => {
       if (callback) callback({ success: true, id: data.messageId });
     });
 
-    // --- MERGE UPDATE: WEBRTC SIGNALING (VOICE/VIDEO CALLS) ---
+    // --- WEBRTC SIGNALING ---
 
-    // A. Initiate a call (Sends the initial WebRTC Offer)
     socket.on("call-user", (data) => {
       const receiverSocket = global.onlineUsers.get(data.userToCall);
       if (receiverSocket) {
@@ -233,15 +260,13 @@ module.exports = (io) => {
           signal: data.signalData,
           from: data.from,
           name: data.name,
-          type: data.type // 'audio' or 'video'
+          type: data.type 
         });
       } else {
-        // User is offline, immediately tell the caller
         socket.emit("call-rejected", { reason: "User is currently offline." });
       }
     });
 
-    // B. Answer the call (Sends the WebRTC Answer back to the caller)
     socket.on("answer-call", (data) => {
       const callerSocket = global.onlineUsers.get(data.to);
       if (callerSocket) {
@@ -249,7 +274,6 @@ module.exports = (io) => {
       }
     });
 
-    // C. Exchange ICE Candidates (Trickle ICE for network pathing)
     socket.on("ice-candidate", (data) => {
       const targetSocket = global.onlineUsers.get(data.target);
       if (targetSocket) {
@@ -257,7 +281,6 @@ module.exports = (io) => {
       }
     });
 
-    // D. End, Reject, or Cancel the call
     socket.on("end-call", (data) => {
       const targetSocket = global.onlineUsers.get(data.to);
       if (targetSocket) {
@@ -269,40 +292,34 @@ module.exports = (io) => {
 
     // 9. Disconnect & Last Seen Update
     socket.on("disconnect", async () => {
-      let disconnectedUser = socket.userId; // Prefer the explicitly attached ID
-      
-      // Fallback search if userId wasn't attached
-      if (!disconnectedUser) {
-        global.onlineUsers.forEach((value, key) => {
-          if (value === socket.id) {
-            disconnectedUser = key;
-          }
-        });
-      }
+      const disconnectedUser = socket.userId; 
 
       if (disconnectedUser) {
         global.onlineUsers.delete(disconnectedUser);
+        heartbeatThrottles.delete(disconnectedUser); 
+        
         const offlineTime = new Date();
         
         try {
-          // Record offline time and status in DB
-          await User.findByIdAndUpdate(disconnectedUser, { 
+          const user = await User.findByIdAndUpdate(disconnectedUser, { 
               lastSeen: offlineTime,
               isOnline: false
-          });
+          }, { new: true });
+
+          io.emit("get-online-users", Array.from(global.onlineUsers.keys()));
+
+          // --- MERGE UPDATE: Check Privacy Settings before broadcasting 'offline' status ---
+          if (user && user.privacySettings?.lastSeen !== "nobody") {
+              io.emit("user-offline", { userId: disconnectedUser, lastSeen: offlineTime });
+              socket.broadcast.emit("user-status-change", { 
+                userId: disconnectedUser, 
+                isOnline: false,
+                lastSeen: offlineTime.toISOString()
+              });
+          }
         } catch (err) {
           console.error("Failed to update last seen:", err);
         }
-
-        io.emit("get-online-users", Array.from(global.onlineUsers.keys()));
-        io.emit("user-offline", { userId: disconnectedUser, lastSeen: offlineTime });
-
-        // Tell active chats this user just went offline
-        socket.broadcast.emit("user-status-change", { 
-          userId: disconnectedUser, 
-          isOnline: false,
-          lastSeen: offlineTime.toISOString()
-        });
       }
     });
   });

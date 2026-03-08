@@ -1,6 +1,7 @@
 const { 
   register, 
   login, 
+  logout, // --- MERGE UPDATE: Destructured logout controller
   getAllUsers, 
   updateProfile, 
   toggleBlockUser, 
@@ -82,6 +83,19 @@ router.post("/register", register);
  * description: Incorrect Username or Password
  */
 router.post("/login", login);
+
+// --- MERGE UPDATE: Secure Logout Route ---
+/**
+ * @swagger
+ * /api/auth/logout:
+ * get:
+ * summary: Log out user and clear refresh token cookie
+ * tags: [Auth]
+ * responses:
+ * 200:
+ * description: Successfully logged out and cookie cleared
+ */
+router.get("/logout", logout);
 
 /**
  * @swagger
@@ -166,9 +180,10 @@ router.post("/updateprofile/:id", auth, updateProfile);
  */
 router.post("/block", auth, toggleBlockUser);
 
+// --- MERGE UPDATE: Changed from /fcm-token to /update-fcm to match APIRoutes.js ---
 /**
  * @swagger
- * /api/auth/fcm-token:
+ * /api/auth/update-fcm:
  * post:
  * summary: Update Firebase Cloud Messaging (FCM) token for push notifications
  * tags: [Auth]
@@ -190,7 +205,7 @@ router.post("/block", auth, toggleBlockUser);
  * 200:
  * description: FCM Token updated successfully
  */
-router.post("/fcm-token", auth, updateFcmToken);
+router.post("/update-fcm", auth, updateFcmToken);
 
 /**
  * @swagger

@@ -3,7 +3,7 @@ import ChatInput from "./ChatInput";
 import axios from "axios";
 import { Virtuoso } from "react-virtuoso"; 
 import { 
-    host, // <-- MERGE UPDATE: Imported host for the public key route
+    host, 
     sendMessageRoute, 
     receiveMessageRoute, 
     getGroupMessagesRoute, 
@@ -15,7 +15,9 @@ import {
     blockUserRoute,
     getChatMediaRoute 
 } from "../utils/APIRoutes";
-import { encryptMessage, decryptMessage } from "../utils/crypto"; // <-- MERGE UPDATE: Imported E2EE Crypto Utils
+
+// --- MERGE UPDATE: Import AES Group Crypto Functions ---
+import { encryptMessage, decryptMessage, encryptGroupMessage, decryptGroupMessage } from "../utils/crypto"; 
 import { v4 as uuidv4 } from "uuid";
 import { toast } from "react-toastify";
 import { 
@@ -23,14 +25,11 @@ import {
     FaInfoCircle, FaFileDownload, FaShare, FaStar, FaThumbtack, 
     FaFire, FaMicrophoneAlt, FaPoll, FaSearch, FaUserSlash, FaSpinner,
     FaArrowDown, FaCloudUploadAlt, FaTimes, FaClock, FaCheckDouble,
-    FaImage, FaLink, FaRegClock // <-- NEW: Imported FaRegClock for pending status
+    FaImage, FaLink, FaRegClock 
 } from "react-icons/fa";
 
-// FIX: Imported SideInfoPanel instead of MediaGalleryPanel
 import { Container, DropOverlay, ScrollButton, Lightbox, SideInfoPanel } from "./ChatContainer.styles"; 
-import CallModal from "./CallModal"; // <-- MERGE UPDATE: Imported CallModal
-
-// --- NEW: IMPORT ZUSTAND STORE ---
+import CallModal from "./CallModal"; 
 import useChatStore from "../store/chatStore";
 
 // Helper for tiny avatars
@@ -70,7 +69,6 @@ const isWithinTimeFrame = (msg1, msg2) => {
     return Math.abs(t1 - t2) < 5 * 60 * 1000; 
 };
 
-// --- SEARCH HIGHLIGHTER HELPER ---
 const HighlightedText = ({ text, query }) => {
     if (!query) return <span>{text}</span>;
     const parts = text.split(new RegExp(`(${query})`, "gi"));
@@ -84,10 +82,8 @@ const HighlightedText = ({ text, query }) => {
     );
 };
 
-// MERGE UPDATE: Removed currentChat, currentUser, theme, isCompact from props
 export default function ChatContainer({ socket, isTyping }) {
   
-  // --- PULL GLOBAL STATE FROM ZUSTAND ---
   const { currentChat, currentUser, theme, isCompact } = useChatStore();
 
   const [messages, setMessages] = useState([]);
@@ -97,6 +93,9 @@ export default function ChatContainer({ socket, isTyping }) {
   const [pinnedMessage, setPinnedMessage] = useState(null);
   const [isFetchingHistory, setIsFetchingHistory] = useState(true); 
   
+  // --- MERGE UPDATE: STATE FOR DECRYPTED GROUP AES KEY ---
+  const [activeGroupAesKey, setActiveGroupAesKey] = useState(null);
+
   const virtuosoRef = useRef(null);
   const [highlightedMsgId, setHighlightedMsgId] = useState(null);
   const [cursor, setCursor] = useState(null);
@@ -107,7 +106,7 @@ export default function ChatContainer({ socket, isTyping }) {
   const [lastSeen, setLastSeen] = useState(null);
 
   const [showSidePanel, setShowSidePanel] = useState(false);
-  const [chatMedia, setChatMedia] = useState({ media: [], links: [] });
+  const [chatMedia, setChatMedia] = useState({ media: [], links: [], files: [] });
   const [activeSideTab, setActiveSideTab] = useState("about");
   const [isFetchingMedia, setIsFetchingMedia] = useState(false);
 
@@ -124,7 +123,6 @@ export default function ChatContainer({ socket, isTyping }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [isBlocked, setIsBlocked] = useState(false);
 
-  // --- WEBRTC STATE ---
   const [showCallModal, setShowCallModal] = useState(false);
   const [incomingCallData, setIncomingCallData] = useState(null);
 
@@ -140,14 +138,34 @@ export default function ChatContainer({ socket, isTyping }) {
     async function fetchHistory() {
       if (currentChat && currentUser) {
         setIsFetchingHistory(true);
+        setActiveGroupAesKey(null); // Reset key on chat change
         let response;
+        let decryptedAesKey = null;
+
         try {
+            const myPrivateKeyRaw = localStorage.getItem(`privateKey_${currentUser._id}`);
+            const myPrivateKey = myPrivateKeyRaw ? JSON.parse(myPrivateKeyRaw) : null;
+
             if (currentChat.admin) { 
                 response = await axios.post(getGroupMessagesRoute, {
                     from: currentUser._id,
                     groupId: currentChat._id,
                 }, getAuthHeader());
                 if (socket.current) socket.current.emit("join-group", currentChat._id);
+
+                // --- MERGE UPDATE: FETCH & DECRYPT GROUP AES KEY ---
+                if (currentChat.groupKeys && myPrivateKey) {
+                    const myEncryptedKeyData = currentChat.groupKeys.find(k => k.userId === currentUser._id);
+                    if (myEncryptedKeyData) {
+                        try {
+                            const decryptedJwkString = await decryptMessage(myEncryptedKeyData.encryptedKey, myPrivateKey);
+                            decryptedAesKey = JSON.parse(decryptedJwkString);
+                            setActiveGroupAesKey(decryptedAesKey);
+                        } catch (err) {
+                            console.error("Failed to decrypt Group AES Key");
+                        }
+                    }
+                }
             } else {
                 response = await axios.post(receiveMessageRoute, {
                     from: currentUser._id,
@@ -158,15 +176,18 @@ export default function ChatContainer({ socket, isTyping }) {
 
             const fetchedMessages = response.data.messages ? response.data.messages : response.data;
             
-            // --- MERGE UPDATE: E2EE DECRYPTION FOR FETCHED HISTORY ---
-            const myPrivateKeyRaw = localStorage.getItem(`privateKey_${currentUser._id}`);
-            const myPrivateKey = myPrivateKeyRaw ? JSON.parse(myPrivateKeyRaw) : null;
-
+            // --- MERGE UPDATE: E2EE DECRYPTION FOR HISTORY (BOTH 1v1 AND GROUP) ---
             const decryptedMessages = await Promise.all(fetchedMessages.map(async (msg) => {
-                // Decrypt incoming 1-on-1 text messages
-                if (msg.type === "text" && !currentChat.admin && !msg.fromSelf && myPrivateKey && !msg.isDeleted) {
-                    const decryptedText = await decryptMessage(msg.message, myPrivateKey);
-                    return { ...msg, message: decryptedText };
+                if (msg.type === "text" && !msg.isDeleted) {
+                    if (!currentChat.admin && !msg.fromSelf && myPrivateKey) {
+                        // 1-on-1 Asymmetric Decryption
+                        const decryptedText = await decryptMessage(msg.message, myPrivateKey);
+                        return { ...msg, message: decryptedText };
+                    } else if (currentChat.admin && decryptedAesKey) {
+                        // Group Symmetric Decryption
+                        const decryptedGroupText = await decryptGroupMessage(msg.message, decryptedAesKey);
+                        return { ...msg, message: decryptedGroupText };
+                    }
                 }
                 return msg;
             }));
@@ -209,9 +230,8 @@ export default function ChatContainer({ socket, isTyping }) {
     fetchHistory();
   }, [currentChat, currentUser]);
 
-  // Targeted Media Fetching (Performance Upgrade)
   useEffect(() => {
-      if (showSidePanel && currentChat && (activeSideTab === 'media' || activeSideTab === 'links')) {
+      if (showSidePanel && currentChat && (activeSideTab === 'media' || activeSideTab === 'links' || activeSideTab === 'files')) {
           const fetchMedia = async () => {
               setIsFetchingMedia(true);
               try {
@@ -226,10 +246,12 @@ export default function ChatContainer({ socket, isTyping }) {
                           setChatMedia(prev => ({ ...prev, media: data.media }));
                       } else if (activeSideTab === 'links') {
                           setChatMedia(prev => ({ ...prev, links: data.media }));
+                      } else if (activeSideTab === 'files') {
+                          setChatMedia(prev => ({ ...prev, files: data.media }));
                       }
                   }
               } catch (err) {
-                  toast.error("Failed to load media gallery");
+                  toast.error("Failed to load side panel data");
               } finally {
                   setIsFetchingMedia(false);
               }
@@ -251,14 +273,19 @@ export default function ChatContainer({ socket, isTyping }) {
 
           const newMessages = response.data.messages ? response.data.messages : response.data;
           
-          // Decrypt older messages as they load
           const myPrivateKeyRaw = localStorage.getItem(`privateKey_${currentUser._id}`);
           const myPrivateKey = myPrivateKeyRaw ? JSON.parse(myPrivateKeyRaw) : null;
           
+          // --- MERGE UPDATE: Decrypt older messages using proper Group vs 1v1 keys ---
           const decryptedNewMessages = await Promise.all(newMessages.map(async (msg) => {
-              if (msg.type === "text" && !currentChat.admin && !msg.fromSelf && myPrivateKey && !msg.isDeleted) {
-                  const decryptedText = await decryptMessage(msg.message, myPrivateKey);
-                  return { ...msg, message: decryptedText };
+              if (msg.type === "text" && !msg.isDeleted) {
+                  if (!currentChat.admin && !msg.fromSelf && myPrivateKey) {
+                      const decryptedText = await decryptMessage(msg.message, myPrivateKey);
+                      return { ...msg, message: decryptedText };
+                  } else if (currentChat.admin && activeGroupAesKey) {
+                      const decryptedGroupText = await decryptGroupMessage(msg.message, activeGroupAesKey);
+                      return { ...msg, message: decryptedGroupText };
+                  }
               }
               return msg;
           }));
@@ -311,13 +338,17 @@ export default function ChatContainer({ socket, isTyping }) {
       };
 
       const handleMsgRecieve = async (data) => {
-        // --- MERGE UPDATE: E2EE DECRYPTION ON REAL-TIME RECEIVE ---
+        // --- MERGE UPDATE: E2EE DECRYPTION ON REAL-TIME RECEIVE (Group & 1v1) ---
         let decryptedText = data.msg;
-        if (data.type === "text" && !data.isGroup) {
-            const myPrivateKeyRaw = localStorage.getItem(`privateKey_${currentUser._id}`);
-            const myPrivateKey = myPrivateKeyRaw ? JSON.parse(myPrivateKeyRaw) : null;
-            if (myPrivateKey) {
-                decryptedText = await decryptMessage(data.msg, myPrivateKey);
+        if (data.type === "text") {
+            if (!data.isGroup) {
+                const myPrivateKeyRaw = localStorage.getItem(`privateKey_${currentUser._id}`);
+                const myPrivateKey = myPrivateKeyRaw ? JSON.parse(myPrivateKeyRaw) : null;
+                if (myPrivateKey) {
+                    decryptedText = await decryptMessage(data.msg, myPrivateKey);
+                }
+            } else if (data.isGroup && activeGroupAesKey) {
+                decryptedText = await decryptGroupMessage(data.msg, activeGroupAesKey);
             }
         }
 
@@ -327,6 +358,7 @@ export default function ChatContainer({ socket, isTyping }) {
             reactions: [], status: "delivered", isDeleted: false, isEdited: false,
             isForwarded: data.isForwarded, isViewOnce: data.isViewOnce, viewed: false,
             isStarred: false, pollData: data.pollData, linkMetadata: data.linkMetadata,
+            fileMetadata: data.fileMetadata, 
             readBy: []
         });
         
@@ -406,7 +438,7 @@ export default function ChatContainer({ socket, isTyping }) {
           s.off("incoming-call"); 
       };
     }
-  }, [socket, currentUser, currentChat, readReceiptsMsg]);
+  }, [socket, currentUser, currentChat, readReceiptsMsg, activeGroupAesKey]);
 
   useEffect(() => {
     if (arrivalMessage) {
@@ -420,51 +452,59 @@ export default function ChatContainer({ socket, isTyping }) {
   const handleSendMsg = async (msg, type = "text", replyToId = null, extraData = {}) => {
     const time = new Date().toISOString();
     let finalMessageContent = msg;
-    const newMessageId = uuidv4(); // Generate ID upfront for Optimistic UI
+    const newMessageId = uuidv4(); 
 
     try {
-        // --- MERGE UPDATE: E2EE ENCRYPTION ON SEND ---
-        if (type === "text" && !currentChat.admin) {
-            try {
-                // Fetch the receiver's public key
-                const pkResponse = await axios.get(`${host}/api/auth/publickey/${currentChat._id}`, getAuthHeader());
-                const receiverPublicKey = pkResponse.data.publicKey;
+        // --- MERGE UPDATE: SENDING GROUP ENCRYPTED MESSAGES ---
+        if (type === "text") {
+            if (!currentChat.admin) {
+                // 1v1 RSA Encryption
+                try {
+                    const pkResponse = await axios.get(`${host}/api/auth/publickey/${currentChat._id}`, getAuthHeader());
+                    const receiverPublicKey = pkResponse.data.publicKey;
 
-                if (receiverPublicKey) {
-                    finalMessageContent = await encryptMessage(msg, receiverPublicKey);
+                    if (receiverPublicKey) {
+                        finalMessageContent = await encryptMessage(msg, receiverPublicKey);
+                    }
+                } catch (err) {
+                    console.error("Could not fetch public key for encryption");
                 }
-            } catch (err) {
-                console.error("Could not fetch public key for encryption");
+            } else if (currentChat.admin && activeGroupAesKey) {
+                // Group AES Encryption
+                finalMessageContent = await encryptGroupMessage(msg, activeGroupAesKey);
             }
         }
-        // ---------------------------------------------
 
         const payload = {
             from: currentUser._id, 
             to: currentChat._id, 
-            message: finalMessageContent, // Send encrypted data to DB
+            message: finalMessageContent, 
             type,
             replyTo: replyToId, 
             isForwarded: extraData.isForwarded || false,
             isViewOnce: extraData.isViewOnce || false, 
             pollData: extraData.pollData || null,
-            timer: extraData.timer || null 
+            timer: extraData.timer || null,
+            fileName: extraData.fileName || null, 
+            fileSize: extraData.fileSize || null  
         };
+
+        const fileMetadataObj = extraData.fileName ? { fileName: extraData.fileName, fileSize: extraData.fileSize } : null;
 
         const socketData = {
             id: newMessageId, 
             to: currentChat._id, 
             from: currentUser._id, 
-            msg: finalMessageContent, // Send encrypted data via Socket
+            msg: finalMessageContent, 
             type: type, 
             isGroup: !!currentChat.admin, 
             username: currentUser.username, 
             replyTo: replyingTo ? { id: replyingTo.id, text: replyingTo.text, type: replyingTo.type, isSelfQuote: replyingTo.isSelfQuote } : null,
             ...payload, 
-            linkMetadata: null // Will be updated after API call
+            linkMetadata: null,
+            fileMetadata: fileMetadataObj 
         };
         
-        // --- OPTIMISTIC UI: Instantly push the message as PENDING ---
         setMessages((prev) => [
             ...prev, 
             { 
@@ -472,20 +512,18 @@ export default function ChatContainer({ socket, isTyping }) {
               replyTo: socketData.replyTo, reactions: [], status: "pending", isDeleted: false, isEdited: false,
               isForwarded: payload.isForwarded, isViewOnce: payload.isViewOnce, viewed: false, 
               pollData: payload.pollData, linkMetadata: null, timer: payload.timer,
+              fileMetadata: fileMetadataObj, 
               readBy: []
             }
         ]);
         setReplyingTo(null); 
 
-        // 1. Send to Database
         const res = await axios.post(sendMessageRoute, payload, getAuthHeader());
         const generatedLinkData = res.data.data?.linkMetadata || null;
         socketData.linkMetadata = generatedLinkData;
 
-        // 2. Broadcast via Socket with Callback to confirm server received it
         socket.current.emit("send-msg", socketData, (response) => {
             if (response && response.status) {
-                // Update message status from 'pending' to 'sent' or 'delivered'
                 setMessages((prev) => prev.map(m => m.id === newMessageId ? { 
                     ...m, 
                     status: response.status, 
@@ -497,8 +535,6 @@ export default function ChatContainer({ socket, isTyping }) {
     } catch (error) {
         if (error.response && error.response.status === 403) toast.error(error.response.data.msg || "You are blocked.");
         else toast.error("Failed to send message");
-        
-        // Revert Optimistic UI message if completely failed
         setMessages((prev) => prev.filter(m => m.id !== newMessageId));
     }
   };
@@ -611,7 +647,6 @@ export default function ChatContainer({ socket, isTyping }) {
                 </div>
             )}
             
-            {/* --- MERGE UPDATE: NEW PENDING UI CHECK --- */}
             {msg.status === "pending" ? (
                 <span className="tick-pending" style={{color: '#888', opacity: 0.7}}><FaRegClock size={11}/></span>
             ) : (msg.status === "read" || hasReaders) ? (
@@ -669,8 +704,28 @@ export default function ChatContainer({ socket, isTyping }) {
 
     if (msg.type === "image") return <img src={msg.message} alt="sent" className="msg-image clickable" onClick={() => setLightboxImage(msg.message)} />;
     if (msg.type === "video") return ( <video controls className="msg-video"><source src={msg.message} />Your browser does not support video playback.</video>);
-    if (msg.type === "file") return ( <a href={msg.message} target="_blank" rel="noreferrer" className="msg-file-link"><FaFileDownload /> Download Attachment</a>);
-    if (msg.type === "audio") return <audio controls src={msg.message} className="msg-audio" />;
+    
+    if (msg.type === "file") {
+        const fName = msg.fileMetadata?.fileName || "Attachment";
+        const fSize = msg.fileMetadata?.fileSize || "";
+        return ( 
+            <a href={msg.message} target="_blank" rel="noreferrer" className="msg-file-link">
+                <div className="file-icon"><FaFileDownload /></div>
+                <div className="file-details">
+                    <span className="fname">{fName}</span>
+                    {fSize && <span className="fsize">{fSize}</span>}
+                </div>
+            </a>
+        );
+    }
+    if (msg.type === "audio") {
+        return (
+            <div className="audio-player-wrapper">
+                <audio controls src={msg.message} className="msg-audio" />
+            </div>
+        );
+    }
+
     if (msg.type === "code") return ( <pre className="code-snippet"><code>{msg.message}</code></pre>);
     return <p>{msg.message}</p>;
   };
@@ -747,13 +802,14 @@ export default function ChatContainer({ socket, isTyping }) {
       {showSidePanel && (
         <SideInfoPanel $themeType={theme}>
             <div className="panel-header">
-                <h3>{activeSideTab === 'about' ? 'Contact Details' : 'Shared Media'}</h3>
+                <h3>{activeSideTab === 'about' ? 'Contact Details' : 'Shared Content'}</h3>
                 <button onClick={() => setShowSidePanel(false)}><FaTimes /></button>
             </div>
             <div className="tabs">
                 <button className={activeSideTab === 'about' ? 'active' : ''} onClick={() => setActiveSideTab('about')}>About</button>
                 <button className={activeSideTab === 'media' ? 'active' : ''} onClick={() => setActiveSideTab('media')}>Media</button>
                 <button className={activeSideTab === 'links' ? 'active' : ''} onClick={() => setActiveSideTab('links')}>Links</button>
+                <button className={activeSideTab === 'files' ? 'active' : ''} onClick={() => setActiveSideTab('files')}>Files</button>
             </div>
             <div className="panel-content">
                 {activeSideTab === 'about' ? (
@@ -784,7 +840,7 @@ export default function ChatContainer({ socket, isTyping }) {
                                    <video key={m.id} src={m.message} controls />
                                ))}
                            </div>
-                       ) : (
+                       ) : activeSideTab === 'links' ? (
                            chatMedia.links.length === 0 ? <p className="empty-state">No links shared yet.</p> :
                            <div className="links-list">
                                {chatMedia.links.map(m => (
@@ -793,6 +849,19 @@ export default function ChatContainer({ socket, isTyping }) {
                                       <div className="link-info">
                                           <h4>{m.linkMetadata?.title || m.message}</h4>
                                           <p>{m.linkMetadata?.url || m.message}</p>
+                                      </div>
+                                   </a>
+                               ))}
+                           </div>
+                       ) : (
+                           chatMedia.files?.length === 0 ? <p className="empty-state">No files shared yet.</p> :
+                           <div className="links-list">
+                               {chatMedia.files?.map(m => (
+                                   <a key={m.id} href={m.message} target="_blank" rel="noreferrer" className="link-item">
+                                      <div className="link-icon"><FaFileDownload /></div>
+                                      <div className="link-info">
+                                          <h4>{m.fileMetadata?.fileName || "Attachment"}</h4>
+                                          <p>{m.fileMetadata?.fileSize || "Unknown Size"}</p>
                                       </div>
                                    </a>
                                ))}
