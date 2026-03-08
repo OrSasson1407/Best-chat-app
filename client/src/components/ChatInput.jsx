@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import styled, { keyframes, css } from "styled-components";
 import EmojiPicker, { Theme } from "emoji-picker-react";
 import axios from "axios"; // <-- NEW: Imported axios for direct Cloudinary uploads
+import imageCompression from "browser-image-compression"; // <-- NEW: Imported image compression
 import { IoMdSend, IoMdClose, IoMdCheckmark } from "react-icons/io";
 import { 
     BsEmojiSmileFill, BsPaperclip, BsMicFill, 
@@ -163,11 +164,31 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
       
       // Determine correct Cloudinary resource type
       let resType = "auto";
-      if (mediaPreview.type === "video") resType = "video";
-      else if (mediaPreview.type === "image") resType = "image";
-      else resType = "raw"; // For documents like PDF, TXT
+      let fileToUpload = mediaPreview.rawFile;
 
-      const cloudUrl = await uploadToCloudinary(mediaPreview.rawFile, resType);
+      if (mediaPreview.type === "video") {
+          resType = "video";
+      } else if (mediaPreview.type === "image") {
+          resType = "image";
+          
+          // --- NEW: Execute compression logic before upload ---
+          try {
+              const options = {
+                  maxSizeMB: 1,           // Force max size to 1MB
+                  maxWidthOrHeight: 1920, // Max dimension
+                  useWebWorker: true      // Offload work from main thread
+              };
+              // Compress the file!
+              fileToUpload = await imageCompression(mediaPreview.rawFile, options);
+              console.log(`Compressed from ${formatFileSize(mediaPreview.rawFile.size)} to ${formatFileSize(fileToUpload.size)}`);
+          } catch (error) {
+              console.error("Image compression error, falling back to original:", error);
+          }
+      } else {
+          resType = "raw"; // For documents like PDF, TXT
+      }
+
+      const cloudUrl = await uploadToCloudinary(fileToUpload, resType);
 
       setIsUploading(false);
 
@@ -176,7 +197,7 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
           handleSendMsg(cloudUrl, mediaPreview.type, replyingTo?.id, {
               isViewOnce: isViewOnceMedia,
               fileName: mediaPreview.fileName,
-              fileSize: mediaPreview.fileSize
+              fileSize: formatFileSize(fileToUpload.size) // Use updated size if compressed
           });
           
           setMediaPreview(null);
