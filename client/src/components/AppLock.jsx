@@ -1,48 +1,73 @@
-import React, { useState, useEffect } from "react";
+// client/src/components/AppLock.jsx
+import React, { useState, useEffect, useCallback } from "react";
 import styled from "styled-components";
 import { FaLock, FaUnlock, FaBackspace } from "react-icons/fa";
 
+// Constants for easy configuration
+const PIN_STORAGE_KEY = "app-pin-code";
+const PIN_LENGTH = 4;
+
 export default function AppLock({ children }) {
-  const [isLocked, setIsLocked] = useState(false);
+  // IMPROVEMENT 1: Synchronous initialization to prevent content flicker
+  // We check local storage immediately on mount instead of waiting for useEffect
+  const savedPin = localStorage.getItem(PIN_STORAGE_KEY);
+  const [isLocked, setIsLocked] = useState(() => !!savedPin);
+  
   const [pin, setPin] = useState("");
   const [error, setError] = useState(false);
-  
-  // Check if a PIN is set in local storage
-  const savedPin = localStorage.getItem("app-pin-code");
 
-  useEffect(() => {
-    if (savedPin) {
-      setIsLocked(true);
-    }
-  }, [savedPin]);
-
-  const handleKeyPress = (num) => {
-    if (pin.length < 4) {
-      const newPin = pin + num;
-      setPin(newPin);
-      setError(false);
-
-      if (newPin.length === 4) {
-        verifyPin(newPin);
-      }
-    }
-  };
-
-  const handleDelete = () => {
-    setPin(pin.slice(0, -1));
-    setError(false);
-  };
-
-  const verifyPin = (enteredPin) => {
+  // Wrap verifyPin in useCallback to prevent unnecessary re-creations
+  const verifyPin = useCallback((enteredPin) => {
     if (enteredPin === savedPin) {
       setIsLocked(false);
       setPin("");
     } else {
       setError(true);
-      setTimeout(() => setPin(""), 500); // Clear pin after a brief delay on error
+      // Clear pin after a brief delay on error
+      setTimeout(() => setPin(""), 500); 
     }
-  };
+  }, [savedPin]);
 
+  const handleKeyPress = useCallback((key) => {
+    setPin((prev) => {
+      // Only accept input if we haven't reached the max length and no error is currently animating
+      if (prev.length < PIN_LENGTH && !error) {
+        const newPin = prev + key;
+        
+        // If we hit the required length, verify immediately
+        if (newPin.length === PIN_LENGTH) {
+          verifyPin(newPin);
+        }
+        return newPin;
+      }
+      return prev;
+    });
+    setError(false);
+  }, [error, verifyPin]);
+
+  const handleDelete = useCallback(() => {
+    setPin((prev) => prev.slice(0, -1));
+    setError(false);
+  }, []);
+
+  // IMPROVEMENT 2: Physical Keyboard Support
+  useEffect(() => {
+    if (!isLocked) return;
+
+    const handleKeyDown = (e) => {
+      // Check if key is a number from 0-9
+      if (/^[0-9]$/.test(e.key)) {
+        handleKeyPress(e.key);
+      } else if (e.key === "Backspace") {
+        handleDelete();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isLocked, handleKeyPress, handleDelete]);
+
+  // If not locked, render the actual application
   if (!isLocked) {
     return <>{children}</>;
   }
@@ -55,8 +80,11 @@ export default function AppLock({ children }) {
         <p>Enter your PIN to access Snappy</p>
 
         <div className="pin-display">
-          {[...Array(4)].map((_, i) => (
-            <div key={i} className={`pin-dot ${pin.length > i ? "filled" : ""} ${error ? "error" : ""}`} />
+          {[...Array(PIN_LENGTH)].map((_, i) => (
+            <div 
+              key={i} 
+              className={`pin-dot ${pin.length > i ? "filled" : ""} ${error ? "error" : ""}`} 
+            />
           ))}
         </div>
 
@@ -66,9 +94,11 @@ export default function AppLock({ children }) {
               {num}
             </button>
           ))}
-          <button className="empty" disabled></button>
+          <button className="empty" disabled aria-hidden="true"></button>
           <button onClick={() => handleKeyPress("0")}>0</button>
-          <button onClick={handleDelete} className="delete-btn">
+          
+          {/* IMPROVEMENT 3: Added aria-label for accessibility */}
+          <button onClick={handleDelete} className="delete-btn" aria-label="Delete last digit">
             <FaBackspace />
           </button>
         </div>
@@ -77,6 +107,7 @@ export default function AppLock({ children }) {
   );
 }
 
+// Styles remain unchanged
 const LockScreen = styled.div`
   position: fixed;
   top: 0; left: 0; width: 100vw; height: 100vh;

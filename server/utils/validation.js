@@ -18,6 +18,9 @@ const registerSchema = Joi.object({
   gender: Joi.string().valid("male", "female").required(),
   // Added avatarImage validation to accept the Dicebear URL sent by the frontend
   avatarImage: Joi.string().uri().required(),
+  
+  // --- FIX: Add publicKey to schema so it passes validation ---
+  publicKey: Joi.string().required(),
 });
 
 // Validation for Login

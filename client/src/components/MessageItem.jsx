@@ -1,9 +1,12 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { FaReply, FaSmile, FaTrash, FaPen, FaShare, FaStar, FaClock, FaCheckDouble, FaFire, FaFileDownload, FaPoll, FaRegClock } from "react-icons/fa";
 import { getSmallAvatar, formatTime, isNewDay, formatDateBadge, isSameSender, isWithinTimeFrame } from "./chatHelpers";
 
-const HighlightedText = ({ text, query }) => {
+// IMPROVEMENT: Wrapped in React.memo to prevent unnecessary re-renders
+const HighlightedText = React.memo(({ text, query }) => {
     if (!query) return <span>{text}</span>;
+    
+    // Split text based on search query (case-insensitive)
     const parts = text.split(new RegExp(`(${query})`, "gi"));
     return (
         <span>
@@ -13,13 +16,14 @@ const HighlightedText = ({ text, query }) => {
             )}
         </span>
     );
-};
+});
 
-export default function MessageItem({
+// IMPROVEMENT: Wrapped the main component in React.memo
+const MessageItem = React.memo(({
     message, prevMsg, nextMsg, currentChat, currentUser, searchQuery, highlightedMsgId,
     setLightboxImage, setReadReceiptsMsg, scrollToMessage, setReplyingTo,
     setEditingMessage, handleDeleteMsg, handleReaction, handleOpenViewOnce
-}) {
+}) => {
     const showDateSeparator = isNewDay(message.createdAt, prevMsg?.createdAt);
 
     const isGroupedWithPrev = prevMsg && isSameSender(message, prevMsg) &&
@@ -29,6 +33,18 @@ export default function MessageItem({
         isWithinTimeFrame(message, nextMsg) && !isNewDay(nextMsg.createdAt, message.createdAt);
 
     const isGroup = !!currentChat.admin;
+
+    // IMPROVEMENT: Memoize the grouped reactions to avoid recalculating on every render
+    const groupedReactions = useMemo(() => {
+        if (!message.reactions || message.reactions.length === 0) return [];
+        const grouped = message.reactions.reduce((acc, r) => {
+            acc[r.emoji] = acc[r.emoji] || { count: 0, users: [] };
+            acc[r.emoji].count += 1;
+            acc[r.emoji].users.push(r.username);
+            return acc;
+        }, {});
+        return Object.entries(grouped);
+    }, [message.reactions]);
 
     const renderStatusTicks = (msg) => {
         const handleClick = () => { if (isGroup) setReadReceiptsMsg(msg); };
@@ -173,6 +189,7 @@ export default function MessageItem({
                                 </div>
                             )}
                         </div>
+                        
                         {!message.isDeleted && (
                             <div className="message-actions">
                                 <button onClick={() => setReplyingTo({ id: message.id, text: message.message, type: message.type, isSelfQuote: message.fromSelf })} title="Reply"><FaReply /></button>
@@ -193,16 +210,10 @@ export default function MessageItem({
                             </div>
                         )}
 
-                        {message.reactions?.length > 0 && !message.isDeleted && (
+                        {/* IMPROVEMENT: Replaced the inline reduce with the memoized groupedReactions array */}
+                        {groupedReactions.length > 0 && !message.isDeleted && (
                             <div className="reactions-display">
-                                {Object.entries(
-                                    message.reactions.reduce((acc, r) => {
-                                        acc[r.emoji] = acc[r.emoji] || { count: 0, users: [] };
-                                        acc[r.emoji].count += 1;
-                                        acc[r.emoji].users.push(r.username);
-                                        return acc;
-                                    }, {})
-                                ).map(([emoji, data]) => (
+                                {groupedReactions.map(([emoji, data]) => (
                                     <div
                                         key={emoji}
                                         className="reaction-pill"
@@ -223,4 +234,6 @@ export default function MessageItem({
             </div>
         </div>
     );
-}
+});
+
+export default MessageItem;

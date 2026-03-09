@@ -25,7 +25,8 @@ module.exports.register = async (req, res, next) => {
     const { error } = registerSchema.validate(req.body);
     if (error) return res.status(400).json({ msg: error.details[0].message, status: false });
 
-    const { username, email, password, gender, avatarImage } = req.body;
+    // --- FIX: Destructure publicKey from req.body ---
+    const { username, email, password, gender, avatarImage, publicKey } = req.body;
 
     const usernameCheck = await User.findOne({ username });
     if (usernameCheck) return res.json({ msg: "Username already used", status: false });
@@ -38,6 +39,7 @@ module.exports.register = async (req, res, next) => {
     const tops = gender === 'female' ? femaleTops : maleTops;
     const finalAvatar = avatarImage || `https://api.dicebear.com/9.x/avataaars/svg?seed=${username}&top=${tops}&backgroundColor=${backgroundColors}`;
 
+    // --- FIX: Save publicKey in the database ---
     const user = await User.create({
       email,
       username,
@@ -45,7 +47,7 @@ module.exports.register = async (req, res, next) => {
       gender,
       avatarImage: finalAvatar,
       isAvatarImageSet: true,
-      // Privacy settings default to schema defaults
+      publicKey: publicKey 
     });
 
     const { accessToken, refreshToken } = generateTokens(user._id);

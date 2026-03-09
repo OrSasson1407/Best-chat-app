@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import ChatInput from "./ChatInput";
 import axios from "axios";
 import { Virtuoso } from "react-virtuoso"; 
@@ -18,7 +18,6 @@ import { Container, DropOverlay, ScrollButton, Lightbox } from "./ChatContainer.
 import CallModal from "./CallModal"; 
 import useChatStore from "../store/chatStore";
 
-// Imported Refactored Components
 import ChatHeader from "./ChatHeader";
 import ChatSidePanel from "./ChatSidePanel";
 import MessageItem from "./MessageItem";
@@ -66,7 +65,7 @@ export default function ChatContainer({ socket, isTyping }) {
   const [showCallModal, setShowCallModal] = useState(false);
   const [incomingCallData, setIncomingCallData] = useState(null);
 
-  const getAuthHeader = () => ({ headers: { "x-auth-token": currentUser.token } });
+  const getAuthHeader = useCallback(() => ({ headers: { "x-auth-token": currentUser.token } }), [currentUser.token]);
 
   useEffect(() => {
       isScrolledUpRef.current = showScrollBtn;
@@ -155,7 +154,7 @@ export default function ChatContainer({ socket, isTyping }) {
       }
     }
     fetchHistory();
-  }, [currentChat, currentUser]);
+  }, [currentChat, currentUser, getAuthHeader, socket]);
 
   useEffect(() => {
       if (showSidePanel && currentChat && (activeSideTab === 'media' || activeSideTab === 'links' || activeSideTab === 'files')) {
@@ -179,9 +178,9 @@ export default function ChatContainer({ socket, isTyping }) {
           };
           fetchMedia();
       }
-  }, [showSidePanel, currentChat, currentUser, activeSideTab]);
+  }, [showSidePanel, currentChat, currentUser, activeSideTab, getAuthHeader]);
 
-  const loadMoreMessages = async () => {
+  const loadMoreMessages = useCallback(async () => {
     if (hasMore && !isLoadingMore) {
       setIsLoadingMore(true);
       try {
@@ -223,16 +222,18 @@ export default function ChatContainer({ socket, isTyping }) {
           setIsLoadingMore(false);
       }
     }
-  };
+  }, [hasMore, isLoadingMore, currentChat, currentUser, cursor, activeGroupAesKey, getAuthHeader]);
 
-  const scrollToBottom = () => {
+  const scrollToBottom = useCallback(() => {
       virtuosoRef.current?.scrollToIndex({ index: messages.length - 1, behavior: 'smooth' });
       setUnreadScrollCount(0); 
-  };
+  }, [messages.length]);
 
+  // IMPROVEMENT: Fixed dependency array to use socket.current
   useEffect(() => {
       if (socket.current && currentUser) {
-          const heartbeatInterval = setInterval(() => socket.current.emit("heartbeat", currentUser._id), 30000); 
+          const s = socket.current;
+          const heartbeatInterval = setInterval(() => s.emit("heartbeat", currentUser._id), 30000); 
           return () => clearInterval(heartbeatInterval);
       }
   }, [socket, currentUser]);
@@ -245,6 +246,7 @@ export default function ChatContainer({ socket, isTyping }) {
     if (files.length > 0) toast.info(`Preparing to upload ${files[0].name}...`);
   };
 
+  // IMPROVEMENT: Removed readReceiptsMsg from dependencies to prevent socket unbinding
   useEffect(() => {
     if (socket.current) {
       const s = socket.current;
@@ -310,11 +312,13 @@ export default function ChatContainer({ socket, isTyping }) {
               return msg;
           }));
           
-          if (readReceiptsMsg && readReceiptsMsg.id === messageId) {
-             setReadReceiptsMsg(prev => ({
-                 ...prev, readBy: prev.readBy ? [...prev.readBy, newReader] : [newReader]
-             }));
-          }
+          // Use functional state update so we don't need readReceiptsMsg in the dependency array
+          setReadReceiptsMsg(prev => {
+             if (prev && prev.id === messageId) {
+                 return { ...prev, readBy: prev.readBy ? [...prev.readBy, newReader] : [newReader] };
+             }
+             return prev;
+          });
       };
 
       const handleMsgDeleted = ({ messageId }) => setMessages((prev) => prev.map(msg => msg.id === messageId ? { ...msg, isDeleted: true, message: "🚫 This message was deleted", reactions: [] } : msg));
@@ -338,11 +342,10 @@ export default function ChatContainer({ socket, isTyping }) {
       return () => {
           s.off("presence-response"); s.off("user-status-change"); s.off("msg-recieve");
           s.off("receive-reaction"); s.off("msg-read-update"); s.off("group-msg-read-update");
-          s.off("msg-deleted"); s.off("msg-edited");
-          s.off("incoming-call"); 
+          s.off("msg-deleted"); s.off("msg-edited"); s.off("incoming-call"); 
       };
     }
-  }, [socket, currentUser, currentChat, readReceiptsMsg, activeGroupAesKey]);
+  }, [socket, currentUser, currentChat, activeGroupAesKey]);
 
   useEffect(() => {
     if (arrivalMessage) {
@@ -353,7 +356,8 @@ export default function ChatContainer({ socket, isTyping }) {
     }
   }, [arrivalMessage]);
 
-  const handleSendMsg = async (msg, type = "text", replyToId = null, extraData = {}) => {
+  // IMPROVEMENT: Wrapped in useCallback
+  const handleSendMsg = useCallback(async (msg, type = "text", replyToId = null, extraData = {}) => {
     const time = new Date().toISOString();
     let finalMessageContent = msg;
     const newMessageId = uuidv4(); 
@@ -421,18 +425,20 @@ export default function ChatContainer({ socket, isTyping }) {
         else toast.error("Failed to send message");
         setMessages((prev) => prev.filter(m => m.id !== newMessageId));
     }
-  };
+  }, [currentChat, currentUser, activeGroupAesKey, replyingTo, getAuthHeader, socket]);
 
-  const handleEditMsgSubmit = async (messageId, newText) => {
+  // IMPROVEMENT: Wrapped in useCallback
+  const handleEditMsgSubmit = useCallback(async (messageId, newText) => {
       try {
           await axios.post(editMessageRoute, { messageId, newText }, getAuthHeader()); 
           socket.current.emit("edit-msg", { messageId, newText, to: currentChat._id, isGroup: !!currentChat.admin });
           setMessages((prev) => prev.map(msg => msg.id === messageId ? { ...msg, message: newText, isEdited: true } : msg));
           setEditingMessage(null);
       } catch (error) { toast.error("Failed to edit message"); }
-  };
+  }, [currentChat, getAuthHeader, socket]);
 
-  const handleDeleteMsg = async (messageId, fromSelf) => {
+  // IMPROVEMENT: Wrapped in useCallback
+  const handleDeleteMsg = useCallback(async (messageId, fromSelf) => {
       const options = fromSelf ? "Press OK to 'Delete for Everyone', or Cancel to 'Delete for Me'." : "Delete this message for yourself?";
       const deleteForEveryone = fromSelf ? window.confirm(options) : false;
 
@@ -450,23 +456,25 @@ export default function ChatContainer({ socket, isTyping }) {
               }
           }
       } catch (error) { toast.error("Failed to delete message"); }
-  };
+  }, [currentChat, currentUser, getAuthHeader, socket]);
 
-  const handleReaction = async (messageId, emoji) => {
+  // IMPROVEMENT: Wrapped in useCallback
+  const handleReaction = useCallback(async (messageId, emoji) => {
       try {
           const res = await axios.post(reactMessageRoute, { messageId, emoji, userId: currentUser._id, username: currentUser.username }, getAuthHeader());
           setMessages(prev => prev.map(msg => msg.id === messageId ? { ...msg, reactions: res.data.reactions } : msg));
           socket.current.emit("send-reaction", { messageId, reactions: res.data.reactions, to: currentChat._id, isGroup: !!currentChat.admin });
       } catch (e) { console.error("Failed to react", e); }
-  };
+  }, [currentChat, currentUser, getAuthHeader, socket]);
 
-  const handleOpenViewOnce = async (msgId) => {
+  // IMPROVEMENT: Wrapped in useCallback
+  const handleOpenViewOnce = useCallback(async (msgId) => {
     setMessages(prev => prev.map(m => m.id === msgId ? {...m, viewed: true, message: "💣 Media Expired"} : m));
-  };
+  }, []);
 
-  const handleTyping = (typing) => {
+  const handleTyping = useCallback((typing) => {
     socket.current.emit("typing", { to: currentChat._id, from: currentUser._id, isTyping: typing, isGroup: !!currentChat.admin, username: currentUser.username });
-  };
+  }, [currentChat, currentUser, socket]);
 
   const handleAddMember = async () => {
       const userId = prompt("Enter the User ID to add to this group:");
@@ -486,20 +494,21 @@ export default function ChatContainer({ socket, isTyping }) {
       } catch (e) { toast.error("Failed to update block status"); }
   };
 
-  const scrollToMessage = (msgId) => {
+  const filteredMessages = messages.filter(msg => {
+      if (!searchQuery) return true;
+      if (msg.type !== "text" && msg.type !== "link") return false;
+      return msg.message && msg.message.toLowerCase().includes(searchQuery.toLowerCase());
+  });
+
+  // IMPROVEMENT: Wrapped in useCallback
+  const scrollToMessage = useCallback((msgId) => {
       const index = filteredMessages.findIndex(m => m.id === msgId);
       if (index !== -1) {
           virtuosoRef.current?.scrollToIndex({ index, align: 'center', behavior: 'smooth' });
           setHighlightedMsgId(msgId);
           setTimeout(() => setHighlightedMsgId(null), 1500);
       }
-  };
-
-  const filteredMessages = messages.filter(msg => {
-      if (!searchQuery) return true;
-      if (msg.type !== "text" && msg.type !== "link") return false;
-      return msg.message && msg.message.toLowerCase().includes(searchQuery.toLowerCase());
-  });
+  }, [filteredMessages]);
 
   return (
     <Container $themeType={theme} $isCompact={isCompact} $hasPinned={!!pinnedMessage} onDragOver={handleDragOver}>

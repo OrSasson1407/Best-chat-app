@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import styled, { keyframes, css } from "styled-components";
 import { FaUserFriends, FaPlus, FaSearch, FaCog, FaThumbtack, FaRegEnvelope, FaTimes, FaSpinner, FaShieldAlt } from "react-icons/fa";
 import { BsChatDotsFill, BsPeopleFill } from "react-icons/bs";
@@ -8,7 +8,7 @@ import { host, createGroupRoute, getUserGroupsRoute, updateProfileRoute, searchM
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
-// --- NEW: IMPORT ZUSTAND STORE & CRYPTO ---
+// --- IMPORT ZUSTAND STORE & CRYPTO ---
 import useChatStore from "../store/chatStore";
 import { generateGroupAESKey, encryptMessage } from "../utils/crypto"; 
 
@@ -36,14 +36,12 @@ const formatLastSeen = (dateString) => {
     return `Last seen ${date.toLocaleDateString(undefined, { month: 'short', day: 'numeric'})}`;
 };
 
-// MERGE UPDATE: Removed 7 props! Only kept the ones tightly coupled to Chat.jsx logic
 export default function Contacts({ 
   contacts, 
   changeChat, 
   handleLogout
 }) {
   
-  // --- PULL GLOBAL STATE FROM ZUSTAND ---
   const {
       currentUser,
       onlineUsers,
@@ -57,18 +55,21 @@ export default function Contacts({
   const [currentUserName, setCurrentUserName] = useState(undefined);
   const [currentSelected, setCurrentSelected] = useState(undefined);
   
-  // Folders and Pinning
   const [activeFolder, setActiveFolder] = useState("all"); 
+  
   const [pinnedIds, setPinnedIds] = useState(() => {
-    const saved = localStorage.getItem(`pinned-chats-${currentUser?._id}`);
-    return saved ? JSON.parse(saved) : [];
+    try {
+        const saved = localStorage.getItem(`pinned-chats-${currentUser?._id}`);
+        return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+        return [];
+    }
   });
 
   const [groups, setGroups] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   
-  // Global Message Search State
   const [globalMessages, setGlobalMessages] = useState([]);
   const [isSearchingGlobal, setIsSearchingGlobal] = useState(false);
 
@@ -78,7 +79,6 @@ export default function Contacts({
 
   const [showProfileModal, setShowProfileModal] = useState(false);
   
-  // --- MERGE UPDATE: Initialize Privacy Settings in State ---
   const [profileData, setProfileData] = useState({
       statusIcon: "✨", 
       statusMessage: "Available", 
@@ -91,14 +91,12 @@ export default function Contacts({
       }
   });
 
-  // Force re-render of settings if pin changes locally
   const [hasPin, setHasPin] = useState(!!localStorage.getItem("app-pin-code"));
 
   useEffect(() => {
     const fetchGroups = async () => {
       if(currentUser && currentUser.token) {
           try {
-              // --- MERGE UPDATE: Removed /${currentUser._id} since the backend now uses the JWT securely ---
               const { data } = await axios.get(getUserGroupsRoute, {
                   headers: { "x-auth-token": currentUser.token }
               });
@@ -114,7 +112,6 @@ export default function Contacts({
     if (currentUser) {
       setCurrentUserName(currentUser.username);
       
-      // --- MERGE UPDATE: Load user's existing privacy settings from DB ---
       setProfileData({
           statusIcon: currentUser.statusIcon || "✨",
           statusMessage: currentUser.statusMessage || "Available",
@@ -130,14 +127,12 @@ export default function Contacts({
     }
   }, [currentUser]);
 
-  // Sync Pinned Chats to LocalStorage
   useEffect(() => {
     if (currentUser) {
       localStorage.setItem(`pinned-chats-${currentUser._id}`, JSON.stringify(pinnedIds));
     }
   }, [pinnedIds, currentUser]);
 
-  // Debounced Global Search Effect
   useEffect(() => {
       if (!searchTerm || searchTerm.length < 3) {
           setGlobalMessages([]);
@@ -167,22 +162,27 @@ export default function Contacts({
       return () => clearTimeout(delayDebounceFn);
   }, [searchTerm, currentUser]);
 
-  const togglePin = (e, id) => {
+  const togglePin = useCallback((e, id) => {
     e.stopPropagation(); 
-    if (pinnedIds.includes(id)) {
-      setPinnedIds(pinnedIds.filter(pid => pid !== id));
-      toast.info("Chat unpinned");
-    } else {
-      if (pinnedIds.length >= 5) return toast.warning("Maximum 5 pins allowed");
-      setPinnedIds([...pinnedIds, id]);
-      toast.success("Chat pinned to top");
-    }
-  };
+    setPinnedIds((prev) => {
+        if (prev.includes(id)) {
+            toast.info("Chat unpinned");
+            return prev.filter(pid => pid !== id);
+        } else {
+            if (prev.length >= 5) {
+                toast.warning("Maximum 5 pins allowed");
+                return prev;
+            }
+            toast.success("Chat pinned to top");
+            return [...prev, id];
+        }
+    });
+  }, []);
 
-  const changeCurrentChat = (contact, isGroup = false) => {
+  const changeCurrentChat = useCallback((contact, isGroup = false) => {
     setCurrentSelected(contact._id);
     changeChat(contact, isGroup); 
-  };
+  }, [changeChat]);
 
   const handleGlobalMessageClick = (msg) => {
       let targetChat = null;
@@ -204,7 +204,6 @@ export default function Contacts({
       }
   };
 
-  // Filtering & Sorting Data
   const displayedItems = useMemo(() => {
     let all = [
       ...contacts.map(c => ({ ...c, isGroup: false })),
@@ -232,15 +231,11 @@ export default function Contacts({
     });
   }, [contacts, groups, searchTerm, activeFolder, pinnedIds, onlineUsers]);
 
-  const unreadCount = contacts.filter(c => c.unreadCount > 0).length;
-  const groupsCount = groups.length;
-
   const toggleMemberSelection = (id) => {
     if (selectedMembers.includes(id)) setSelectedMembers(selectedMembers.filter(m => m !== id));
     else setSelectedMembers([...selectedMembers, id]);
   };
 
-  // --- MERGE UPDATE: E2EE GROUP KEY GENERATION & DISTRIBUTION ---
   const handleCreateGroup = async () => {
     if (groupName.length < 3) return toast.error("Group name must be > 3 characters");
     if (selectedMembers.length < 1) return toast.error("Select at least 1 member");
@@ -249,13 +244,10 @@ export default function Contacts({
         const allMembers = [...selectedMembers, currentUser._id];
         toast.info("Generating secure E2EE keys...", { autoClose: 2000 });
 
-        // 1. Generate the shared AES Group Key
         const aesKeyJwk = await generateGroupAESKey();
-        const aesKeyString = JSON.stringify(aesKeyJwk); // We must stringify it so RSA can encrypt it
-        const groupKeys = [];
-
-        // 2. Fetch RSA public keys for ALL members and encrypt the AES key for each of them individually
-        for (let userId of allMembers) {
+        const aesKeyString = JSON.stringify(aesKeyJwk); 
+        
+        const keyPromises = allMembers.map(async (userId) => {
             try {
                 const pkResponse = await axios.get(`${host}/api/auth/public-key/${userId}`, {
                     headers: { "x-auth-token": currentUser.token }
@@ -264,19 +256,22 @@ export default function Contacts({
                 
                 if (userPublicKey) {
                     const encryptedKey = await encryptMessage(aesKeyString, userPublicKey);
-                    groupKeys.push({ userId, encryptedKey });
+                    return { userId, encryptedKey };
                 }
             } catch (err) {
                 console.error(`Could not fetch public key for user ${userId}`);
             }
-        }
+            return null; 
+        });
 
-        // 3. Send the group creation payload + the encrypted keys array
+        const resolvedKeys = await Promise.all(keyPromises);
+        const groupKeys = resolvedKeys.filter(k => k !== null);
+
         const { data } = await axios.post(createGroupRoute, {
             name: groupName, 
             members: allMembers, 
             admin: currentUser._id,
-            groupKeys // Backend now saves this!
+            groupKeys 
         }, {
             headers: { "x-auth-token": currentUser.token }
         });
@@ -301,7 +296,6 @@ export default function Contacts({
           const { data } = await axios.post(`${updateProfileRoute}/${currentUser._id}`, {
               ...profileData, 
               interests: interestsArray
-              // profileData.privacySettings is already included via spread operator
           }, {
               headers: { "x-auth-token": currentUser.token }
           });
@@ -330,6 +324,12 @@ export default function Contacts({
       return `https://api.dicebear.com/9.x/avataaars/svg?seed=${seed}&top=${tops}&backgroundColor=${backgroundColors}`;
   };
 
+  // --- UNREAD COUNT LOGIC FIX ---
+  // Calculates the number of INDIVIDUAL CHATS that have unread messages.
+  const unreadPersonalChatsCount = contacts.filter(c => c.unreadCount > 0).length;
+  const unreadGroupsCount = groups.filter(g => g.unreadCount > 0).length;
+  const totalUnreadChatsCount = unreadPersonalChatsCount + unreadGroupsCount;
+
   return (
     <>
       {currentUserName && (
@@ -339,19 +339,28 @@ export default function Contacts({
           </div>
           
           <div className="folders-bar">
+            {/* All Chats Badge */}
             <FolderBtn className={activeFolder === "all" ? "active" : ""} onClick={() => setActiveFolder("all")} title="All Conversations">
                 <MdOutlineAllInclusive />
+                {totalUnreadChatsCount > 0 && <span className="badge theme-badge">{totalUnreadChatsCount}</span>}
             </FolderBtn>
+            
+            {/* Personal Chats Badge */}
             <FolderBtn className={activeFolder === "personal" ? "active" : ""} onClick={() => setActiveFolder("personal")} title="Personal">
                 <BsChatDotsFill />
+                {unreadPersonalChatsCount > 0 && <span className="badge theme-badge">{unreadPersonalChatsCount}</span>}
             </FolderBtn>
+            
+            {/* Groups Chats Badge */}
             <FolderBtn className={activeFolder === "groups" ? "active" : ""} onClick={() => setActiveFolder("groups")} title="Groups">
                 <BsPeopleFill />
-                {groupsCount > 0 && <span className="badge theme-badge">{groupsCount}</span>}
+                {unreadGroupsCount > 0 && <span className="badge theme-badge">{unreadGroupsCount}</span>}
             </FolderBtn>
+            
+            {/* Unread Folder Badge */}
             <FolderBtn className={activeFolder === "unread" ? "active" : ""} onClick={() => setActiveFolder("unread")} title="Unread">
                 <FaRegEnvelope />
-                {unreadCount > 0 && <span className="badge danger-badge">{unreadCount}</span>}
+                {totalUnreadChatsCount > 0 && <span className="badge danger-badge">{totalUnreadChatsCount}</span>}
             </FolderBtn>
           </div>
 
@@ -429,6 +438,10 @@ export default function Contacts({
                                 
                                 <div className="contact-meta">
                                   {isOnline && <div className="online-indicator" />}
+                                  
+                                  {/* Also display unread badge on the individual chat item if applicable */}
+                                  {item.unreadCount > 0 && <span style={{backgroundColor: '#00ff88', color: '#000', fontSize: '0.65rem', padding: '2px 6px', borderRadius: '10px', fontWeight: 'bold'}}>{item.unreadCount}</span>}
+                                  
                                   <button className={`pin-btn ${isPinned ? "pinned" : ""}`} onClick={(e) => togglePin(e, item._id)}>
                                     <FaThumbtack />
                                   </button>
@@ -526,7 +539,6 @@ export default function Contacts({
                           </div>
                       </div>
 
-                      {/* --- MERGE UPDATE: NEW PRIVACY CONTROLS UI --- */}
                       <hr className="divider" />
                       <h4 style={{ color: '#00ff88', marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                           <FaShieldAlt /> Privacy & Security
@@ -629,8 +641,7 @@ export default function Contacts({
   );
 }
 
-// --- STYLES & ANIMATIONS ---
-
+// --- STYLES & ANIMATIONS (Unchanged) ---
 const shimmer = keyframes`
   0% { background-position: -468px 0; }
   100% { background-position: 468px 0; }

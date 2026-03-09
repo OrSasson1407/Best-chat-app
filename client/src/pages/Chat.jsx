@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { io } from "socket.io-client";
@@ -51,11 +51,17 @@ export default function Chat() {
 
   // 2. Setup STABLE Socket Connection (Runs ONLY when currentUser logs in)
   useEffect(() => {
-    if (currentUser && currentUser._id) {
+    // IMPROVEMENT: Only connect if we have a user and socket isn't already connected
+    if (currentUser && currentUser._id && !socket.current) {
       socket.current = io(host, {
         auth: {
           token: currentUser.token 
         }
+      });
+
+      // IMPROVEMENT: Ensure 'add-user' only fires AFTER connection is fully established
+      socket.current.on("connect", () => {
+        socket.current.emit("add-user", currentUser._id);
       });
 
       socket.current.on("connect_error", (err) => {
@@ -65,15 +71,16 @@ export default function Chat() {
           navigate("/login");
         }
       });
-
-      socket.current.emit("add-user", currentUser._id);
       
       socket.current.on("get-online-users", (users) => {
         setOnlineUsers(users);
       });
 
       return () => {
-        if (socket.current) socket.current.disconnect();
+        if (socket.current) {
+          socket.current.disconnect();
+          socket.current = null; // Clear the ref on unmount
+        }
       };
     }
   }, [currentUser, navigate, setOnlineUsers]);
@@ -176,29 +183,27 @@ export default function Chat() {
   }, [currentUser]);
   // --------------------------------------------------------
 
-  const handleLogout = async () => {
+  // IMPROVEMENT: Wrapped in useCallback and used finally block for DRY code
+  const handleLogout = useCallback(async () => {
     try {
       await axios.get(`${host}/api/auth/logout`, { withCredentials: true }); 
-      
-      sessionStorage.clear();
-      setCurrentUser(undefined);
-      setCurrentChat(undefined);
-      navigate("/login");
     } catch (err) {
       console.error("Logout API failed:", err);
+    } finally {
       sessionStorage.clear();
       setCurrentUser(undefined);
       setCurrentChat(undefined);
       navigate("/login");
     }
-  };
+  }, [navigate, setCurrentUser, setCurrentChat]);
 
-  const handleChatChange = (chat) => {
+  // IMPROVEMENT: Wrapped in useCallback to stop <Contacts /> from re-rendering uselessly
+  const handleChatChange = useCallback((chat) => {
     setCurrentChat(chat);
     setIsTyping(false);
     // Close mobile menu when a chat is selected
-    if (isMobileMenuOpen) setIsMobileMenuOpen(false);
-  };
+    setIsMobileMenuOpen(false);
+  }, [setCurrentChat]);
 
   return (
     <Container 
