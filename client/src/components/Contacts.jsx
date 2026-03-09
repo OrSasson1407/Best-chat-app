@@ -1,10 +1,18 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+// client/src/components/Contacts.jsx
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import styled, { keyframes, css } from "styled-components";
-import { FaUserFriends, FaPlus, FaSearch, FaCog, FaThumbtack, FaRegEnvelope, FaTimes, FaSpinner, FaShieldAlt } from "react-icons/fa";
+import { 
+    FaUserFriends, FaPlus, FaSearch, FaCog, FaThumbtack, 
+    FaRegEnvelope, FaTimes, FaSpinner, FaShieldAlt, FaEye, FaGlobe // <-- NEW: Added FaGlobe
+} from "react-icons/fa";
 import { BsChatDotsFill, BsPeopleFill } from "react-icons/bs";
 import { MdOutlineAllInclusive } from "react-icons/md";
 import axios from "axios";
-import { host, createGroupRoute, getUserGroupsRoute, updateProfileRoute, searchMessageRoute } from "../utils/APIRoutes";
+import { 
+    host, createGroupRoute, getUserGroupsRoute, updateProfileRoute, 
+    searchMessageRoute, getStoryFeedRoute, addStoryRoute, viewStoryRoute,
+    searchChannelsRoute, joinChannelRoute // <-- NEW: Added Channel Routes
+} from "../utils/APIRoutes";
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
@@ -79,6 +87,12 @@ export default function Contacts({
 
   const [showProfileModal, setShowProfileModal] = useState(false);
   
+  // --- MERGE UPDATE: DISCOVER CHANNELS STATE ---
+  const [showDiscoverModal, setShowDiscoverModal] = useState(false);
+  const [channelSearchQuery, setChannelSearchQuery] = useState("");
+  const [discoveredChannels, setDiscoveredChannels] = useState([]);
+  const [isSearchingChannels, setIsSearchingChannels] = useState(false);
+
   const [profileData, setProfileData] = useState({
       statusIcon: "✨", 
       statusMessage: "Available", 
@@ -93,16 +107,32 @@ export default function Contacts({
 
   const [hasPin, setHasPin] = useState(!!localStorage.getItem("app-pin-code"));
 
+  // --- STORY SYSTEM STATE ---
+  const [storyFeed, setStoryFeed] = useState([]);
+  const [viewingStoryUser, setViewingStoryUser] = useState(null);
+  const [currentStoryIndex, setCurrentStoryIndex] = useState(0);
+  const [isUploadingStory, setIsUploadingStory] = useState(false);
+  const fileInputRef = useRef(null);
+
   useEffect(() => {
-    const fetchGroups = async () => {
+    const fetchGroupsAndStories = async () => {
       if(currentUser && currentUser.token) {
           try {
-              const { data } = await axios.get(getUserGroupsRoute, {
+              // Fetch Groups
+              const groupRes = await axios.get(getUserGroupsRoute, {
                   headers: { "x-auth-token": currentUser.token }
               });
-              setGroups(data);
+              setGroups(groupRes.data);
+
+              // Fetch Story Feed
+              const storyRes = await axios.get(getStoryFeedRoute, {
+                  headers: { "x-auth-token": currentUser.token }
+              });
+              if(storyRes.data.status) {
+                  setStoryFeed(storyRes.data.feed);
+              }
           } catch (error) { 
-              console.error("Error fetching groups:", error); 
+              console.error("Error fetching data:", error); 
           } finally {
               setIsLoading(false);
           }
@@ -123,7 +153,7 @@ export default function Contacts({
               profilePhoto: "everyone"
           }
       });
-      fetchGroups();
+      fetchGroupsAndStories();
     }
   }, [currentUser]);
 
@@ -132,6 +162,17 @@ export default function Contacts({
       localStorage.setItem(`pinned-chats-${currentUser._id}`, JSON.stringify(pinnedIds));
     }
   }, [pinnedIds, currentUser]);
+
+  // Auto-play Stories Logic
+  useEffect(() => {
+      let timer;
+      if (viewingStoryUser && viewingStoryUser.stories) {
+          timer = setTimeout(() => {
+              handleNextStory();
+          }, 5000); 
+      }
+      return () => clearTimeout(timer);
+  }, [viewingStoryUser, currentStoryIndex]);
 
   useEffect(() => {
       if (!searchTerm || searchTerm.length < 3) {
@@ -161,6 +202,25 @@ export default function Contacts({
 
       return () => clearTimeout(delayDebounceFn);
   }, [searchTerm, currentUser]);
+
+  // --- MERGE UPDATE: DEBOUNCED CHANNEL SEARCH ---
+  useEffect(() => {
+      if (!channelSearchQuery) {
+          setDiscoveredChannels([]);
+          return;
+      }
+      const delayDebounceFn = setTimeout(async () => {
+          setIsSearchingChannels(true);
+          try {
+              const { data } = await axios.get(`${searchChannelsRoute}?query=${channelSearchQuery}`, {
+                  headers: { "x-auth-token": currentUser.token }
+              });
+              if (data.status) setDiscoveredChannels(data.channels);
+          } catch (error) { console.error(error); } 
+          finally { setIsSearchingChannels(false); }
+      }, 500);
+      return () => clearTimeout(delayDebounceFn);
+  }, [channelSearchQuery, currentUser]);
 
   const togglePin = useCallback((e, id) => {
     e.stopPropagation(); 
@@ -201,6 +261,62 @@ export default function Contacts({
           setSearchTerm(""); 
       } else {
           toast.error("Chat not found. It may have been deleted.");
+      }
+  };
+
+  const handleStoryUpload = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      setIsUploadingStory(true);
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = async () => {
+          try {
+              const { data } = await axios.post(addStoryRoute, {
+                  mediaUrl: reader.result,
+                  mediaType: file.type.startsWith("video") ? "video" : "image"
+              }, { headers: { "x-auth-token": currentUser.token } });
+
+              if (data.status) {
+                  toast.success("Status updated!");
+                  const storyRes = await axios.get(getStoryFeedRoute, { headers: { "x-auth-token": currentUser.token } });
+                  setStoryFeed(storyRes.data.feed);
+              }
+          } catch (err) { 
+              toast.error("Failed to upload status."); 
+          } finally { 
+              setIsUploadingStory(false); 
+          }
+      };
+  };
+
+  const openStoryViewer = async (userFeedObj) => {
+      setViewingStoryUser(userFeedObj);
+      setCurrentStoryIndex(0);
+
+      const firstStory = userFeedObj.stories[0];
+      if (firstStory.user._id !== currentUser._id) {
+          try {
+              await axios.post(`${viewStoryRoute}/${firstStory._id}`, {}, { headers: { "x-auth-token": currentUser.token } });
+          } catch (error) { console.error("Failed to mark story as viewed"); }
+      }
+  };
+
+  const handleNextStory = async () => {
+      if (!viewingStoryUser) return;
+      if (currentStoryIndex < viewingStoryUser.stories.length - 1) {
+          const nextIdx = currentStoryIndex + 1;
+          setCurrentStoryIndex(nextIdx);
+          
+          const nextStory = viewingStoryUser.stories[nextIdx];
+          if (nextStory.user._id !== currentUser._id) {
+              try {
+                  await axios.post(`${viewStoryRoute}/${nextStory._id}`, {}, { headers: { "x-auth-token": currentUser.token } });
+              } catch (error) { console.error("Failed to mark story as viewed"); }
+          }
+      } else {
+          setViewingStoryUser(null); 
       }
   };
 
@@ -287,6 +403,22 @@ export default function Contacts({
     }
   };
 
+  // --- MERGE UPDATE: HANDLE JOIN CHANNEL ---
+  const handleJoinChannel = async (channelId) => {
+      try {
+          const { data } = await axios.post(joinChannelRoute, { channelId }, {
+              headers: { "x-auth-token": currentUser.token }
+          });
+          if (data.status) {
+              toast.success("Joined channel successfully!");
+              setShowDiscoverModal(false);
+              setGroups(prev => [...prev, data.channel]);
+          }
+      } catch (error) {
+          toast.error(error.response?.data?.msg || "Failed to join channel.");
+      }
+  };
+
   const handleUpdateProfile = async () => {
       try {
           const interestsArray = profileData.interests 
@@ -324,8 +456,6 @@ export default function Contacts({
       return `https://api.dicebear.com/9.x/avataaars/svg?seed=${seed}&top=${tops}&backgroundColor=${backgroundColors}`;
   };
 
-  // --- UNREAD COUNT LOGIC FIX ---
-  // Calculates the number of INDIVIDUAL CHATS that have unread messages.
   const unreadPersonalChatsCount = contacts.filter(c => c.unreadCount > 0).length;
   const unreadGroupsCount = groups.filter(g => g.unreadCount > 0).length;
   const totalUnreadChatsCount = unreadPersonalChatsCount + unreadGroupsCount;
@@ -337,27 +467,43 @@ export default function Contacts({
           <div className="brand glass-shine-effect">
             <h3>Snappy</h3>
           </div>
+
+          <StoryTray className="story-tray">
+              <div className="story-item my-status" onClick={() => fileInputRef.current.click()}>
+                  <div className="story-ring empty">
+                      <img src={getAvatarUrl(currentUser)} alt="my-status" />
+                      <div className="add-icon">{isUploadingStory ? <FaSpinner className="fa-spin" /> : <FaPlus />}</div>
+                  </div>
+                  <p>My Status</p>
+                  <input type="file" hidden ref={fileInputRef} accept="image/*,video/*" onChange={handleStoryUpload} />
+              </div>
+              
+              {storyFeed.map((feedItem, index) => {
+                  const hasUnread = feedItem.stories.some(s => !s.viewers.some(v => v.userId === currentUser._id));
+                  return (
+                      <div key={index} className="story-item" onClick={() => openStoryViewer(feedItem)}>
+                          <div className={`story-ring ${hasUnread ? 'unread' : 'read'}`}>
+                              <img src={getAvatarUrl(feedItem.user)} alt="status" />
+                          </div>
+                          <p>{feedItem.user.username}</p>
+                      </div>
+                  );
+              })}
+          </StoryTray>
           
           <div className="folders-bar">
-            {/* All Chats Badge */}
             <FolderBtn className={activeFolder === "all" ? "active" : ""} onClick={() => setActiveFolder("all")} title="All Conversations">
                 <MdOutlineAllInclusive />
                 {totalUnreadChatsCount > 0 && <span className="badge theme-badge">{totalUnreadChatsCount}</span>}
             </FolderBtn>
-            
-            {/* Personal Chats Badge */}
             <FolderBtn className={activeFolder === "personal" ? "active" : ""} onClick={() => setActiveFolder("personal")} title="Personal">
                 <BsChatDotsFill />
                 {unreadPersonalChatsCount > 0 && <span className="badge theme-badge">{unreadPersonalChatsCount}</span>}
             </FolderBtn>
-            
-            {/* Groups Chats Badge */}
             <FolderBtn className={activeFolder === "groups" ? "active" : ""} onClick={() => setActiveFolder("groups")} title="Groups">
                 <BsPeopleFill />
                 {unreadGroupsCount > 0 && <span className="badge theme-badge">{unreadGroupsCount}</span>}
             </FolderBtn>
-            
-            {/* Unread Folder Badge */}
             <FolderBtn className={activeFolder === "unread" ? "active" : ""} onClick={() => setActiveFolder("unread")} title="Unread">
                 <FaRegEnvelope />
                 {totalUnreadChatsCount > 0 && <span className="badge danger-badge">{totalUnreadChatsCount}</span>}
@@ -385,8 +531,12 @@ export default function Contacts({
                 ))
             ) : (
               <>
+                {/* --- MERGE UPDATE: ADDED DISCOVER BUTTON --- */}
                 {activeFolder === "groups" && !searchTerm && (
-                    <div className="create-group-btn" onClick={() => setShowGroupModal(true)}><FaPlus /> Create New Group</div>
+                    <div style={{display:'flex', gap:'10px', width: '92%', marginBottom: '10px'}}>
+                        <div className="create-group-btn" style={{flex: 1, width: 'auto'}} onClick={() => setShowGroupModal(true)}><FaPlus /> Create</div>
+                        <div className="create-group-btn" style={{flex: 1, width: 'auto', background: 'linear-gradient(90deg, #34B7F1, #00ff88)'}} onClick={() => setShowDiscoverModal(true)}><FaGlobe /> Discover</div>
+                    </div>
                 )}
                 
                 {searchTerm.length >= 3 && <div className="search-section-title">Chats & Groups</div>}
@@ -438,8 +588,6 @@ export default function Contacts({
                                 
                                 <div className="contact-meta">
                                   {isOnline && <div className="online-indicator" />}
-                                  
-                                  {/* Also display unread badge on the individual chat item if applicable */}
                                   {item.unreadCount > 0 && <span style={{backgroundColor: '#00ff88', color: '#000', fontSize: '0.65rem', padding: '2px 6px', borderRadius: '10px', fontWeight: 'bold'}}>{item.unreadCount}</span>}
                                   
                                   <button className={`pin-btn ${isPinned ? "pinned" : ""}`} onClick={(e) => togglePin(e, item._id)}>
@@ -461,7 +609,6 @@ export default function Contacts({
                         ) : (
                             globalMessages.map(msg => {
                                 const msgText = msg.message?.text || msg.message;
-                                
                                 const isEncryptedBlob = typeof msgText === 'string' && msgText.length > 50 && !msgText.includes(" ");
                                 if (isEncryptedBlob) return null;
 
@@ -497,7 +644,6 @@ export default function Contacts({
              </div>
           </div>
 
-          {/* Group Creation Modal */}
           {showGroupModal && (
               <Modal>
                   <div className="modal-content">
@@ -517,7 +663,52 @@ export default function Contacts({
               </Modal>
           )}
 
-          {/* Profile & Settings Modal */}
+          {/* --- MERGE UPDATE: NEW DISCOVER CHANNELS MODAL --- */}
+          {showDiscoverModal && (
+            <Modal>
+                <div className="modal-content profile-modal">
+                    <h3>Discover Channels</h3>
+                    <div className="input-group">
+                        <input 
+                            type="text" 
+                            placeholder="Search for public channels..." 
+                            value={channelSearchQuery} 
+                            onChange={(e) => setChannelSearchQuery(e.target.value)} 
+                            autoFocus
+                        />
+                    </div>
+                    
+                    <div className="member-select" style={{ minHeight: '200px' }}>
+                        {isSearchingChannels ? (
+                            <div style={{textAlign: 'center', marginTop: '20px'}}><FaSpinner className="fa-spin" color="#4e0eff"/></div>
+                        ) : discoveredChannels.length > 0 ? (
+                            discoveredChannels.map(channel => (
+                                <div key={channel._id} style={{
+                                    display:'flex', justifyContent:'space-between', alignItems:'center', 
+                                    background:'rgba(255,255,255,0.05)', padding:'10px', borderRadius:'10px', marginBottom:'10px'
+                                }}>
+                                    <div style={{flex: 1}}>
+                                        <h4 style={{margin:0, color:'#00ff88', fontSize:'1rem'}}>{channel.name}</h4>
+                                        <p style={{margin:'4px 0 0 0', fontSize:'0.75rem', color:'#aaa'}}>{channel.members?.length} subscribers</p>
+                                    </div>
+                                    <button onClick={() => handleJoinChannel(channel._id)} style={{
+                                        background:'#4e0eff', color:'white', border:'none', padding:'6px 12px', 
+                                        borderRadius:'20px', cursor:'pointer', fontWeight:'bold'
+                                    }}>Join</button>
+                                </div>
+                            ))
+                        ) : (
+                            channelSearchQuery.length > 0 && <p style={{textAlign:'center', color:'#888'}}>No channels found.</p>
+                        )}
+                    </div>
+                    
+                    <div className="modal-actions">
+                        <button className="cancel" style={{width: '100%'}} onClick={() => {setShowDiscoverModal(false); setChannelSearchQuery("");}}>Close</button>
+                    </div>
+                </div>
+            </Modal>
+          )}
+
           {showProfileModal && (
               <Modal>
                   <div className="modal-content profile-modal">
@@ -634,6 +825,46 @@ export default function Contacts({
               </Modal>
           )}
 
+          {viewingStoryUser && (
+              <StoryViewerOverlay onClick={(e) => { if(e.target === e.currentTarget) setViewingStoryUser(null); }}>
+                  <div className="viewer-content">
+                      <div className="progress-bars">
+                          {viewingStoryUser.stories.map((s, i) => (
+                              <div key={i} className="bar-bg">
+                                  <div className="bar-fill" style={{ 
+                                      width: i < currentStoryIndex ? '100%' : i === currentStoryIndex ? '100%' : '0%',
+                                      transition: i === currentStoryIndex ? 'width 5s linear' : 'none'
+                                  }} />
+                              </div>
+                          ))}
+                      </div>
+                      
+                      <div className="viewer-header">
+                          <img src={getAvatarUrl(viewingStoryUser.user)} alt="avatar" />
+                          <div>
+                              <h4>{viewingStoryUser.user.username}</h4>
+                              <p>{formatLastSeen(viewingStoryUser.stories[currentStoryIndex].createdAt)}</p>
+                          </div>
+                          <button onClick={() => setViewingStoryUser(null)}><FaTimes /></button>
+                      </div>
+
+                      <div className="media-container" onClick={handleNextStory}>
+                          {viewingStoryUser.stories[currentStoryIndex].mediaType === "video" ? (
+                              <video src={viewingStoryUser.stories[currentStoryIndex].mediaUrl} autoPlay muted />
+                          ) : (
+                              <img src={viewingStoryUser.stories[currentStoryIndex].mediaUrl} alt="story" />
+                          )}
+                      </div>
+
+                      {viewingStoryUser.user._id === currentUser._id && (
+                          <div className="viewers-count">
+                              <FaEye /> {viewingStoryUser.stories[currentStoryIndex].viewers.length} Views
+                          </div>
+                      )}
+                  </div>
+              </StoryViewerOverlay>
+          )}
+
           <ToastContainer position="bottom-left" theme="dark" />
         </Container>
       )}
@@ -641,7 +872,7 @@ export default function Contacts({
   );
 }
 
-// --- STYLES & ANIMATIONS (Unchanged) ---
+// --- STYLES & ANIMATIONS ---
 const shimmer = keyframes`
   0% { background-position: -468px 0; }
   100% { background-position: 468px 0; }
@@ -655,7 +886,7 @@ const glassShine = keyframes`
 
 const Container = styled.div`
   display: grid; 
-  grid-template-rows: 10% 7.5% 8.5% 59% 15%; 
+  grid-template-rows: 8% 13% 7.5% 8% 48.5% 15%; 
   height: 100%; 
   width: 100%; 
   overflow: hidden; 
@@ -702,7 +933,7 @@ const Container = styled.div`
     
     .empty-state { color: #666; font-style: italic; margin-top: 2rem; font-size: 0.9rem; }
     
-    .create-group-btn { width: 92%; background: linear-gradient(90deg, #4e0eff, #9a86f3); padding: 0.9rem; text-align: center; border-radius: 0.8rem; cursor: pointer; color: white; display: flex; align-items: center; justify-content: center; gap: 0.6rem; font-weight: bold; font-size: 0.9rem; flex-shrink: 0; box-shadow: 0 4px 15px rgba(0,0,0,0.3); transition: 0.3s; &:hover { transform: translateY(-3px); box-shadow: 0 8px 20px rgba(78, 14, 255, 0.3); } }
+    .create-group-btn { width: 92%; background: linear-gradient(90deg, #4e0eff, #9a86f3); padding: 0.9rem; text-align: center; border-radius: 0.8rem; cursor: pointer; color: white; display: flex; align-items: center; justify-content: center; gap: 0.6rem; font-weight: bold; font-size: 0.9rem; flex-shrink: 0; box-shadow: 0 4px 15px rgba(0,0,0,0.3); transition: 0.3s; &:hover { transform: translateY(-3px); box-shadow: 0 8px 20px rgba(78, 14, 255, 0.3); filter: brightness(1.1); } }
     
     .skeleton-box { background: rgba(255,255,255,0.02) !important; border: none !important; cursor: default; flex-shrink: 0; &:hover { transform: none; } }
     .skeleton-anim { background: #1a1a2e; background-image: linear-gradient(to right, #1a1a2e 0%, #2a2a3e 20%, #1a1a2e 40%, #1a1a2e 100%); background-repeat: no-repeat; background-size: 800px 100%; animation: ${shimmer} 1.5s infinite linear forwards; }
@@ -837,5 +1068,66 @@ const Modal = styled.div`
         .input-group { display: flex; flex-direction: column; flex: 1; label { color: #888; font-size: 0.75rem; margin-bottom: 0.4rem; text-transform: uppercase; letter-spacing: 0.05rem; } }
         .member-select { max-height: 180px; overflow-y: auto; margin-bottom: 1.5rem; h4 { color: #888; margin-bottom: 0.6rem; font-size: 0.8rem; text-transform: uppercase; } .select-item { padding: 0.75rem; color: #ddd; cursor: pointer; border-radius: 0.6rem; margin: 4px 0; transition: 0.2s; &:hover { background: rgba(255,255,255,0.06); } &.selected { background: #4e0eff; color: white; font-weight: 600; } } }
         .modal-actions { display: flex; gap: 1rem; justify-content: center; margin-top: 1rem; button { padding: 0.8rem 2.4rem; border: none; border-radius: 0.8rem; cursor: pointer; background: #4e0eff; color: white; font-weight: bold; transition: 0.3s; &:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(78, 14, 255, 0.4); } } .cancel { background: #ff4e4e; &:hover { box-shadow: 0 5px 15px rgba(255, 78, 78, 0.4); } } }
+    }
+`;
+
+const StoryTray = styled.div`
+    display: flex; gap: 12px; padding: 0.8rem; overflow-x: auto; border-bottom: 1px solid rgba(255,255,255,0.05);
+    &::-webkit-scrollbar { display: none; }
+    
+    .story-item {
+        display: flex; flex-direction: column; align-items: center; gap: 5px; cursor: pointer; min-width: 60px;
+        p { color: #ccc; font-size: 0.65rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60px; text-align: center; }
+        
+        .story-ring {
+            width: 52px; height: 52px; border-radius: 50%; padding: 2px; position: relative;
+            background: linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%);
+            
+            img { width: 100%; height: 100%; border-radius: 50%; border: 2px solid #131324; object-fit: cover; }
+            
+            &.read { background: rgba(255, 255, 255, 0.2); }
+            &.empty { background: none; border: 1px dashed rgba(255, 255, 255, 0.3); padding: 0; }
+            
+            .add-icon {
+                position: absolute; bottom: 0; right: -2px; background: #4e0eff; color: white;
+                border-radius: 50%; width: 18px; height: 18px; display: flex; align-items: center; justify-content: center;
+                font-size: 0.6rem; border: 2px solid #131324;
+            }
+        }
+    }
+`;
+
+const StoryViewerOverlay = styled.div`
+    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.95);
+    z-index: 999; display: flex; justify-content: center; align-items: center;
+    
+    .viewer-content {
+        width: 100%; max-width: 450px; height: 90vh; background: #000; border-radius: 12px;
+        position: relative; overflow: hidden; display: flex; flex-direction: column;
+        
+        .progress-bars {
+            display: flex; gap: 5px; padding: 10px; position: absolute; top: 0; left: 0; width: 100%; z-index: 10;
+            .bar-bg { flex: 1; height: 3px; background: rgba(255,255,255,0.3); border-radius: 3px; overflow: hidden; }
+            .bar-fill { height: 100%; background: #fff; width: 0%; }
+        }
+
+        .viewer-header {
+            position: absolute; top: 20px; left: 0; width: 100%; padding: 10px 15px; z-index: 10;
+            display: flex; align-items: center; gap: 10px; background: linear-gradient(to bottom, rgba(0,0,0,0.8), transparent);
+            img { width: 35px; height: 35px; border-radius: 50%; border: 1px solid #fff; }
+            div { flex: 1; h4 { color: #fff; font-size: 0.9rem; } p { color: #ccc; font-size: 0.7rem; } }
+            button { background: none; border: none; color: #fff; font-size: 1.2rem; cursor: pointer; }
+        }
+
+        .media-container {
+            flex: 1; display: flex; align-items: center; justify-content: center; cursor: pointer;
+            img, video { max-width: 100%; max-height: 100%; object-fit: contain; }
+        }
+        
+        .viewers-count {
+            position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+            background: rgba(0,0,0,0.6); padding: 5px 15px; border-radius: 20px;
+            color: white; font-size: 0.8rem; display: flex; align-items: center; gap: 8px;
+        }
     }
 `;

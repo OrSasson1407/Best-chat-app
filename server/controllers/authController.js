@@ -25,7 +25,6 @@ module.exports.register = async (req, res, next) => {
     const { error } = registerSchema.validate(req.body);
     if (error) return res.status(400).json({ msg: error.details[0].message, status: false });
 
-    // --- FIX: Destructure publicKey from req.body ---
     const { username, email, password, gender, avatarImage, publicKey } = req.body;
 
     const usernameCheck = await User.findOne({ username });
@@ -39,7 +38,6 @@ module.exports.register = async (req, res, next) => {
     const tops = gender === 'female' ? femaleTops : maleTops;
     const finalAvatar = avatarImage || `https://api.dicebear.com/9.x/avataaars/svg?seed=${username}&top=${tops}&backgroundColor=${backgroundColors}`;
 
-    // --- FIX: Save publicKey in the database ---
     const user = await User.create({
       email,
       username,
@@ -52,7 +50,6 @@ module.exports.register = async (req, res, next) => {
 
     const { accessToken, refreshToken } = generateTokens(user._id);
 
-    // --- PRODUCTION CORS FIX ---
     res.cookie("refreshToken", refreshToken, {
       httpOnly: true,
       secure: true, 
@@ -83,7 +80,6 @@ module.exports.login = async (req, res, next) => {
 
     const { accessToken, refreshToken } = generateTokens(user._id);
 
-    // --- PRODUCTION CORS FIX ---
     res.cookie("refreshToken", refreshToken, {
       httpOnly: true,
       secure: true, 
@@ -102,7 +98,6 @@ module.exports.login = async (req, res, next) => {
 
 module.exports.logout = (req, res, next) => {
   try {
-    // --- PRODUCTION CORS FIX ---
     res.clearCookie("refreshToken", {
       httpOnly: true,
       secure: true, 
@@ -129,7 +124,6 @@ module.exports.refreshToken = async (req, res) => {
 module.exports.getAllUsers = async (req, res, next) => {
   try {
     const currentUserId = req.params.id;
-
     const searchQuery = req.query.search || "";
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 50; 
@@ -164,7 +158,7 @@ module.exports.getAllUsers = async (req, res, next) => {
     if (cacheMisses.length > 0) {
       const missedUsers = await User.find({ _id: { $in: cacheMisses } }).select([
         "email", "username", "avatarImage", "gender", "_id", 
-        "statusMessage", "statusIcon", "bio", "interests", "privacySettings" // Added privacySettings
+        "statusMessage", "statusIcon", "bio", "interests", "privacySettings" 
       ]);
 
       const msetArgs = [];
@@ -181,9 +175,8 @@ module.exports.getAllUsers = async (req, res, next) => {
       }
     }
 
-    // --- MERGE UPDATE: Apply Privacy Settings before sending to frontend ---
+    // Apply Privacy Settings before sending to frontend
     const finalUsers = finalUsersRaw.map(u => {
-        // If they set profilePhoto to nobody, scrub it.
         if (u.privacySettings?.profilePhoto === "nobody") {
             u.avatarImage = ""; 
         }
@@ -201,7 +194,6 @@ module.exports.updateProfile = async (req, res, next) => {
     const userId = req.params.id;
     const { statusMessage, statusIcon, bio, interests, privacySettings } = req.body;
     
-    // Merge new privacy settings with existing ones if provided
     let updatePayload = { statusMessage, statusIcon, bio, interests };
     
     if (privacySettings) {
@@ -218,12 +210,12 @@ module.exports.updateProfile = async (req, res, next) => {
       { new: true }
     ).select([
         "email", "username", "avatarImage", "gender", "_id", 
-        "statusMessage", "statusIcon", "bio", "interests", "privacySettings"
+        "statusMessage", "statusIcon", "bio", "interests", "privacySettings", "chatCustomizations"
     ]);
 
     const userResponse = user.toObject();
     
-    // TARGETED INVALIDATION: Update only this user's cache immediately
+    // TARGETED INVALIDATION
     await cacheClient.setEx(`user_profile:${userId}`, 3600, JSON.stringify(userResponse));
 
     return res.json({ status: true, user: userResponse });
@@ -273,6 +265,48 @@ module.exports.getPublicKey = async (req, res, next) => {
   try {
     const user = await User.findById(req.params.id).select("publicKey");
     return res.json({ status: true, publicKey: user.publicKey });
+  } catch (ex) {
+    next(ex);
+  }
+};
+
+// --- FETCH USER BY ID FOR QR SCANNER ---
+module.exports.getUserById = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.params.id).select([
+      "email", "username", "avatarImage", "_id", "statusIcon", "statusMessage", "bio", "lastSeen"
+    ]);
+    if (!user) return res.status(404).json({ status: false, msg: "User not found." });
+    
+    return res.status(200).json({ status: true, user });
+  } catch (ex) {
+    next(ex);
+  }
+};
+
+// --- MERGE UPDATE: CHAT CUSTOMIZATION (WALLPAPERS & THEMES) ---
+module.exports.updateChatCustomization = async (req, res, next) => {
+  try {
+    const { userId, chatId, wallpaper, themeColor } = req.body;
+    const user = await User.findById(userId);
+
+    if (!user) return res.status(404).json({ msg: "User not found", status: false });
+
+    const index = user.chatCustomizations.findIndex(c => c.chatId.toString() === chatId);
+    if (index !== -1) {
+      if (wallpaper !== undefined) user.chatCustomizations[index].wallpaper = wallpaper;
+      if (themeColor !== undefined) user.chatCustomizations[index].themeColor = themeColor;
+    } else {
+      user.chatCustomizations.push({ chatId, wallpaper, themeColor });
+    }
+
+    await user.save();
+    
+    // Update Redis cache so the frontend gets the latest wallpaper immediately on refresh
+    const userResponse = user.toObject();
+    await cacheClient.setEx(`user_profile:${userId}`, 3600, JSON.stringify(userResponse));
+
+    return res.json({ status: true, customizations: user.chatCustomizations });
   } catch (ex) {
     next(ex);
   }

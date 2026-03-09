@@ -94,7 +94,16 @@ const userSchema = new mongoose.Schema({
   publicKey: { 
     type: String, 
     default: "" 
-  } 
+  },
+
+  // --- MERGE UPDATE: CHAT CUSTOMIZATIONS ---
+  chatCustomizations: [
+    {
+      chatId: { type: mongoose.Schema.Types.ObjectId }, // Can be a User ID or Group ID
+      wallpaper: { type: String, default: "" }, // URL or hex code
+      themeColor: { type: String, default: "" } // Custom accent color
+    }
+  ]
 });
 
 module.exports = mongoose.model("User", userSchema);

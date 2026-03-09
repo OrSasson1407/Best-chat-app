@@ -1,42 +1,52 @@
 import React, { useState, useRef, useEffect } from "react";
 import styled, { keyframes, css } from "styled-components";
 import EmojiPicker, { Theme } from "emoji-picker-react";
-import axios from "axios"; // <-- NEW: Imported axios for direct Cloudinary uploads
-import imageCompression from "browser-image-compression"; // <-- NEW: Imported image compression
+import axios from "axios"; 
+import imageCompression from "browser-image-compression"; 
 import { IoMdSend, IoMdClose, IoMdCheckmark } from "react-icons/io";
 import { 
     BsEmojiSmileFill, BsPaperclip, BsMicFill, 
     BsStopCircleFill, BsCodeSlash, BsClockHistory 
 } from "react-icons/bs";
-import { FaBomb, FaFire, FaCalendarAlt, FaLink, FaSpinner } from "react-icons/fa"; // <-- NEW: Added FaSpinner
+import { FaBomb, FaFire, FaCalendarAlt, FaLink, FaSpinner, FaLock } from "react-icons/fa"; // <-- NEW: Added FaLock
+
+// --- MERGE UPDATE: IMPORT ZUSTAND STORE ---
+import useChatStore from "../store/chatStore";
 
 // --- CLOUDINARY CONFIGURATION ---
 const CLOUDINARY_CLOUD_NAME = "dz6weueae"; 
 const CLOUDINARY_UPLOAD_PRESET = "chat_app_preset"; // MUST be an "Unsigned" preset in Cloudinary settings
 
 export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, setReplyingTo, editingMessage, setEditingMessage, handleEditMsgSubmit }) {
+  
+  // --- MERGE UPDATE: GET CURRENT CHAT FOR PERMISSIONS ---
+  const { currentChat, currentUser } = useChatStore();
+
   const [msg, setMsg] = useState("");
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isCodeMode, setIsCodeMode] = useState(false);
   const [mediaPreview, setMediaPreview] = useState(null); 
   
-  // --- NEW: UPLOADING STATE ---
   const [isUploading, setIsUploading] = useState(false);
   
-  // --- STATE: PRODUCTIVITY & PRIVACY ---
   const [showTimerMenu, setShowTimerMenu] = useState(false);
   const [timerDuration, setTimerDuration] = useState(null); 
   const [showScheduleMenu, setShowScheduleMenu] = useState(false);
   const [scheduleDate, setScheduleDate] = useState("");
   const [isViewOnceMedia, setIsViewOnceMedia] = useState(false);
   
-  // --- NEW: LINK DETECTION STATE ---
   const [detectedUrl, setDetectedUrl] = useState(null);
   
   const fileInputRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
+
+  // --- MERGE UPDATE: CHANNEL PERMISSIONS LOGIC ---
+  const isChannel = currentChat?.isChannel || false;
+  const isAdmin = currentChat?.admins?.includes(currentUser?._id);
+  const isMod = currentChat?.moderators?.includes(currentUser?._id);
+  const canPost = !isChannel || isAdmin || isMod;
 
   useEffect(() => {
       if (editingMessage) {
@@ -45,7 +55,6 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
       }
   }, [editingMessage, setReplyingTo]);
 
-  // --- NEW: SMART LINK DETECTION ---
   useEffect(() => {
       const urlRegex = /(https?:\/\/[^\s]+)/g;
       const match = msg.match(urlRegex);
@@ -63,18 +72,16 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
 
   const sendChat = (event) => {
     event?.preventDefault();
-    if (msg.length > 0) {
+    if (msg.length > 0 && canPost) {
       if (editingMessage) {
           handleEditMsgSubmit(editingMessage.id, msg);
           setEditingMessage(null);
       } else {
-          // Change type to 'link' if a URL is detected
           handleSendMsg(msg, isCodeMode ? "code" : (detectedUrl ? "link" : "text"), replyingTo?.id, {
               timer: timerDuration,
               scheduledAt: scheduleDate || null
           }); 
       }
-      // Reset inputs
       setMsg("");
       setIsCodeMode(false);
       setReplyingTo(null);
@@ -91,7 +98,6 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
     handleTyping(e.target.value.length > 0);
   };
 
-  // --- MERGE UPDATE: FORMAT FILE SIZE HELPER ---
   const formatFileSize = (bytes) => {
       if (bytes === 0) return '0 Bytes';
       const k = 1024;
@@ -100,7 +106,6 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
       return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
-  // --- MERGE UPDATE: STORE ACTUAL FILE OBJECT & METADATA FOR CLOUD UPLOAD ---
   const processFile = (file) => {
     const reader = new FileReader();
     reader.onloadend = () => {
@@ -108,7 +113,6 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
       if (file.type.startsWith("image/")) type = "image";
       else if (file.type.startsWith("video/")) type = "video";
 
-      // Store BOTH the local preview string (reader.result) AND the raw file object + metadata
       setMediaPreview({ 
           src: reader.result, 
           type, 
@@ -121,9 +125,8 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
     reader.readAsDataURL(file);
   };
 
-  // --- NEW: CLIPBOARD PASTE SUPPORT ---
   const handlePaste = (e) => {
-      if (e.clipboardData.files && e.clipboardData.files.length > 0) {
+      if (e.clipboardData.files && e.clipboardData.files.length > 0 && canPost) {
           e.preventDefault();
           const file = e.clipboardData.files[0];
           processFile(file);
@@ -132,13 +135,12 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
 
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
-    if (file) {
+    if (file && canPost) {
       processFile(file);
     }
     e.target.value = null; 
   };
 
-  // --- NEW: UPLOAD TO CLOUDINARY LOGIC ---
   const uploadToCloudinary = async (file, resourceType = "auto") => {
       const formData = new FormData();
       formData.append("file", file);
@@ -156,13 +158,11 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
       }
   };
 
-  // --- MERGE UPDATE: UPLOAD MEDIA & FILE METADATA BEFORE SENDING ---
   const confirmSendMedia = async () => {
-      if (!mediaPreview || !mediaPreview.rawFile) return;
+      if (!mediaPreview || !mediaPreview.rawFile || !canPost) return;
 
       setIsUploading(true);
       
-      // Determine correct Cloudinary resource type
       let resType = "auto";
       let fileToUpload = mediaPreview.rawFile;
 
@@ -170,22 +170,18 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
           resType = "video";
       } else if (mediaPreview.type === "image") {
           resType = "image";
-          
-          // --- NEW: Execute compression logic before upload ---
           try {
               const options = {
-                  maxSizeMB: 1,           // Force max size to 1MB
-                  maxWidthOrHeight: 1920, // Max dimension
-                  useWebWorker: true      // Offload work from main thread
+                  maxSizeMB: 1,          
+                  maxWidthOrHeight: 1920, 
+                  useWebWorker: true      
               };
-              // Compress the file!
               fileToUpload = await imageCompression(mediaPreview.rawFile, options);
-              console.log(`Compressed from ${formatFileSize(mediaPreview.rawFile.size)} to ${formatFileSize(fileToUpload.size)}`);
           } catch (error) {
               console.error("Image compression error, falling back to original:", error);
           }
       } else {
-          resType = "raw"; // For documents like PDF, TXT
+          resType = "raw"; 
       }
 
       const cloudUrl = await uploadToCloudinary(fileToUpload, resType);
@@ -193,11 +189,10 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
       setIsUploading(false);
 
       if (cloudUrl) {
-          // --- MERGE UPDATE: Pass the file metadata directly to your handleSendMsg prop ---
           handleSendMsg(cloudUrl, mediaPreview.type, replyingTo?.id, {
               isViewOnce: isViewOnceMedia,
               fileName: mediaPreview.fileName,
-              fileSize: formatFileSize(fileToUpload.size) // Use updated size if compressed
+              fileSize: formatFileSize(fileToUpload.size) 
           });
           
           setMediaPreview(null);
@@ -211,8 +206,8 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
       }
   };
 
-  // --- MERGE UPDATE: UPLOAD AUDIO BEFORE SENDING ---
   const startRecording = async () => {
+    if (!canPost) return;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mediaRecorder = new MediaRecorder(stream);
@@ -228,7 +223,6 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
         const audioFile = new File([audioBlob], `voice_record_${Date.now()}.mp3`, { type: "audio/mp3" });
         
         setIsUploading(true);
-        // Cloudinary treats audio uploads as "video" resource type natively
         const cloudUrl = await uploadToCloudinary(audioFile, "video"); 
         setIsUploading(false);
 
@@ -260,6 +254,18 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
       setShowTimerMenu(false);
   };
 
+  // --- MERGE UPDATE: RENDER READ-ONLY UI FOR CHANNELS ---
+  if (!canPost) {
+      return (
+          <Wrapper>
+              <ReadOnlyBanner>
+                  <FaLock className="lock-icon" />
+                  <span>Only admins and moderators can send messages here.</span>
+              </ReadOnlyBanner>
+          </Wrapper>
+      );
+  }
+
   return (
     <Wrapper>
       <div className="status-badges">
@@ -275,7 +281,6 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
           )}
       </div>
 
-      {/* --- NEW: LINK DETECTION BANNER --- */}
       {detectedUrl && !isRecording && !isCodeMode && (
          <div className="reply-banner link-banner">
              <FaLink style={{marginRight: '8px', color: '#34B7F1'}}/>
@@ -307,7 +312,6 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
                   
                   {mediaPreview.type === "image" && <img src={mediaPreview.src} alt="Preview" />}
                   {mediaPreview.type === "video" && <video src={mediaPreview.src} controls />}
-                  {/* --- MERGE UPDATE: SHOW FILE NAME IN PREVIEW --- */}
                   {mediaPreview.type === "file" && (
                     <div className="file-preview-icon">
                         📄 {mediaPreview.fileName} <br/> ({mediaPreview.fileSize})
@@ -386,7 +390,6 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
         </div>
 
         <form className="input-container" onSubmit={(event) => sendChat(event)}>
-          {/* --- NEW: AUDIO WAVEFORM UI --- */}
           {isRecording ? (
             <div className="recording-ui">
                <span className="rec-text">Recording Audio... (Click Stop)</span>
@@ -438,10 +441,29 @@ const pulse = keyframes`
   100% { transform: scale(1); }
 `;
 
-// --- NEW: WAVE ANIMATION ---
 const wave = keyframes`
   0%, 100% { height: 8px; }
   50% { height: 24px; }
+`;
+
+// --- MERGE UPDATE: NEW STYLED COMPONENT FOR READ ONLY MODE ---
+const ReadOnlyBanner = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.4);
+  color: #888;
+  padding: 1.2rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  font-style: italic;
+  font-size: 0.95rem;
+  min-height: 10%;
+  
+  .lock-icon {
+    margin-right: 10px;
+    font-size: 1.1rem;
+    color: #4e0eff;
+  }
 `;
 
 const PreviewOverlay = styled.div`
@@ -512,7 +534,6 @@ const Container = styled.div`
   display: grid; grid-template-columns: 25% 75%; align-items: center;
   background-color: rgba(255, 255, 255, 0.02); padding: 0 2rem; min-height: 10%; border-top: 1px solid rgba(255, 255, 255, 0.05);
   
-  /* --- NEW: RECORDING BACKGROUND PULSE --- */
   ${({ $isRecording }) => $isRecording && css`
      background: rgba(255, 78, 78, 0.05);
      box-shadow: inset 0 0 20px rgba(255, 78, 78, 0.1);
@@ -557,7 +578,6 @@ const Container = styled.div`
     border: 1px solid transparent;
     &:focus-within { background-color: rgba(255, 255, 255, 0.08); border-color: rgba(78, 14, 255, 0.3); box-shadow: 0 0 15px rgba(78, 14, 255, 0.1); }
     
-    /* --- NEW: WAVEFORM STYLES --- */
     .recording-ui {
         width: 100%; height: 60%; display: flex; align-items: center; justify-content: space-between; padding-left: 1.5rem; padding-right: 1rem;
         .rec-text { color: #ff4e4e; font-style: italic; font-weight: bold; animation: ${pulse} 1.5s infinite; }

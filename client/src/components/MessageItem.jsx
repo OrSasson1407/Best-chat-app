@@ -1,12 +1,19 @@
-import React, { useMemo } from "react";
-import { FaReply, FaSmile, FaTrash, FaPen, FaShare, FaStar, FaClock, FaCheckDouble, FaFire, FaFileDownload, FaPoll, FaRegClock } from "react-icons/fa";
+import React, { useMemo, useState } from "react";
+import { 
+    FaReply, FaSmile, FaTrash, FaPen, FaShare, FaStar, 
+    FaClock, FaCheckDouble, FaFire, FaFileDownload, FaPoll, 
+    FaRegClock, FaLanguage // <-- NEW: Added Translation Icon
+} from "react-icons/fa";
 import { getSmallAvatar, formatTime, isNewDay, formatDateBadge, isSameSender, isWithinTimeFrame } from "./chatHelpers";
 
-// IMPROVEMENT: Wrapped in React.memo to prevent unnecessary re-renders
+// --- MERGE UPDATE: IMPORT AXIOS AND ROUTES FOR AI TRANSLATION ---
+import axios from "axios";
+import { translateMessageRoute } from "../utils/APIRoutes";
+import { toast } from "react-toastify";
+
 const HighlightedText = React.memo(({ text, query }) => {
     if (!query) return <span>{text}</span>;
     
-    // Split text based on search query (case-insensitive)
     const parts = text.split(new RegExp(`(${query})`, "gi"));
     return (
         <span>
@@ -18,23 +25,22 @@ const HighlightedText = React.memo(({ text, query }) => {
     );
 });
 
-// IMPROVEMENT: Wrapped the main component in React.memo
 const MessageItem = React.memo(({
     message, prevMsg, nextMsg, currentChat, currentUser, searchQuery, highlightedMsgId,
     setLightboxImage, setReadReceiptsMsg, scrollToMessage, setReplyingTo,
     setEditingMessage, handleDeleteMsg, handleReaction, handleOpenViewOnce
 }) => {
-    const showDateSeparator = isNewDay(message.createdAt, prevMsg?.createdAt);
+    // --- MERGE UPDATE: AI TRANSLATION STATE ---
+    const [translatedText, setTranslatedText] = useState(null);
+    const [isTranslating, setIsTranslating] = useState(false);
 
+    const showDateSeparator = isNewDay(message.createdAt, prevMsg?.createdAt);
     const isGroupedWithPrev = prevMsg && isSameSender(message, prevMsg) &&
         isWithinTimeFrame(message, prevMsg) && !showDateSeparator;
-
     const isGroupedWithNext = nextMsg && isSameSender(message, nextMsg) &&
         isWithinTimeFrame(message, nextMsg) && !isNewDay(nextMsg.createdAt, message.createdAt);
-
     const isGroup = !!currentChat.admin;
 
-    // IMPROVEMENT: Memoize the grouped reactions to avoid recalculating on every render
     const groupedReactions = useMemo(() => {
         if (!message.reactions || message.reactions.length === 0) return [];
         const grouped = message.reactions.reduce((acc, r) => {
@@ -45,6 +51,38 @@ const MessageItem = React.memo(({
         }, {});
         return Object.entries(grouped);
     }, [message.reactions]);
+
+    // --- MERGE UPDATE: AI TRANSLATE FUNCTION ---
+    const handleTranslate = async () => {
+        if (translatedText) {
+            // Toggle back to original text
+            setTranslatedText(null);
+            return;
+        }
+
+        setIsTranslating(true);
+        try {
+            // Using 'English' as the default target, but in a real app, 
+            // this could be dynamic based on user profile settings
+            const { data } = await axios.post(translateMessageRoute, {
+                message: message.message,
+                targetLanguage: "English" 
+            }, {
+                headers: { "x-auth-token": currentUser.token }
+            });
+
+            if (data.status) {
+                setTranslatedText(data.translatedText);
+            } else {
+                toast.error("Failed to translate message");
+            }
+        } catch (error) {
+            console.error("Translation Error:", error);
+            toast.error("Translation failed. Ensure AI API key is set.");
+        } finally {
+            setIsTranslating(false);
+        }
+    };
 
     const renderStatusTicks = (msg) => {
         const handleClick = () => { if (isGroup) setReadReceiptsMsg(msg); };
@@ -78,7 +116,18 @@ const MessageItem = React.memo(({
         if (msg.isViewOnce && !msg.fromSelf && !msg.viewed) return <button className="view-once-btn" onClick={() => handleOpenViewOnce(msg.id)}><FaFire /> View Once Media</button>;
         if (msg.isViewOnce && (msg.viewed || msg.message === "💣 Media Expired")) return <p className="deleted-text">💣 Media Expired</p>;
 
-        if (msg.type === "text") return <p><HighlightedText text={msg.message} query={searchQuery} /></p>;
+        // --- MERGE UPDATE: RENDER TRANSLATED TEXT ---
+        if (msg.type === "text") {
+            return (
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <p>
+                        <HighlightedText text={translatedText || msg.message} query={searchQuery} />
+                    </p>
+                    {isTranslating && <span style={{ fontSize: '0.65rem', color: '#00ff88', fontStyle: 'italic', marginTop: '4px' }}>Translating via AI...</span>}
+                    {translatedText && <span style={{ fontSize: '0.65rem', color: '#34B7F1', fontStyle: 'italic', marginTop: '4px' }}>Translated from original</span>}
+                </div>
+            );
+        }
 
         if (msg.type === "link" && msg.linkMetadata) {
             return (
@@ -193,6 +242,14 @@ const MessageItem = React.memo(({
                         {!message.isDeleted && (
                             <div className="message-actions">
                                 <button onClick={() => setReplyingTo({ id: message.id, text: message.message, type: message.type, isSelfQuote: message.fromSelf })} title="Reply"><FaReply /></button>
+                                
+                                {/* --- MERGE UPDATE: AI TRANSLATE BUTTON --- */}
+                                {message.type === "text" && (
+                                    <button onClick={handleTranslate} title={translatedText ? "Show Original" : "Translate with AI"}>
+                                        <FaLanguage color={translatedText ? "#34B7F1" : "inherit"} />
+                                    </button>
+                                )}
+
                                 <button title="Forward"><FaShare /></button>
                                 <button title="Star"><FaStar /></button>
                                 <div className="reaction-trigger">
@@ -210,7 +267,6 @@ const MessageItem = React.memo(({
                             </div>
                         )}
 
-                        {/* IMPROVEMENT: Replaced the inline reduce with the memoized groupedReactions array */}
                         {groupedReactions.length > 0 && !message.isDeleted && (
                             <div className="reactions-display">
                                 {groupedReactions.map(([emoji, data]) => (

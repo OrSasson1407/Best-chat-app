@@ -2,16 +2,19 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import ChatInput from "./ChatInput";
 import axios from "axios";
 import { Virtuoso } from "react-virtuoso"; 
+import ColorThief from "color-thief-react"; 
 import { 
     host, sendMessageRoute, receiveMessageRoute, getGroupMessagesRoute, 
     addGroupMemberRoute, reactMessageRoute, deleteMessageRoute, 
-    deleteMessageForMeRoute, editMessageRoute, blockUserRoute, getChatMediaRoute 
+    deleteMessageForMeRoute, editMessageRoute, blockUserRoute, getChatMediaRoute,
+    updateChatCustomizationRoute,
+    getQuickRepliesRoute // --- MERGE UPDATE: Import the AI route ---
 } from "../utils/APIRoutes";
 import { encryptMessage, decryptMessage, encryptGroupMessage, decryptGroupMessage } from "../utils/crypto"; 
 import { v4 as uuidv4 } from "uuid";
 import { toast } from "react-toastify";
 import { 
-    FaThumbtack, FaSpinner, FaCloudUploadAlt, FaTimes, FaCheckDouble, FaArrowDown 
+    FaThumbtack, FaSpinner, FaCloudUploadAlt, FaTimes, FaCheckDouble, FaArrowDown, FaRobot 
 } from "react-icons/fa";
 
 import { Container, DropOverlay, ScrollButton, Lightbox } from "./ChatContainer.styles"; 
@@ -65,7 +68,44 @@ export default function ChatContainer({ socket, isTyping }) {
   const [showCallModal, setShowCallModal] = useState(false);
   const [incomingCallData, setIncomingCallData] = useState(null);
 
+  const [wallpaper, setWallpaper] = useState("");
+  const [customTheme, setCustomTheme] = useState("#4e0eff");
+
+  // --- MERGE UPDATE: AI QUICK REPLIES STATE ---
+  const [quickReplies, setQuickReplies] = useState([]);
+  const [isGeneratingReplies, setIsGeneratingReplies] = useState(false);
+
   const getAuthHeader = useCallback(() => ({ headers: { "x-auth-token": currentUser.token } }), [currentUser.token]);
+
+  // Fetch customizations
+  useEffect(() => {
+    if (currentUser && currentChat) {
+      const custom = currentUser.chatCustomizations?.find(c => c.chatId === currentChat._id);
+      if (custom) {
+        setWallpaper(custom.wallpaper || "");
+        setCustomTheme(custom.themeColor || "#4e0eff");
+      } else {
+        setWallpaper("");
+        setCustomTheme("#4e0eff");
+      }
+      // Reset quick replies when changing chats
+      setQuickReplies([]);
+    }
+  }, [currentChat, currentUser]);
+
+  const handleWallpaperChange = async (colorOrUrl) => {
+    setWallpaper(colorOrUrl);
+    try {
+      await axios.post(updateChatCustomizationRoute, {
+        userId: currentUser._id,
+        chatId: currentChat._id,
+        wallpaper: colorOrUrl,
+      }, getAuthHeader());
+      toast.success("Chat wallpaper updated!");
+    } catch (e) {
+      toast.error("Failed to update wallpaper");
+    }
+  };
 
   useEffect(() => {
       isScrolledUpRef.current = showScrollBtn;
@@ -135,6 +175,12 @@ export default function ChatContainer({ socket, isTyping }) {
 
             const pinned = fetchedMessages.find(m => m.isPinned);
             setPinnedMessage(pinned || null);
+
+            // Fetch AI Quick Replies for the very last received message (if it's text and from them)
+            const lastMsg = decryptedMessages[decryptedMessages.length - 1];
+            if (lastMsg && !lastMsg.fromSelf && lastMsg.type === "text") {
+                generateAIReplies(lastMsg.message);
+            }
 
             fetchedMessages.forEach((msg) => {
                 if (!msg.fromSelf && msg.status !== "read" && socket.current) {
@@ -229,7 +275,6 @@ export default function ChatContainer({ socket, isTyping }) {
       setUnreadScrollCount(0); 
   }, [messages.length]);
 
-  // IMPROVEMENT: Fixed dependency array to use socket.current
   useEffect(() => {
       if (socket.current && currentUser) {
           const s = socket.current;
@@ -246,7 +291,26 @@ export default function ChatContainer({ socket, isTyping }) {
     if (files.length > 0) toast.info(`Preparing to upload ${files[0].name}...`);
   };
 
-  // IMPROVEMENT: Removed readReceiptsMsg from dependencies to prevent socket unbinding
+  // --- MERGE UPDATE: AI QUICK REPLIES FETCHER ---
+  const generateAIReplies = async (text) => {
+      if (!text || text.length < 5) {
+          setQuickReplies([]);
+          return;
+      }
+      setIsGeneratingReplies(true);
+      try {
+          const { data } = await axios.post(getQuickRepliesRoute, { message: text }, getAuthHeader());
+          if (data.status && Array.isArray(data.replies)) {
+              setQuickReplies(data.replies);
+          }
+      } catch (err) {
+          console.error("Failed to generate AI replies");
+          setQuickReplies([]);
+      } finally {
+          setIsGeneratingReplies(false);
+      }
+  };
+
   useEffect(() => {
     if (socket.current) {
       const s = socket.current;
@@ -267,6 +331,11 @@ export default function ChatContainer({ socket, isTyping }) {
                 }
             } else if (data.isGroup && activeGroupAesKey) {
                 decryptedText = await decryptGroupMessage(data.msg, activeGroupAesKey);
+            }
+            
+            // Generate AI replies for incoming text messages
+            if (data.from === currentChat._id || data.isGroup) {
+                generateAIReplies(decryptedText);
             }
         }
 
@@ -312,7 +381,6 @@ export default function ChatContainer({ socket, isTyping }) {
               return msg;
           }));
           
-          // Use functional state update so we don't need readReceiptsMsg in the dependency array
           setReadReceiptsMsg(prev => {
              if (prev && prev.id === messageId) {
                  return { ...prev, readBy: prev.readBy ? [...prev.readBy, newReader] : [newReader] };
@@ -356,11 +424,13 @@ export default function ChatContainer({ socket, isTyping }) {
     }
   }, [arrivalMessage]);
 
-  // IMPROVEMENT: Wrapped in useCallback
   const handleSendMsg = useCallback(async (msg, type = "text", replyToId = null, extraData = {}) => {
     const time = new Date().toISOString();
     let finalMessageContent = msg;
     const newMessageId = uuidv4(); 
+
+    // Hide AI replies as soon as we send a message
+    setQuickReplies([]);
 
     try {
         if (type === "text") {
@@ -427,7 +497,6 @@ export default function ChatContainer({ socket, isTyping }) {
     }
   }, [currentChat, currentUser, activeGroupAesKey, replyingTo, getAuthHeader, socket]);
 
-  // IMPROVEMENT: Wrapped in useCallback
   const handleEditMsgSubmit = useCallback(async (messageId, newText) => {
       try {
           await axios.post(editMessageRoute, { messageId, newText }, getAuthHeader()); 
@@ -437,7 +506,6 @@ export default function ChatContainer({ socket, isTyping }) {
       } catch (error) { toast.error("Failed to edit message"); }
   }, [currentChat, getAuthHeader, socket]);
 
-  // IMPROVEMENT: Wrapped in useCallback
   const handleDeleteMsg = useCallback(async (messageId, fromSelf) => {
       const options = fromSelf ? "Press OK to 'Delete for Everyone', or Cancel to 'Delete for Me'." : "Delete this message for yourself?";
       const deleteForEveryone = fromSelf ? window.confirm(options) : false;
@@ -458,7 +526,6 @@ export default function ChatContainer({ socket, isTyping }) {
       } catch (error) { toast.error("Failed to delete message"); }
   }, [currentChat, currentUser, getAuthHeader, socket]);
 
-  // IMPROVEMENT: Wrapped in useCallback
   const handleReaction = useCallback(async (messageId, emoji) => {
       try {
           const res = await axios.post(reactMessageRoute, { messageId, emoji, userId: currentUser._id, username: currentUser.username }, getAuthHeader());
@@ -467,7 +534,6 @@ export default function ChatContainer({ socket, isTyping }) {
       } catch (e) { console.error("Failed to react", e); }
   }, [currentChat, currentUser, getAuthHeader, socket]);
 
-  // IMPROVEMENT: Wrapped in useCallback
   const handleOpenViewOnce = useCallback(async (msgId) => {
     setMessages(prev => prev.map(m => m.id === msgId ? {...m, viewed: true, message: "💣 Media Expired"} : m));
   }, []);
@@ -500,7 +566,6 @@ export default function ChatContainer({ socket, isTyping }) {
       return msg.message && msg.message.toLowerCase().includes(searchQuery.toLowerCase());
   });
 
-  // IMPROVEMENT: Wrapped in useCallback
   const scrollToMessage = useCallback((msgId) => {
       const index = filteredMessages.findIndex(m => m.id === msgId);
       if (index !== -1) {
@@ -510,156 +575,208 @@ export default function ChatContainer({ socket, isTyping }) {
       }
   }, [filteredMessages]);
 
+
   return (
-    <Container $themeType={theme} $isCompact={isCompact} $hasPinned={!!pinnedMessage} onDragOver={handleDragOver}>
-      
-      {isDragging && (
-        <DropOverlay onDragLeave={handleDragLeave} onDrop={handleDrop}>
-          <div className="overlay-content">
-            <FaCloudUploadAlt size={80} />
-            <h2>Drop files to share</h2>
-            <p>Images, Videos, and Documents</p>
-          </div>
-        </DropOverlay>
-      )}
-
-      {showCallModal && (
-          <CallModal socket={socket} currentUser={currentUser} currentChat={currentChat} incomingCallData={incomingCallData} closeModal={() => { setShowCallModal(false); setIncomingCallData(null); }} />
-      )}
-
-      {lightboxImage && (
-        <Lightbox onClick={() => setLightboxImage(null)}>
-          <button className="close-btn"><FaTimes /></button>
-          <img src={lightboxImage} alt="Fullscreen" onClick={(e) => e.stopPropagation()} />
-        </Lightbox>
-      )}
-
-      {readReceiptsMsg && (
-        <Lightbox onClick={() => setReadReceiptsMsg(null)}>
-            <div className="receipt-modal" onClick={(e) => e.stopPropagation()}>
-                <button className="close-btn-small" onClick={() => setReadReceiptsMsg(null)}><FaTimes /></button>
-                <h3>Message Info</h3>
-                <div className="msg-preview">
-                    {readReceiptsMsg.message?.substring(0, 40)}
-                    {readReceiptsMsg.message?.length > 40 ? "..." : ""}
+    <ColorThief src={currentChat?.avatarImage || "default"} crossOrigin="anonymous" format="hex">
+      {({ data, loading }) => {
+        const adaptiveAccent = data || customTheme || "#4e0eff";
+        
+        return (
+          <Container 
+            $themeType={theme} 
+            $isCompact={isCompact} 
+            $hasPinned={!!pinnedMessage} 
+            onDragOver={handleDragOver}
+            style={{ 
+              "--adaptive-accent": adaptiveAccent,
+              "--chat-wallpaper": wallpaper && wallpaper !== "transparent" ? 
+                  (wallpaper.startsWith("http") || wallpaper.startsWith("data:") ? `url(${wallpaper})` : wallpaper) 
+                  : "transparent"
+            }}
+          >
+            {isDragging && (
+              <DropOverlay onDragLeave={handleDragLeave} onDrop={handleDrop}>
+                <div className="overlay-content">
+                  <FaCloudUploadAlt size={80} />
+                  <h2>Drop files to share</h2>
+                  <p>Images, Videos, and Documents</p>
                 </div>
-                <div className="readers-list">
-                    <h4><FaCheckDouble color="#34B7F1"/> Read by ({readReceiptsMsg.readBy?.length || 0})</h4>
-                    
-                    {(!readReceiptsMsg.readBy || readReceiptsMsg.readBy.length === 0) ? (
-                        <p style={{color: '#888', fontStyle: 'italic', fontSize: '0.9rem', marginTop: '10px'}}>No one has read this yet.</p>
-                    ) : (
-                        readReceiptsMsg.readBy.map((reader, index) => (
-                            <div key={index} className="reader-item">
-                                <div className="reader-info">
-                                    <img src={getSmallAvatar(reader.username)} alt="avatar" className="reader-avatar-img" />
-                                    <span className="reader-name">{reader.username}</span>
-                                </div>
-                                <span className="reader-time">{formatTime(reader.readAt)}</span>
-                            </div>
-                        ))
+              </DropOverlay>
+            )}
+
+            {showCallModal && (
+                <CallModal socket={socket} currentUser={currentUser} currentChat={currentChat} incomingCallData={incomingCallData} closeModal={() => { setShowCallModal(false); setIncomingCallData(null); }} />
+            )}
+
+            {lightboxImage && (
+              <Lightbox onClick={() => setLightboxImage(null)}>
+                <button className="close-btn"><FaTimes /></button>
+                <img src={lightboxImage} alt="Fullscreen" onClick={(e) => e.stopPropagation()} />
+              </Lightbox>
+            )}
+
+            {readReceiptsMsg && (
+              <Lightbox onClick={() => setReadReceiptsMsg(null)}>
+                  <div className="receipt-modal" onClick={(e) => e.stopPropagation()}>
+                      <button className="close-btn-small" onClick={() => setReadReceiptsMsg(null)}><FaTimes /></button>
+                      <h3>Message Info</h3>
+                      <div className="msg-preview">
+                          {readReceiptsMsg.message?.substring(0, 40)}
+                          {readReceiptsMsg.message?.length > 40 ? "..." : ""}
+                      </div>
+                      <div className="readers-list">
+                          <h4><FaCheckDouble color="#34B7F1"/> Read by ({readReceiptsMsg.readBy?.length || 0})</h4>
+                          
+                          {(!readReceiptsMsg.readBy || readReceiptsMsg.readBy.length === 0) ? (
+                              <p style={{color: '#888', fontStyle: 'italic', fontSize: '0.9rem', marginTop: '10px'}}>No one has read this yet.</p>
+                          ) : (
+                              readReceiptsMsg.readBy.map((reader, index) => (
+                                  <div key={index} className="reader-item">
+                                      <div className="reader-info">
+                                          <img src={getSmallAvatar(reader.username)} alt="avatar" className="reader-avatar-img" />
+                                          <span className="reader-name">{reader.username}</span>
+                                      </div>
+                                      <span className="reader-time">{formatTime(reader.readAt)}</span>
+                                  </div>
+                              ))
+                          )}
+                      </div>
+                  </div>
+              </Lightbox>
+            )}
+
+            {showSidePanel && (
+              <ChatSidePanel 
+                  theme={theme} currentChat={currentChat} isOnline={isOnline} lastSeen={lastSeen}
+                  activeSideTab={activeSideTab} setActiveSideTab={setActiveSideTab}
+                  setShowSidePanel={setShowSidePanel} isFetchingMedia={isFetchingMedia}
+                  chatMedia={chatMedia} setLightboxImage={setLightboxImage}
+                  handleWallpaperChange={handleWallpaperChange}
+              />
+            )}
+
+            <ChatHeader 
+                currentChat={currentChat} currentUser={currentUser} isBlocked={isBlocked}
+                isOnline={isOnline} lastSeen={lastSeen} showSearch={showSearch} 
+                searchQuery={searchQuery} setSearchQuery={setSearchQuery} 
+                setShowSearch={setShowSearch} showSidePanel={showSidePanel} 
+                setShowSidePanel={setShowSidePanel} setActiveSideTab={setActiveSideTab} 
+                handleToggleBlock={handleToggleBlock} handleAddMember={handleAddMember} 
+                setIncomingCallData={setIncomingCallData} setShowCallModal={setShowCallModal}
+            />
+            
+            {pinnedMessage && (
+                <div className="pinned-banner" onClick={() => scrollToMessage(pinnedMessage.id)}>
+                    <FaThumbtack /> 
+                    <div className="pin-content">
+                        <span className="pin-title">Pinned Message</span>
+                        <span className="pin-text">{pinnedMessage.message.substring(0, 50)}...</span>
+                    </div>
+                </div>
+            )}
+
+            <div className="chat-messages-container" style={{ background: "var(--chat-wallpaper)", backgroundSize: 'cover', backgroundPosition: 'center' }}>
+              {isFetchingHistory ? (
+                  <div className="skeleton-container">
+                      {Array.from({ length: 5 }).map((_, i) => (
+                          <div key={i} className={`message skeleton-msg ${i % 2 === 0 ? 'sended' : 'recieved'}`}>
+                              <div className="content skeleton-anim" style={{width: `${Math.random() * 40 + 20}%`, height: '40px'}}/>
+                          </div>
+                      ))}
+                  </div>
+              ) : (
+                  <Virtuoso
+                      ref={virtuosoRef} className="virtuoso-scroll" data={filteredMessages} firstItemIndex={0}
+                      initialTopMostItemIndex={filteredMessages.length - 1} startReached={loadMoreMessages}
+                      atBottomStateChange={(bottom) => {
+                          setShowScrollBtn(!bottom);
+                          if (bottom) setUnreadScrollCount(0); 
+                      }}
+                      followOutput={(isAtBottom) => isAtBottom ? 'smooth' : false}
+                      components={{
+                          Header: () => isLoadingMore ? <div className="loading-older"><FaSpinner className="fa-spin" /> Loading older messages...</div> : null,
+                          Footer: () => isTyping ? (
+                              <div className="message-wrapper" style={{ paddingBottom: '10px' }}>
+                                  <div className="message recieved typing-msg">
+                                      <div className="content tail-physics" style={{ minWidth: '60px', padding: '0.8rem 1.2rem' }}>
+                                          {typeof isTyping === 'string' && currentChat.admin && (
+                                              <span className="sender-name" style={{ marginBottom: '2px' }}>{isTyping}</span>
+                                          )}
+                                          <div className="typing-dots">
+                                              <span></span><span></span><span></span>
+                                          </div>
+                                      </div>
+                                  </div>
+                              </div>
+                          ) : <div style={{ height: '20px' }} />
+                      }}
+                      itemContent={(index, message) => (
+                          <MessageItem 
+                              message={message} prevMsg={index > 0 ? filteredMessages[index - 1] : null}
+                              nextMsg={index < filteredMessages.length - 1 ? filteredMessages[index + 1] : null}
+                              currentChat={currentChat} currentUser={currentUser} searchQuery={searchQuery}
+                              highlightedMsgId={highlightedMsgId} setLightboxImage={setLightboxImage}
+                              setReadReceiptsMsg={setReadReceiptsMsg} scrollToMessage={scrollToMessage}
+                              setReplyingTo={setReplyingTo} setEditingMessage={setEditingMessage}
+                              handleDeleteMsg={handleDeleteMsg} handleReaction={handleReaction} handleOpenViewOnce={handleOpenViewOnce}
+                          />
+                      )}
+                  />
+              )}
+            </div>
+
+            {showScrollBtn && (
+              <ScrollButton onClick={scrollToBottom}>
+                  <FaArrowDown />
+                  {unreadScrollCount > 0 && (
+                      <span className="unread-badge">
+                          {unreadScrollCount > 99 ? '99+' : unreadScrollCount}
+                      </span>
+                  )}
+              </ScrollButton>
+            )}
+
+            {/* --- MERGE UPDATE: AI QUICK REPLIES BAR --- */}
+            {(!currentChat?.isChannel || currentChat?.admins?.includes(currentUser._id) || currentChat?.moderators?.includes(currentUser._id)) && (
+                <div style={{ position: 'relative', width: '100%', padding: '0 2rem' }}>
+                    {isGeneratingReplies && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#00ff88', fontSize: '0.8rem', fontStyle: 'italic', marginBottom: '8px' }}>
+                            <FaRobot className="fa-spin" /> AI is generating replies...
+                        </div>
+                    )}
+                    {!isGeneratingReplies && quickReplies.length > 0 && (
+                        <div style={{ display: 'flex', gap: '10px', overflowX: 'auto', marginBottom: '10px', paddingBottom: '4px' }}>
+                            <FaRobot color="#00ff88" style={{ marginTop: '8px', flexShrink: 0 }} title="AI Suggestions" />
+                            {quickReplies.map((reply, i) => (
+                                <button 
+                                    key={i} 
+                                    onClick={() => handleSendMsg(reply, "text")}
+                                    style={{
+                                        background: 'rgba(0, 255, 136, 0.1)', border: '1px solid #00ff88',
+                                        color: '#fff', padding: '6px 12px', borderRadius: '15px',
+                                        fontSize: '0.85rem', cursor: 'pointer', whiteSpace: 'nowrap',
+                                        transition: '0.2s'
+                                    }}
+                                    onMouseOver={(e) => e.target.style.background = 'rgba(0, 255, 136, 0.3)'}
+                                    onMouseOut={(e) => e.target.style.background = 'rgba(0, 255, 136, 0.1)'}
+                                >
+                                    {reply}
+                                </button>
+                            ))}
+                        </div>
                     )}
                 </div>
-            </div>
-        </Lightbox>
-      )}
-
-      {showSidePanel && (
-        <ChatSidePanel 
-            theme={theme} currentChat={currentChat} isOnline={isOnline} lastSeen={lastSeen}
-            activeSideTab={activeSideTab} setActiveSideTab={setActiveSideTab}
-            setShowSidePanel={setShowSidePanel} isFetchingMedia={isFetchingMedia}
-            chatMedia={chatMedia} setLightboxImage={setLightboxImage}
-        />
-      )}
-
-      <ChatHeader 
-          currentChat={currentChat} currentUser={currentUser} isBlocked={isBlocked}
-          isOnline={isOnline} lastSeen={lastSeen} showSearch={showSearch} 
-          searchQuery={searchQuery} setSearchQuery={setSearchQuery} 
-          setShowSearch={setShowSearch} showSidePanel={showSidePanel} 
-          setShowSidePanel={setShowSidePanel} setActiveSideTab={setActiveSideTab} 
-          handleToggleBlock={handleToggleBlock} handleAddMember={handleAddMember} 
-          setIncomingCallData={setIncomingCallData} setShowCallModal={setShowCallModal}
-      />
-      
-      {pinnedMessage && (
-          <div className="pinned-banner" onClick={() => scrollToMessage(pinnedMessage.id)}>
-              <FaThumbtack /> 
-              <div className="pin-content">
-                  <span className="pin-title">Pinned Message</span>
-                  <span className="pin-text">{pinnedMessage.message.substring(0, 50)}...</span>
-              </div>
-          </div>
-      )}
-
-      <div className="chat-messages-container">
-        {isFetchingHistory ? (
-            <div className="skeleton-container">
-                {Array.from({ length: 5 }).map((_, i) => (
-                    <div key={i} className={`message skeleton-msg ${i % 2 === 0 ? 'sended' : 'recieved'}`}>
-                        <div className="content skeleton-anim" style={{width: `${Math.random() * 40 + 20}%`, height: '40px'}}/>
-                    </div>
-                ))}
-            </div>
-        ) : (
-            <Virtuoso
-                ref={virtuosoRef} className="virtuoso-scroll" data={filteredMessages} firstItemIndex={0}
-                initialTopMostItemIndex={filteredMessages.length - 1} startReached={loadMoreMessages}
-                atBottomStateChange={(bottom) => {
-                    setShowScrollBtn(!bottom);
-                    if (bottom) setUnreadScrollCount(0); 
-                }}
-                followOutput={(isAtBottom) => isAtBottom ? 'smooth' : false}
-                components={{
-                    Header: () => isLoadingMore ? <div className="loading-older"><FaSpinner className="fa-spin" /> Loading older messages...</div> : null,
-                    Footer: () => isTyping ? (
-                        <div className="message-wrapper" style={{ paddingBottom: '10px' }}>
-                            <div className="message recieved typing-msg">
-                                <div className="content tail-physics" style={{ minWidth: '60px', padding: '0.8rem 1.2rem' }}>
-                                    {typeof isTyping === 'string' && currentChat.admin && (
-                                        <span className="sender-name" style={{ marginBottom: '2px' }}>{isTyping}</span>
-                                    )}
-                                    <div className="typing-dots">
-                                        <span></span><span></span><span></span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    ) : <div style={{ height: '20px' }} />
-                }}
-                itemContent={(index, message) => (
-                    <MessageItem 
-                        message={message} prevMsg={index > 0 ? filteredMessages[index - 1] : null}
-                        nextMsg={index < filteredMessages.length - 1 ? filteredMessages[index + 1] : null}
-                        currentChat={currentChat} currentUser={currentUser} searchQuery={searchQuery}
-                        highlightedMsgId={highlightedMsgId} setLightboxImage={setLightboxImage}
-                        setReadReceiptsMsg={setReadReceiptsMsg} scrollToMessage={scrollToMessage}
-                        setReplyingTo={setReplyingTo} setEditingMessage={setEditingMessage}
-                        handleDeleteMsg={handleDeleteMsg} handleReaction={handleReaction} handleOpenViewOnce={handleOpenViewOnce}
-                    />
-                )}
-            />
-        )}
-      </div>
-
-      {showScrollBtn && (
-        <ScrollButton onClick={scrollToBottom}>
-            <FaArrowDown />
-            {unreadScrollCount > 0 && (
-                <span className="unread-badge">
-                    {unreadScrollCount > 99 ? '99+' : unreadScrollCount}
-                </span>
             )}
-        </ScrollButton>
-      )}
-      
-      <ChatInput 
-          handleSendMsg={handleSendMsg} handleTyping={handleTyping} 
-          replyingTo={replyingTo} setReplyingTo={setReplyingTo} 
-          editingMessage={editingMessage} setEditingMessage={setEditingMessage}
-          handleEditMsgSubmit={handleEditMsgSubmit}
-      />
-    </Container>
+            
+            <ChatInput 
+                handleSendMsg={handleSendMsg} handleTyping={handleTyping} 
+                replyingTo={replyingTo} setReplyingTo={setReplyingTo} 
+                editingMessage={editingMessage} setEditingMessage={setEditingMessage}
+                handleEditMsgSubmit={handleEditMsgSubmit}
+            />
+          </Container>
+        );
+      }}
+    </ColorThief>
   );
 }

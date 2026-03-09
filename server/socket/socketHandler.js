@@ -1,5 +1,6 @@
 const User = require("../models/User"); 
 const Message = require("../models/Message");
+const Group = require("../models/GroupModel"); // --- MERGE UPDATE: Imported Group model ---
 
 module.exports = (io) => {
   // Use a map to track online users
@@ -22,7 +23,6 @@ module.exports = (io) => {
          const user = await User.findByIdAndUpdate(userId, { isOnline: true }, { new: true });
          heartbeatThrottles.set(userId, Date.now());
 
-         // --- MERGE UPDATE: Check Privacy Settings before broadcasting 'online' status ---
          if (user && user.privacySettings?.lastSeen !== "nobody") {
              socket.broadcast.emit("user-status-change", { 
                userId, 
@@ -39,7 +39,6 @@ module.exports = (io) => {
       try {
           const user = await User.findById(targetUserId).select("lastSeen privacySettings");
           
-          // --- MERGE UPDATE: Enforce 'nobody' privacy rule for Last Seen ---
           if (user?.privacySettings?.lastSeen === "nobody") {
               // Always pretend they are offline and have no last seen timestamp
               socket.emit("presence-response", { 
@@ -90,6 +89,22 @@ module.exports = (io) => {
     // 3. Send Message (Direct & Group)
     socket.on("send-msg", async (data, callback) => {
       if (data.isGroup) {
+          
+          // --- MERGE UPDATE: VERIFY CHANNEL POSTING PERMISSIONS ---
+          try {
+              const group = await Group.findById(data.to).select("isChannel admins moderators");
+              if (group && group.isChannel) {
+                  const isAllowed = group.admins.includes(data.from) || group.moderators.includes(data.from);
+                  if (!isAllowed) {
+                      if (callback) callback({ status: "error", msg: "Only admins and moderators can post in this channel." });
+                      return; // Block message emit
+                  }
+              }
+          } catch (err) {
+              console.error("Error verifying channel permissions", err);
+          }
+          // --------------------------------------------------------
+
           socket.to(data.to).emit("msg-recieve", {
               id: data.id,
               msg: data.msg,
@@ -175,7 +190,6 @@ module.exports = (io) => {
     // 6. Handle Read Receipts
     socket.on("mark-as-read", async ({ messageId, from, to, isGroup, username }) => {
       try {
-        // --- MERGE UPDATE: Fetch user's read receipt privacy preference first ---
         const readerUser = await User.findById(from).select("privacySettings");
         
         // If readReceipts is false, DO NOT record the read or emit the event!
@@ -308,7 +322,6 @@ module.exports = (io) => {
 
           io.emit("get-online-users", Array.from(global.onlineUsers.keys()));
 
-          // --- MERGE UPDATE: Check Privacy Settings before broadcasting 'offline' status ---
           if (user && user.privacySettings?.lastSeen !== "nobody") {
               io.emit("user-offline", { userId: disconnectedUser, lastSeen: offlineTime });
               socket.broadcast.emit("user-status-change", { 

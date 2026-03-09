@@ -6,7 +6,7 @@ const GroupSchema = new mongoose.Schema(
       type: String,
       required: true,
       min: 3,
-      max: 50, // Expanded max length slightly
+      max: 50, 
     },
     description: {
       type: String,
@@ -14,15 +14,14 @@ const GroupSchema = new mongoose.Schema(
     },
     avatarImage: {
       type: String,
-      default: "", // Can store Cloudinary URL for group icons
+      default: "", 
     },
     members: [
       {
         type: mongoose.Schema.Types.ObjectId,
-        ref: "User", // Fixed reference to match your User.js model
+        ref: "User", 
       },
     ],
-    // --- MERGE UPDATE: Support multiple admins ---
     admins: [
       {
         type: mongoose.Schema.Types.ObjectId,
@@ -30,17 +29,32 @@ const GroupSchema = new mongoose.Schema(
         required: true,
       },
     ],
-    // --- MERGE UPDATE: STEP 14 GROUP E2EE ---
     groupKeys: [
       {
         userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-        encryptedKey: { type: String, required: true } // The AES key encrypted with this specific user's RSA Public Key
+        encryptedKey: { type: String, required: true } 
       }
     ],
     inviteCode: {
       type: String,
       unique: true,
-      sparse: true // Allows nulls but keeps strings unique
+      sparse: true 
+    },
+    
+    // --- MERGE UPDATE: ADVANCED ROLES & CHANNELS ---
+    moderators: [
+      { 
+        type: mongoose.Schema.Types.ObjectId, 
+        ref: "User" 
+      }
+    ],
+    isChannel: { 
+        type: Boolean, 
+        default: false // If true, only Admins and Mods can send messages
+    },
+    isPublic: { 
+        type: Boolean, 
+        default: false // If true, anyone can search and join without an invite
     }
   },
   {
@@ -48,5 +62,4 @@ const GroupSchema = new mongoose.Schema(
   }
 );
 
-// Changed export name to singular 'Group' to follow conventions and match the controller
 module.exports = mongoose.model("Group", GroupSchema);

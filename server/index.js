@@ -15,13 +15,15 @@ const swaggerUi = require("swagger-ui-express");
 const swaggerDocs = require("./config/swagger"); // --- UPDATE: Extracted Swagger ---
 const connectDB = require("./config/db"); // --- UPDATE: Extracted DB connection ---
 
-// --- LEVEL 2 IMPORTS (SCALABILITY) ---
+// --- LEVEL 2 IMPORTS (SCALABILITY & ROUTES) ---
 const { createClient } = require("redis");
 const { createAdapter } = require("@socket.io/redis-adapter");
-
+const aiRoutes = require("./routes/aiRoutes");
 const authRoutes = require("./routes/authRoutes");
 const messageRoutes = require("./routes/messagesRoute");
 const groupRoutes = require("./routes/groupRoutes");
+const storyRoutes = require("./routes/storyRoutes"); // --- MERGE UPDATE: Imported Story Routes ---
+
 const { errorHandler } = require("./middleware/errorMiddleware");
 const verifyToken = require("./middleware/authMiddleware");
 const socketHandler = require("./socket/socketHandler");
@@ -60,7 +62,10 @@ app.use("/api/auth/register", authLimiter);
 app.use("/api/auth", authRoutes); 
 app.use("/api/messages", verifyToken, messageRoutes); 
 app.use("/api/groups", verifyToken, groupRoutes);
+app.use("/api/stories", storyRoutes); // --- MERGE UPDATE: Connected Story Routes ---
 app.use("/health", require("./routes/healthRoute")); 
+app.use("/api/ai", aiRoutes);
+
 
 // --- GLOBAL ERROR HANDLER ---
 app.use(errorHandler);

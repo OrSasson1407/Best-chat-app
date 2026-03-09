@@ -4,11 +4,9 @@ const { v4: uuidv4 } = require("uuid"); // For generating invite links
 
 module.exports.createGroup = async (req, res, next) => {
   try {
-    // --- MERGE UPDATE: Destructure groupKeys from the request ---
     const { name, members, description, avatarImage, groupKeys } = req.body;
-    const currentUserId = req.user.id; // Securely pulled from authMiddleware
+    const currentUserId = req.user.id; 
 
-    // Ensure the creator is in the members list
     const finalMembers = members.includes(currentUserId) ? members : [...members, currentUserId];
 
     const group = await Group.create({
@@ -16,9 +14,9 @@ module.exports.createGroup = async (req, res, next) => {
       description: description || "",
       avatarImage: avatarImage || "",
       members: finalMembers,
-      admins: [currentUserId], // Creator is the first admin
-      groupKeys: groupKeys || [], // --- MERGE UPDATE: Save the encrypted keys to DB
-      inviteCode: uuidv4().substring(0, 8), // Short invite code
+      admins: [currentUserId], 
+      groupKeys: groupKeys || [], 
+      inviteCode: uuidv4().substring(0, 8), 
     });
 
     return res.json({ status: true, group });
@@ -29,15 +27,14 @@ module.exports.createGroup = async (req, res, next) => {
 
 module.exports.getUserGroups = async (req, res, next) => {
   try {
-    const userId = req.user.id; // Securely pulled from authMiddleware
+    const userId = req.user.id; 
     const groups = await Group.find({ members: { $in: [userId] } });
-    return res.json(groups); // Automatically returns the groupKeys array attached to the group docs
+    return res.json(groups); 
   } catch (ex) {
     next(ex);
   }
 };
 
-// --- MERGE UPDATE: Brought Group Messages up to parity with main Chat ---
 module.exports.getGroupMessages = async (req, res, next) => {
   try {
     const { from, groupId, cursor, limit = 50 } = req.body;
@@ -66,7 +63,7 @@ module.exports.getGroupMessages = async (req, res, next) => {
       return {
         id: msg._id,
         fromSelf: msg.sender._id.toString() === from,
-        username: msg.sender.username, // Needed for group chat UI
+        username: msg.sender.username, 
         message: msg.isDeleted ? "🚫 This message was deleted" : isHiddenViewOnce ? "💣 Media Expired" : msg.message.text,
         type: msg.type,
         createdAt: msg.createdAt,
@@ -105,29 +102,23 @@ module.exports.getGroupMessages = async (req, res, next) => {
   }
 };
 
-// --- MERGE UPDATE: Secure Admin Feature ---
 module.exports.addMember = async (req, res, next) => {
     try {
-        // --- MERGE UPDATE: Destructure encryptedKey for the new user ---
         const { groupId, userId, encryptedKey } = req.body;
         const currentUserId = req.user.id;
 
         const group = await Group.findById(groupId);
         if (!group) return res.status(404).json({ msg: "Group not found" });
 
-        // Verify Admin Privileges
         if (!group.admins.includes(currentUserId)) {
             return res.status(403).json({ msg: "Only admins can add members." });
         }
 
         if (!group.members.includes(userId)) {
             group.members.push(userId);
-            
-            // --- MERGE UPDATE: Push the newly encrypted key to the DB ---
             if (encryptedKey) {
                 group.groupKeys.push({ userId, encryptedKey });
             }
-            
             await group.save();
         }
 
@@ -137,7 +128,6 @@ module.exports.addMember = async (req, res, next) => {
     }
 };
 
-// --- MERGE UPDATE: Secure Admin Feature ---
 module.exports.removeMember = async (req, res, next) => {
     try {
         const { groupId, userId } = req.body;
@@ -146,20 +136,18 @@ module.exports.removeMember = async (req, res, next) => {
         const group = await Group.findById(groupId);
         if (!group) return res.status(404).json({ msg: "Group not found" });
 
-        // Verify Admin Privileges
         if (!group.admins.includes(currentUserId)) {
             return res.status(403).json({ msg: "Only admins can remove members." });
         }
 
-        // Prevent removing the last admin without promoting someone else
         if (group.admins.includes(userId) && group.admins.length === 1) {
              return res.status(400).json({ msg: "Cannot remove the only admin. Promote someone else first." });
         }
 
         group.members.pull(userId);
-        group.admins.pull(userId); // Automatically revoke admin if removed
+        group.admins.pull(userId); 
+        group.moderators.pull(userId); // MERGE UPDATE: Revoke mod status too
         
-        // --- MERGE UPDATE: Remove their key access ---
         group.groupKeys = group.groupKeys.filter(k => k.userId.toString() !== userId);
 
         await group.save();
@@ -170,7 +158,6 @@ module.exports.removeMember = async (req, res, next) => {
     }
 };
 
-// --- NEW FEATURE: Leave Group ---
 module.exports.leaveGroup = async (req, res, next) => {
     try {
         const groupId = req.params.id;
@@ -185,11 +172,10 @@ module.exports.leaveGroup = async (req, res, next) => {
 
         group.members.pull(currentUserId);
         group.admins.pull(currentUserId);
+        group.moderators.pull(currentUserId); // MERGE UPDATE: Revoke mod status
         
-        // --- MERGE UPDATE: Remove your own key access ---
         group.groupKeys = group.groupKeys.filter(k => k.userId.toString() !== currentUserId);
 
-        // If the group is completely empty, delete it automatically
         if (group.members.length === 0) {
             await Group.findByIdAndDelete(groupId);
             return res.json({ status: true, msg: "Group deleted because it was empty." });
@@ -202,7 +188,6 @@ module.exports.leaveGroup = async (req, res, next) => {
     }
 };
 
-// --- MERGE UPDATE: Secure Admin Feature ---
 module.exports.deleteGroup = async (req, res, next) => {
     try {
        const groupId = req.params.id;
@@ -216,11 +201,96 @@ module.exports.deleteGroup = async (req, res, next) => {
        }
 
        await Group.findByIdAndDelete(groupId);
-       // Clean up associated messages
        await Message.deleteMany({ users: { $in: [groupId] } });
 
        return res.json({ status: true, msg: "Group deleted successfully" });
     } catch (ex) {
         next(ex);
     }
+};
+
+// --- MERGE UPDATE: PUBLIC CHANNELS & ROLES ---
+
+module.exports.createChannel = async (req, res, next) => {
+  try {
+    const { name, description, avatarImage } = req.body;
+    const currentUserId = req.user.id;
+    
+    const channel = await Group.create({
+      name,
+      description: description || "",
+      avatarImage: avatarImage || "",
+      members: [currentUserId],
+      admins: [currentUserId],
+      isChannel: true,
+      isPublic: true,
+      inviteCode: uuidv4().substring(0, 8),
+    });
+
+    return res.status(201).json({ status: true, channel });
+  } catch (ex) {
+    next(ex);
+  }
+};
+
+module.exports.searchPublicChannels = async (req, res, next) => {
+  try {
+    const { query } = req.query;
+    if (!query) return res.json({ status: true, channels: [] });
+
+    const channels = await Group.find({ 
+      isPublic: true, 
+      name: { $regex: query, $options: "i" } 
+    }).select("name description avatarImage members isChannel");
+
+    return res.status(200).json({ status: true, channels });
+  } catch (ex) {
+    next(ex);
+  }
+};
+
+module.exports.joinChannel = async (req, res, next) => {
+  try {
+    const { channelId } = req.body;
+    const userId = req.user.id;
+    
+    const channel = await Group.findById(channelId);
+    if (!channel || !channel.isPublic) {
+      return res.status(404).json({ status: false, msg: "Public channel not found" });
+    }
+
+    if (channel.members.includes(userId)) {
+      return res.status(400).json({ status: false, msg: "Already a member" });
+    }
+
+    channel.members.push(userId);
+    await channel.save();
+
+    return res.status(200).json({ status: true, channel });
+  } catch (ex) {
+    next(ex);
+  }
+};
+
+module.exports.promoteToModerator = async (req, res, next) => {
+  try {
+    const { groupId, targetUserId } = req.body;
+    const adminId = req.user.id;
+    
+    const group = await Group.findById(groupId);
+    if (!group) return res.status(404).json({ status: false, msg: "Group not found" });
+
+    if (!group.admins.includes(adminId)) {
+      return res.status(403).json({ status: false, msg: "Only admins can promote members" });
+    }
+
+    if (!group.moderators.includes(targetUserId)) {
+      group.moderators.push(targetUserId);
+      await group.save();
+    }
+
+    return res.status(200).json({ status: true, moderators: group.moderators });
+  } catch (ex) {
+    next(ex);
+  }
 };
