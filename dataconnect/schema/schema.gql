@@ -1,0 +1,33 @@
+type User @table {
+  displayName: String!
+  createdAt: Timestamp!
+  email: String
+  photoUrl: String
+}
+
+type DirectMessageConversation @table {
+  user1: User!
+  user2: User!
+  createdAt: Timestamp!
+}
+
+type GroupChatConversation @table {
+  name: String!
+  createdAt: Timestamp!
+  owner: User!
+  description: String
+}
+
+type Message @table {
+  content: String!
+  createdAt: Timestamp!
+  sender: User!
+  directMessageConversation: DirectMessageConversation
+  groupChatConversation: GroupChatConversation
+}
+
+type GroupMember @table(key: ["user", "groupChatConversation"]) {
+  user: User!
+  groupChatConversation: GroupChatConversation!
+  createdAt: Timestamp!
+}

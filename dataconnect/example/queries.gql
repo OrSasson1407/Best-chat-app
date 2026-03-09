@@ -1,0 +1,56 @@
+query ListAllUsers @auth(level: USER, insecureReason: "This operation is safe to expose to all logged in users.") {
+  users {
+    id
+    displayName
+    email
+    photoUrl
+    createdAt
+  }
+}
+
+mutation CreateNewGroupChatConversation($name: String!, $description: String) @auth(level: USER) {
+  groupChatConversation_insert(data: {
+    name: $name,
+    description: $description,
+    ownerId_expr: "auth.uid",
+    createdAt_expr: "request.time"
+  })
+}
+
+query GetMyDirectMessages @auth(level: USER) {
+  directMessageConversations(where: {
+    _or: [
+      { user1: { id_expr: "auth.uid" } },
+      { user2: { id_expr: "auth.uid" } }
+    ]
+  }) {
+    id
+    user1 {
+      id
+      displayName
+    }
+    user2 {
+      id
+      displayName
+    }
+    createdAt
+    messages_on_directMessageConversation(orderBy: [{createdAt: ASC}]) {
+      id
+      content
+      createdAt
+      sender {
+        id
+        displayName
+      }
+    }
+  }
+}
+
+mutation SendDirectMessage($conversationId: UUID!, $content: String!) @auth(level: USER) {
+  message_insert(data: {
+    directMessageConversationId: $conversationId,
+    senderId_expr: "auth.uid",
+    content: $content,
+    createdAt_expr: "request.time"
+  })
+}

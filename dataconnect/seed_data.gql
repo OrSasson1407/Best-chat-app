@@ -1,0 +1,47 @@
+mutation CreateSeedData @transaction @auth(level: USER, insecureReason: "Seed data is for development purposes and can be created by any logged-in user.") {
+  user1: user_insert(data: {
+    id: "a1b2c3d4-e5f6-7890-1234-567890abcdef",
+    displayName: "Alice Smith",
+    email: "alice@example.com",
+    createdAt: "2023-01-01T10:00:00Z"
+  })
+  user2: user_insert(data: {
+    id: "b1c2d3e4-f5a6-7890-1234-567890abcdef",
+    displayName: "Bob Johnson",
+    email: "bob@example.com",
+    createdAt: "2023-01-01T10:05:00Z"
+  })
+  dmConversation: directMessageConversation_insert(data: {
+    user1: { id: "a1b2c3d4-e5f6-7890-1234-567890abcdef" },
+    user2: { id: "b1c2d3e4-f5a6-7890-1234-567890abcdef" },
+    createdAt: "2023-01-01T10:10:00Z"
+  })
+  groupChat: groupChatConversation_insert(data: {
+    name: "Team Alpha",
+    description: "Discussion for project Alpha",
+    owner: { id: "a1b2c3d4-e5f6-7890-1234-567890abcdef" },
+    createdAt: "2023-01-01T10:15:00Z"
+  })
+  groupMember1: groupMember_insert(data: {
+    user: { id: "a1b2c3d4-e5f6-7890-1234-567890abcdef" },
+    groupChatConversation: { id: "00000000-0000-0000-0000-000000000000" }, # Placeholder, will be replaced by the actual ID of groupChat
+    createdAt: "2023-01-01T10:20:00Z"
+  })
+  groupMember2: groupMember_insert(data: {
+    user: { id: "b1c2d3e4-f5a6-7890-1234-567890abcdef" },
+    groupChatConversation: { id: "00000000-0000-0000-0000-000000000000" }, # Placeholder, will be replaced by the actual ID of groupChat
+    createdAt: "2023-01-01T10:25:00Z"
+  })
+  message1: message_insert(data: {
+    sender: { id: "a1b2c3d4-e5f6-7890-1234-567890abcdef" },
+    directMessageConversation: { id: "00000000-0000-0000-0000-000000000000" }, # Placeholder, will be replaced by the actual ID of dmConversation
+    content: "Hi Bob!",
+    createdAt: "2023-01-01T10:30:00Z"
+  })
+  message2: message_insert(data: {
+    sender: { id: "b1c2d3e4-f5a6-7890-1234-567890abcdef" },
+    groupChatConversation: { id: "00000000-0000-0000-0000-000000000000" }, # Placeholder, will be replaced by the actual ID of groupChat
+    content: "Hello everyone in Team Alpha!",
+    createdAt: "2023-01-01T10:35:00Z"
+  })
+}
