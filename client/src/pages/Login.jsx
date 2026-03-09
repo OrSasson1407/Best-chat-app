@@ -69,10 +69,10 @@ export default function Login() {
             localStorage.setItem(`privateKey_${data.user._id}`, JSON.stringify(keys.privateKey));
             
             // Send Public Key to the Backend for other users to encrypt messages for this user
-            await axios.post(publicKeyRoute, {
-                userId: data.user._id,
-                publicKey: keys.publicKey
-            });
+           await axios.post(publicKeyRoute, {
+    userId: data.user._id,
+    publicKey: JSON.stringify(keys.publicKey)
+});
           } catch (cryptoErr) {
             console.error("Failed to generate or register E2EE keys", cryptoErr);
             // Optionally notify the user, though we shouldn't block login
