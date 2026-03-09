@@ -20,8 +20,8 @@ export const requestForToken = async () => {
     const permission = await Notification.requestPermission();
     if (permission === "granted") {
       const currentToken = await getToken(messaging, {
-        // You get this from Firebase Console > Cloud Messaging > Web configuration (VAPID key)
-        vapidKey: "YOUR_VAPID_KEY" 
+        // Inserted your actual VAPID key below
+        vapidKey: "BLTI7YK1uNflECmf4NzngSKdenI_IkLv9DPkGaE9tel8L9CppzfXc5u7ghMbRkcJKbFLmsPIokleCgNblgSvu5o" 
       });
       if (currentToken) {
         return currentToken;

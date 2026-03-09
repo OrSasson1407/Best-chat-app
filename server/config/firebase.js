@@ -2,6 +2,7 @@ const admin = require("firebase-admin");
 const fs = require("fs");
 const path = require("path");
 
+// Adjusted path to point to the server root where the key should reside
 const serviceAccountPath = path.join(__dirname, "../serviceAccountKey.json");
 
 if (fs.existsSync(serviceAccountPath)) {

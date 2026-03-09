@@ -229,7 +229,7 @@ router.post("/update-fcm", auth, updateFcmToken);
  *       200:
  *         description: Public Key registered
  */
-router.post("/public-key", auth, updatePublicKey);
+router.post("/public-key", updatePublicKey);
 
 /**
  * @swagger
@@ -248,6 +248,6 @@ router.post("/public-key", auth, updatePublicKey);
  *       200:
  *         description: Returns the requested public key
  */
-router.get("/public-key/:id", auth, getPublicKey);
+router.get("/public-key/:id", getPublicKey);
 
 module.exports = router;
