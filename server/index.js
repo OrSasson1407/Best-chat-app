@@ -310,8 +310,9 @@ Promise.all([pubClient.connect(), subClient.connect()])
 
   /**
    * Delegates all socket event logic to dedicated handler
+   * CHANGED: Now passing the Redis pubClient to manage distributed state
    */
-  socketHandler(io);
+  socketHandler(io, pubClient);
 
 
   /* =========================================================

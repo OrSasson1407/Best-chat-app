@@ -10,19 +10,22 @@
  * - Fetches pending scheduled messages from MongoDB
  * - Marks messages as sent
  * - Emits real-time events via Socket.io
+ * - Enqueues push notifications for offline users (NEW)
  * - Supports:
- *    • private chats
- *    • group chats
- *    • polls
- *    • link previews
- *    • view-once messages
- *    • forwarded messages
+ * • private chats
+ * • group chats
+ * • polls
+ * • link previews
+ * • view-once messages
+ * • forwarded messages
  *
  * This worker runs continuously after the server starts.
  */
 
 const Message = require("../models/Message"); // MongoDB message model
+const User = require("../models/User"); // ADDED: Required to get FCM tokens for offline users
 const logger = require("../utils/logger"); // Central logging utility
+const { notificationQueue } = require("./notificationWorker"); // ADDED: Notification queue
 
 
 /**
@@ -30,13 +33,13 @@ const logger = require("../utils/logger"); // Central logging utility
  *
  * The worker periodically scans the database for messages
  * where:
- *   - isSent = false
- *   - scheduledAt <= current time
+ * - isSent = false
+ * - scheduledAt <= current time
  *
  * Once found, the message is:
- *   1. Marked as sent
- *   2. Saved to database
- *   3. Delivered to recipients via Socket.io
+ * 1. Marked as sent
+ * 2. Saved to database
+ * 3. Delivered to recipients via Socket.io (or Push Notification if offline)
  */
 const startMessageScheduler = () => {
 
@@ -100,7 +103,8 @@ const startMessageScheduler = () => {
             /**
              * Deliver message to each recipient
              */
-            targetUsers.forEach(targetId => {
+            // CHANGED: Using a regular for...of loop so we can use async/await inside it for database calls
+            for (let targetId of targetUsers) {
 
               /**
                * Retrieve the recipient's socket ID
@@ -139,8 +143,25 @@ const startMessageScheduler = () => {
                     // Determine if message belongs to group chat
                     isGroup: msg.users.length > 2
                   });
+                  
+              } else {
+                
+                /**
+                 * ADDED: If recipient is offline, send a push notification instead
+                 */
+                const offlineUser = await User.findById(targetId.toString());
+                
+                if (offlineUser && offlineUser.fcmToken) {
+                  await notificationQueue.add("send_fcm_message", {
+                    userId: targetId.toString(),
+                    fcmToken: offlineUser.fcmToken,
+                    title: "New Scheduled Message",
+                    body: msg.message?.text || msg.message.text || "You received a new message"
+                  });
+                }
+
               }
-            });
+            }
           }
         }
 

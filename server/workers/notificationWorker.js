@@ -15,11 +15,12 @@
  * - Handles retries and failures
  *
  * Queue Name:
- *   "notifications"
+ * "notifications"
  */
 
 const { Queue, Worker } = require("bullmq"); // Redis job queue system
 const admin = require("firebase-admin"); // Firebase Admin SDK for push notifications
+const User = require("../models/User"); // ADDED: Required to clean up stale FCM tokens
 
 
 
@@ -90,7 +91,19 @@ const connection = {
  *
  * Jobs added here will be processed by the worker.
  */
-const notificationQueue = new Queue("notifications", { connection });
+// ADDED: Added defaultJobOptions to handle retries and keep Redis memory clean
+const notificationQueue = new Queue("notifications", { 
+  connection,
+  defaultJobOptions: {
+    attempts: 3, // Retry failed jobs up to 3 times
+    backoff: {
+      type: 'exponential',
+      delay: 2000 // Wait 2s, then 4s, then 8s between retries
+    },
+    removeOnComplete: true, // Delete job from Redis when done
+    removeOnFail: 100 // Keep only the last 100 failed jobs for debugging
+  }
+});
 
 
 
@@ -181,7 +194,19 @@ const worker = new Worker(
          * If token becomes invalid (user uninstalled app),
          * remove it from the database.
          */
+        // ADDED: Logic to actually remove the dead token from the database
+        if (
+          error.code === 'messaging/invalid-registration-token' ||
+          error.code === 'messaging/registration-token-not-registered'
+        ) {
+          console.log(`🧹 Removing stale FCM token for user ${userId}`);
+          await User.findByIdAndUpdate(userId, { $unset: { fcmToken: "" } });
+          
+          return; // Return so BullMQ knows NOT to retry sending to this dead token
+        }
 
+        // ADDED: Rethrow the error if it was a network issue, so BullMQ triggers a retry
+        throw error;
       }
 
     }
@@ -224,10 +249,10 @@ worker.on("failed", (job, err) =>
  * Example usage:
  *
  * await notificationQueue.add("send_fcm_message", {
- *   userId,
- *   fcmToken,
- *   title: "New Message",
- *   body: "You received a new message"
+ * userId,
+ * fcmToken,
+ * title: "New Message",
+ * body: "You received a new message"
  * });
  */
 module.exports = { notificationQueue };

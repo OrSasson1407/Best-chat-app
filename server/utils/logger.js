@@ -9,22 +9,47 @@
  * - Write logs to files for monitoring and debugging
  * - Output readable logs in development
  * - Provide structured JSON logs in production
+ * - Handle log rotation to prevent infinite file growth (NEW)
+ * - Automatically mask sensitive data (NEW)
  *
  * Log Files:
- *   logs/error.log     -> Stores only error logs
- *   logs/combined.log  -> Stores all logs
+ * logs/error-%DATE%.log    -> Stores only error logs
+ * logs/combined-%DATE%.log -> Stores all logs
  *
  * Benefits:
  * - Easier debugging
  * - Production observability
- * - Compatible with logging systems like:
- *      • ELK Stack
- *      • Datadog
- *      • Grafana
- *      • CloudWatch
+ * - Compatible with logging systems like ELK Stack, Datadog, etc.
  */
 
 const { createLogger, format, transports } = require("winston");
+require("winston-daily-rotate-file"); // ADDED: Log rotation plugin
+
+/* =====================================================
+   SENSITIVE DATA MASKING (NEW)
+   ===================================================== */
+/**
+ * Automatically detects sensitive keys and replaces their
+ * values with "***MASKED***" before writing to log files.
+ */
+const maskSensitiveData = format((info) => {
+  const sensitiveKeys = ['password', 'token', 'publicKey', 'privateKey'];
+  const maskStr = '***MASKED***';
+
+  const traverseAndMask = (obj) => {
+    for (let key in obj) {
+      if (sensitiveKeys.includes(key.toLowerCase())) {
+        obj[key] = maskStr;
+      } else if (typeof obj[key] === 'object' && obj[key] !== null) {
+        traverseAndMask(obj[key]);
+      }
+    }
+  };
+
+  // Mask metadata and info object
+  traverseAndMask(info);
+  return info;
+});
 
 
 /**
@@ -44,7 +69,8 @@ const logger = createLogger({
    * Log format configuration
    */
   format: format.combine(
-
+    maskSensitiveData(), // ADDED: Mask sensitive fields automatically
+    
     /**
      * Adds timestamp to every log entry
      */
@@ -78,20 +104,28 @@ const logger = createLogger({
   transports: [
 
     /**
-     * Error log file
-     * Stores only error-level logs
+     * Error log file (CHANGED: Now using DailyRotateFile)
+     * Stores only error-level logs, rotates daily, keeps 14 days
      */
-    new transports.File({
-      filename: "logs/error.log",
-      level: "error"
+    new transports.DailyRotateFile({
+      filename: "logs/error-%DATE%.log",
+      datePattern: "YYYY-MM-DD",
+      level: "error",
+      zippedArchive: true, // Compress old logs to save space
+      maxSize: "20m",      // Max file size before rotating
+      maxFiles: "14d"      // Delete logs older than 14 days
     }),
 
     /**
-     * Combined log file
-     * Stores all logs including info/debug
+     * Combined log file (CHANGED: Now using DailyRotateFile)
+     * Stores all logs including info/debug, rotates daily
      */
-    new transports.File({
-      filename: "logs/combined.log"
+    new transports.DailyRotateFile({
+      filename: "logs/combined-%DATE%.log",
+      datePattern: "YYYY-MM-DD",
+      zippedArchive: true,
+      maxSize: "20m",
+      maxFiles: "14d"
     }),
 
   ],
@@ -134,13 +168,5 @@ if (process.env.NODE_ENV !== "production") {
 
 /**
  * Export logger instance
- *
- * Example usage:
- *
- * const logger = require("../utils/logger");
- *
- * logger.info("Server started");
- * logger.error("Database connection failed");
- * logger.debug("User login attempt");
  */
 module.exports = logger;
