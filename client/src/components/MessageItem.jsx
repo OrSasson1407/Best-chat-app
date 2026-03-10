@@ -99,7 +99,7 @@ const MessageItem = React.memo(({
                     </div>
                 )}
                 {msg.status === "pending" ? (
-                    <span className="tick-pending" style={{ color: '#888', opacity: 0.7 }}><FaRegClock size={11} /></span>
+                    <span className="tick-pending" style={{ color: 'var(--text-dim)', opacity: 0.7 }}><FaRegClock size={11} /></span>
                 ) : (msg.status === "read" || hasReaders) ? (
                     <span className="tick-read" style={{ color: '#34B7F1', cursor: isGroup ? 'pointer' : 'default' }}>✓✓</span>
                 ) : msg.status === "delivered" ? (
@@ -124,7 +124,7 @@ const MessageItem = React.memo(({
                         <HighlightedText text={translatedText || msg.message} query={searchQuery} />
                     </p>
                     {isTranslating && <span style={{ fontSize: '0.65rem', color: '#00ff88', fontStyle: 'italic', marginTop: '4px' }}>Translating via AI...</span>}
-                    {translatedText && <span style={{ fontSize: '0.65rem', color: '#34B7F1', fontStyle: 'italic', marginTop: '4px' }}>Translated from original</span>}
+                    {translatedText && <span style={{ fontSize: '0.65rem', color: 'var(--text-main)', opacity: 0.7, fontStyle: 'italic', marginTop: '4px' }}>Translated from original</span>}
                 </div>
             );
         }
@@ -246,7 +246,7 @@ const MessageItem = React.memo(({
                                 {/* --- MERGE UPDATE: AI TRANSLATE BUTTON --- */}
                                 {message.type === "text" && (
                                     <button onClick={handleTranslate} title={translatedText ? "Show Original" : "Translate with AI"}>
-                                        <FaLanguage color={translatedText ? "#34B7F1" : "inherit"} />
+                                        <FaLanguage color={translatedText ? "var(--msg-sent)" : "inherit"} />
                                     </button>
                                 )}
 

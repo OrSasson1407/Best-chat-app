@@ -1,4 +1,3 @@
-// client/src/components/Contacts.jsx
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import styled, { keyframes, css } from "styled-components";
 import { 
@@ -686,25 +685,25 @@ export default function Contacts({
                     
                     <div className="member-select" style={{ minHeight: '200px' }}>
                         {isSearchingChannels ? (
-                            <div style={{textAlign: 'center', marginTop: '20px'}}><FaSpinner className="fa-spin" color="#4e0eff"/></div>
+                            <div style={{textAlign: 'center', marginTop: '20px'}}><FaSpinner className="fa-spin" color="var(--msg-sent)"/></div>
                         ) : discoveredChannels.length > 0 ? (
                             discoveredChannels.map(channel => (
                                 <div key={channel._id} style={{
                                     display:'flex', justifyContent:'space-between', alignItems:'center', 
-                                    background:'rgba(255,255,255,0.05)', padding:'10px', borderRadius:'10px', marginBottom:'10px'
+                                    background:'var(--input-bg)', padding:'10px', borderRadius:'10px', marginBottom:'10px'
                                 }}>
                                     <div style={{flex: 1}}>
-                                        <h4 style={{margin:0, color:'#00ff88', fontSize:'1rem'}}>{channel.name}</h4>
-                                        <p style={{margin:'4px 0 0 0', fontSize:'0.75rem', color:'#aaa'}}>{channel.members?.length} subscribers</p>
+                                        <h4 style={{margin:0, color:'var(--msg-sent)', fontSize:'1rem'}}>{channel.name}</h4>
+                                        <p style={{margin:'4px 0 0 0', fontSize:'0.75rem', color:'var(--text-dim)'}}>{channel.members?.length} subscribers</p>
                                     </div>
                                     <button onClick={() => handleJoinChannel(channel._id)} style={{
-                                        background:'#4e0eff', color:'white', border:'none', padding:'6px 12px', 
+                                        background:'var(--msg-sent)', color:'white', border:'none', padding:'6px 12px', 
                                         borderRadius:'20px', cursor:'pointer', fontWeight:'bold'
                                     }}>Join</button>
                                 </div>
                             ))
                         ) : (
-                            channelSearchQuery.length > 0 && <p style={{textAlign:'center', color:'#888'}}>No channels found.</p>
+                            channelSearchQuery.length > 0 && <p style={{textAlign:'center', color:'var(--text-dim)'}}>No channels found.</p>
                         )}
                     </div>
                     
@@ -738,7 +737,7 @@ export default function Contacts({
                       </div>
 
                       <hr className="divider" />
-                      <h4 style={{ color: '#00ff88', marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <h4 style={{ color: 'var(--msg-sent)', marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                           <FaShieldAlt /> Privacy & Security
                       </h4>
                       <div className="settings-row">
@@ -765,8 +764,8 @@ export default function Contacts({
                       </div>
                       <div className="input-group" style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px' }}>
                           <div>
-                              <label style={{ margin: 0, color: '#e0e0e0', fontSize: '0.85rem', fontWeight: 'bold' }}>Read Receipts</label>
-                              <p style={{ margin: 0, fontSize: '0.7rem', color: '#888', marginTop: '4px' }}>If turned off, you won't send or receive blue ticks.</p>
+                              <label style={{ margin: 0, color: 'var(--text-main)', fontSize: '0.85rem', fontWeight: 'bold' }}>Read Receipts</label>
+                              <p style={{ margin: 0, fontSize: '0.7rem', color: 'var(--text-dim)', marginTop: '4px' }}>If turned off, you won't send or receive blue ticks.</p>
                           </div>
                           <button 
                               className={`toggle-btn ${profileData.privacySettings.readReceipts ? 'active' : ''}`} 
@@ -778,8 +777,8 @@ export default function Contacts({
                       </div>
                       <div className="input-group" style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px' }}>
                           <div>
-                              <label style={{ margin: 0, color: '#e0e0e0', fontSize: '0.85rem', fontWeight: 'bold' }}>App Lock (PIN)</label>
-                              <p style={{ margin: 0, fontSize: '0.7rem', color: '#888', marginTop: '4px' }}>Require a 4-digit PIN to open the app.</p>
+                              <label style={{ margin: 0, color: 'var(--text-main)', fontSize: '0.85rem', fontWeight: 'bold' }}>App Lock (PIN)</label>
+                              <p style={{ margin: 0, fontSize: '0.7rem', color: 'var(--text-dim)', marginTop: '4px' }}>Require a 4-digit PIN to open the app.</p>
                           </div>
                           <button 
                               className={`toggle-btn ${hasPin ? 'active' : ''}`} 
@@ -806,7 +805,7 @@ export default function Contacts({
                       </div>
 
                       <hr className="divider" />
-                      <h4 style={{ color: '#34B7F1', marginBottom: '15px' }}>Public Profile</h4>
+                      <h4 style={{ color: 'var(--msg-sent)', marginBottom: '15px' }}>Public Profile</h4>
                       <div className="input-group">
                           <label>Status Icon & Message</label>
                           <div style={{display:'flex', gap:'10px'}}>
@@ -872,7 +871,7 @@ export default function Contacts({
               </StoryViewerOverlay>
           )}
 
-          <ToastContainer position="bottom-left" theme="dark" />
+          <ToastContainer position="bottom-left" theme={theme === 'light' ? 'light' : 'dark'} />
         </Container>
       )}
     </>
@@ -897,17 +896,16 @@ const Container = styled.div`
   height: 100%; 
   width: 100%; 
   overflow: hidden; 
-  background: rgba(0, 0, 0, 0.2); 
-  border-right: 1px solid rgba(255, 255, 255, 0.05);
+  background: transparent; 
+  border-right: 1px solid var(--glass-border);
   
+  /* Retain specific theme overwrites if needed, otherwise CSS variables handle it */
   ${({ $themeType }) => $themeType === 'cyberpunk' && css` border-right: 1px solid #00ff88; `}
-  ${({ $themeType }) => $themeType === 'midnight' && css` background: #000; border-right: 1px solid #333; `}
-  ${({ $themeType }) => $themeType === 'light' && css` background: #fff; border-right: 1px solid #ddd; `}
 
   .brand { 
     display: flex; align-items: center; justify-content: center; position: relative;
     h3 { 
-        color: ${({ $themeType }) => $themeType === 'light' ? '#333' : '#fff'}; 
+        color: var(--text-main); 
         text-transform: uppercase; letter-spacing: 0.3rem; font-weight: 700; 
         ${({ $isCompact }) => $isCompact && css`font-size: 1rem;`} 
     } 
@@ -917,26 +915,23 @@ const Container = styled.div`
     overflow: hidden;
     &::after {
       content: ""; position: absolute; top: 0; left: -100%; width: 50%; height: 100%;
-      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.05), transparent);
-      ${({ $themeType }) => $themeType === 'light' && css` background: linear-gradient(90deg, transparent, rgba(0,0,0,0.05), transparent); `}
+      background: linear-gradient(90deg, transparent, var(--glass-border), transparent);
       transform: skewX(-25deg); animation: ${glassShine} 4s infinite linear;
     }
   }
 
   .folders-bar {
       display: flex; justify-content: space-around; align-items: center;
-      padding: 0 1rem; border-bottom: 1px solid rgba(255,255,255,0.05);
-      ${({ $themeType }) => $themeType === 'light' && css` border-bottom: 1px solid rgba(0,0,0,0.05); `}
+      padding: 0 1rem; border-bottom: 1px solid var(--glass-border);
   }
 
   .search-bar { 
       display: flex; align-items: center; justify-content: center; padding: 0 1.2rem; position: relative; 
-      .search-icon { position: absolute; left: 2.2rem; color: #666; font-size: 0.9rem; } 
-      .clear-icon { position: absolute; right: 2.2rem; color: #888; font-size: 0.9rem; cursor: pointer; transition: 0.2s; &:hover { color: ${({ $themeType }) => $themeType === 'light' ? '#333' : '#fff'}; transform: scale(1.1); } }
+      .search-icon { position: absolute; left: 2.2rem; color: var(--text-dim); font-size: 0.9rem; } 
+      .clear-icon { position: absolute; right: 2.2rem; color: var(--text-dim); font-size: 0.9rem; cursor: pointer; transition: 0.2s; &:hover { color: var(--text-main); transform: scale(1.1); } }
       input { 
-          width: 100%; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255,255,255,0.05); padding: 0.6rem 2.8rem; border-radius: 1.2rem; color: white; outline: none; transition: 0.3s; font-size: 0.9rem; 
-          ${({ $themeType }) => $themeType === 'light' && css` background: rgba(0,0,0,0.03); border: 1px solid rgba(0,0,0,0.05); color: #333; `}
-          &:focus { background: rgba(255, 255, 255, 0.08); border-color: rgba(78, 14, 255, 0.4); box-shadow: 0 0 10px rgba(78, 14, 255, 0.1); } 
+          width: 100%; background: var(--input-bg); border: 1px solid var(--glass-border); padding: 0.6rem 2.8rem; border-radius: 1.2rem; color: var(--text-main); outline: none; transition: 0.3s; font-size: 0.9rem; 
+          &:focus { border-color: var(--msg-sent); box-shadow: 0 0 10px rgba(78, 14, 255, 0.1); } 
       } 
   }
   
@@ -947,55 +942,52 @@ const Container = styled.div`
     
     &::-webkit-scrollbar { width: 4px; } 
     &::-webkit-scrollbar-track { background: transparent; }
-    &::-webkit-scrollbar-thumb { background-color: rgba(255, 255, 255, 0.15); border-radius: 10px; }
-    ${({ $themeType }) => $themeType === 'light' && css` &::-webkit-scrollbar-thumb { background-color: rgba(0, 0, 0, 0.15); } `}
+    &::-webkit-scrollbar-thumb { background-color: var(--glass-border); border-radius: 10px; }
     
-    .empty-state { color: #666; font-style: italic; margin-top: 2rem; font-size: 0.9rem; }
+    .empty-state { color: var(--text-dim); font-style: italic; margin-top: 2rem; font-size: 0.9rem; }
     
-    .create-group-btn { width: 92%; background: linear-gradient(90deg, #4e0eff, #9a86f3); padding: 0.9rem; text-align: center; border-radius: 0.8rem; cursor: pointer; color: white; display: flex; align-items: center; justify-content: center; gap: 0.6rem; font-weight: bold; font-size: 0.9rem; flex-shrink: 0; box-shadow: 0 4px 15px rgba(0,0,0,0.3); transition: 0.3s; &:hover { transform: translateY(-3px); box-shadow: 0 8px 20px rgba(78, 14, 255, 0.3); filter: brightness(1.1); } }
+    .create-group-btn { width: 92%; background: linear-gradient(90deg, var(--msg-sent), #9a86f3); padding: 0.9rem; text-align: center; border-radius: 0.8rem; cursor: pointer; color: white; display: flex; align-items: center; justify-content: center; gap: 0.6rem; font-weight: bold; font-size: 0.9rem; flex-shrink: 0; box-shadow: 0 4px 15px rgba(0,0,0,0.3); transition: 0.3s; &:hover { transform: translateY(-3px); box-shadow: 0 8px 20px rgba(78, 14, 255, 0.3); filter: brightness(1.1); } }
     
-    .skeleton-box { background: rgba(255,255,255,0.02) !important; border: none !important; cursor: default; flex-shrink: 0; &:hover { transform: none; } }
-    .skeleton-anim { background: #1a1a2e; background-image: linear-gradient(to right, #1a1a2e 0%, #2a2a3e 20%, #1a1a2e 40%, #1a1a2e 100%); background-repeat: no-repeat; background-size: 800px 100%; animation: ${shimmer} 1.5s infinite linear forwards; }
+    .skeleton-box { background: var(--glass-bg) !important; border: none !important; cursor: default; flex-shrink: 0; &:hover { transform: none; } }
+    .skeleton-anim { background: var(--bg-panel); background-image: linear-gradient(to right, var(--bg-panel) 0%, var(--glass-border) 20%, var(--bg-panel) 40%, var(--bg-panel) 100%); background-repeat: no-repeat; background-size: 800px 100%; animation: ${shimmer} 1.5s infinite linear forwards; }
     .skeleton-line { height: 12px; width: 100px; border-radius: 4px; margin-bottom: 6px; }
     .skeleton-line.short { width: 60px; height: 10px; }
 
     .search-section-title {
-        width: 90%; text-transform: uppercase; color: #888; font-size: 0.75rem; 
+        width: 90%; text-transform: uppercase; color: var(--text-dim); font-size: 0.75rem; 
         font-weight: 700; margin: 15px 0 5px 0; letter-spacing: 1px; flex-shrink: 0;
     }
     
     .global-msg-item {
-        background: rgba(255, 255, 255, 0.03); width: 90%; padding: 0.8rem; 
+        background: var(--glass-bg); width: 90%; padding: 0.8rem; 
         border-radius: 0.8rem; cursor: pointer; transition: 0.3s;
-        border: 1px solid rgba(78, 14, 255, 0.2); flex-shrink: 0;
-        ${({ $themeType }) => $themeType === 'light' && css` background: rgba(0,0,0,0.03); border: 1px solid rgba(78, 14, 255, 0.1); `}
+        border: 1px solid var(--glass-border); flex-shrink: 0;
         
-        &:hover { background: rgba(78, 14, 255, 0.15); border-color: rgba(78, 14, 255, 0.4); transform: translateY(-2px); }
-        .msg-text { color: ${({ $themeType }) => $themeType === 'light' ? '#333' : '#e0e0e0'}; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-style: italic;}
-        .msg-date { color: #666; font-size: 0.65rem; display: block; margin-top: 6px; text-align: right;}
+        &:hover { background: var(--input-bg); border-color: var(--msg-sent); transform: translateY(-2px); }
+        .msg-text { color: var(--text-main); font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-style: italic;}
+        .msg-date { color: var(--text-dim); font-size: 0.65rem; display: block; margin-top: 6px; text-align: right;}
     }
   }
 
   .current-user {
-      background: rgba(0, 0, 0, 0.3); padding: 1.2rem; display: flex; justify-content: center; align-items: center;
-      border-top: 1px solid rgba(255,255,255,0.05); height: 100%; 
-      ${({ $themeType }) => $themeType === 'light' && css` background: #fff; border-top: 1px solid #ddd; `}
+      background: var(--glass-bg); padding: 1.2rem; display: flex; justify-content: center; align-items: center;
+      border-top: 1px solid var(--glass-border); height: 100%; 
 
       .user-info {
           display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 12px;
-          .current-user-avatar { height: 2.8rem; min-width: 2.8rem; width: 2.8rem; border-radius: 50%; overflow: hidden; border: 2px solid rgba(0, 255, 136, 0.2); img { width: 100%; height: 100%; object-fit: cover; } }
+          .current-user-avatar { height: 2.8rem; min-width: 2.8rem; width: 2.8rem; border-radius: 50%; overflow: hidden; border: 2px solid var(--msg-sent); img { width: 100%; height: 100%; object-fit: cover; } }
           
           .details { 
               display: flex; flex-direction: column; flex-grow: 1; 
-              h2 { color: ${({ $themeType }) => $themeType === 'light' ? '#333' : 'white'}; font-size: 1.1rem; font-weight: 600; margin: 0;} 
+              h2 { color: var(--text-main); font-size: 1.1rem; font-weight: 600; margin: 0;} 
               .status-text { margin: 0; color: #00ff88; font-size: 0.75rem; font-weight: 500; } 
           }
           
           .actions { 
               display: flex; gap: 0.6rem; align-items: center; 
-              button { border: none; border-radius: 0.6rem; color: white; cursor: pointer; font-size: 0.8rem; font-weight: bold; padding: 0.5rem 0.9rem; display: flex; align-items: center; justify-content: center; transition: 0.3s; } 
-              .theme-btn { background: rgba(0, 198, 255, 0.15); color: #00c6ff; &:hover { background: #00c6ff; color: white; transform: rotate(15deg); } }
-              .profile-btn { background: rgba(78, 14, 255, 0.2); color: #9a86f3; &:hover { background: #4e0eff; color: white; transform: rotate(90deg); } } 
+              button { border: none; border-radius: 0.6rem; cursor: pointer; font-size: 0.8rem; font-weight: bold; padding: 0.5rem 0.9rem; display: flex; align-items: center; justify-content: center; transition: 0.3s; } 
+              .theme-btn { background: var(--input-bg); color: var(--text-main); &:hover { background: var(--msg-sent); color: white; transform: rotate(15deg); } }
+              .profile-btn { background: var(--input-bg); color: var(--msg-sent); &:hover { background: var(--msg-sent); color: white; transform: rotate(90deg); } } 
               .logout-btn { background: rgba(255, 78, 78, 0.1); color: #ff4e4e; &:hover { background: #ff4e4e; color: white; } } 
           }
       }
@@ -1003,7 +995,7 @@ const Container = styled.div`
 `;
 
 const ContactItem = styled.div`
-  background: rgba(255, 255, 255, 0.03); 
+  background: var(--glass-bg); 
   padding: ${({ $isCompact }) => $isCompact ? '0.5rem' : '0.8rem'}; 
   width: 90%; flex-shrink: 0; 
   border-radius: 1rem; display: flex; align-items: center; gap: 1rem; 
@@ -1011,127 +1003,120 @@ const ContactItem = styled.div`
   transition: all 0.25s cubic-bezier(0.25, 0.8, 0.25, 1);
   overflow: hidden; 
 
-  ${({ $themeType }) => $themeType === 'light' && css` background: rgba(0,0,0,0.03); `}
-
   ${({ $isPinned }) => $isPinned && css`
-    background: rgba(255, 255, 255, 0.06); border-left: 3.5px solid #4e0eff;
-    ${({ $themeType }) => $themeType === 'light' && css` background: rgba(0,0,0,0.06); `}
+    background: var(--input-bg); border-left: 3.5px solid var(--msg-sent);
   `}
 
   &:hover { 
-    background: rgba(255, 255, 255, 0.08); 
+    background: var(--input-bg); 
     transform: scale(1.03) translateY(-2px); 
-    box-shadow: 0 5px 15px rgba(0,0,0,0.2);
-    ${({ $themeType }) => $themeType === 'light' && css` background: #fff; box-shadow: 0 5px 15px rgba(0,0,0,0.05); `}
+    box-shadow: 0 5px 15px rgba(0,0,0,0.1);
     .pin-btn { opacity: 1; }
   }
 
-  ${({ $selected, $themeType }) => $selected && css`
-      background: rgba(78, 14, 255, 0.15); 
-      border-color: rgba(78, 14, 255, 0.4);
+  ${({ $selected }) => $selected && css`
+      background: var(--input-bg); 
+      border-color: var(--msg-sent);
       transform: scale(1.02);
-      ${$themeType === 'cyberpunk' && css`background: rgba(0, 255, 136, 0.1); border-color: #00ff88;`}
-      ${$themeType === 'light' && css`background: rgba(78, 14, 255, 0.1); border-color: rgba(78, 14, 255, 0.2);`}
   `}
 
   .avatar { 
     height: 3rem; width: 3rem; min-width: 3rem; border-radius: 50%; overflow: hidden; 
     display: flex; align-items: center; justify-content: center; 
-    background: #1a1a2e; transition: box-shadow 0.3s ease;
+    background: var(--bg-panel); transition: box-shadow 0.3s ease;
     img { width: 100%; height: 100%; object-fit: cover; } 
-    .group-avatar { font-weight: bold; color: #4e0eff; font-size: 1.3rem; }
-    ${({ $selected }) => $selected && css`box-shadow: 0 0 15px rgba(78, 14, 255, 0.5);`}
+    .group-avatar { font-weight: bold; color: var(--msg-sent); font-size: 1.3rem; }
+    ${({ $selected }) => $selected && css`box-shadow: 0 0 15px var(--glass-border);`}
   }
 
   .username { 
     flex-grow: 1; display: flex; flex-direction: column; justify-content: center; overflow: hidden; 
-    h3 { color: ${({ $themeType }) => $themeType === 'light' ? '#333' : '#e0e0e0'}; font-size: 0.95rem; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } 
+    h3 { color: var(--text-main); font-size: 0.95rem; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } 
     .presence-container { display: flex; align-items: center; gap: 5px; }
-    .status-text { color: #888; font-size: 0.75rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px; } 
+    .status-text { color: var(--text-dim); font-size: 0.75rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px; } 
     .typing-text { color: #00ff88; font-style: italic; font-weight: 600; letter-spacing: 0.5px; animation: ${glassShine} 2s infinite linear; }
     .online-text { color: #00ff88; font-weight: 500; }
-    .offline-text { color: #888; font-style: italic; }
+    .offline-text { color: var(--text-dim); font-style: italic; }
   }
   
   .contact-meta {
     display: flex; flex-direction: column; align-items: flex-end; gap: 8px; min-width: 20px; 
     .online-indicator { height: 8px; width: 8px; background: #00ff88; border-radius: 50%; box-shadow: 0 0 10px #00ff88; }
     .pin-btn {
-      background: none; border: none; color: #555; cursor: pointer; transition: 0.2s; font-size: 0.85rem;
+      background: none; border: none; color: var(--text-dim); cursor: pointer; transition: 0.2s; font-size: 0.85rem;
       opacity: ${({ $isPinned }) => $isPinned ? 1 : 0};
-      &:hover { color: ${({ $themeType }) => $themeType === 'light' ? '#333' : '#fff'}; transform: scale(1.2); }
-      &.pinned { color: #4e0eff; }
+      &:hover { color: var(--text-main); transform: scale(1.2); }
+      &.pinned { color: var(--msg-sent); }
     }
   }
 `;
 
 const FolderBtn = styled.button`
-    background: transparent; border: none; color: #777; cursor: pointer;
+    background: transparent; border: none; color: var(--text-dim); cursor: pointer;
     font-size: 1.2rem; display: flex; align-items: center; justify-content: center;
     transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); 
     width: 42px; height: 42px; border-radius: 12px; position: relative;
     
-    &:hover { color: #fff; background: rgba(255,255,255,0.08); transform: translateY(-2px); }
-    &.active { color: #4e0eff; background: rgba(78, 14, 255, 0.12); box-shadow: 0 4px 10px rgba(78, 14, 255, 0.2); transform: translateY(-2px); }
+    &:hover { color: var(--text-main); background: var(--input-bg); transform: translateY(-2px); }
+    &.active { color: var(--msg-sent); background: var(--input-bg); box-shadow: 0 4px 10px rgba(0,0,0,0.1); transform: translateY(-2px); }
 
     .badge {
         position: absolute; top: -2px; right: -2px;
         color: white; font-size: 0.6rem; font-weight: bold;
-        padding: 2px 5px; border-radius: 10px; border: 2px solid #131324;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+        padding: 2px 5px; border-radius: 10px; border: 2px solid var(--bg-panel);
+        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
     }
-    .theme-badge { background: #4e0eff; }
+    .theme-badge { background: var(--msg-sent); }
     .danger-badge { background: #ff4e4e; }
 `;
 
 const Modal = styled.div`
     position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-    background: rgba(0,0,0,0.85); display: flex; justify-content: center; align-items: center; 
+    background: rgba(0,0,0,0.6); display: flex; justify-content: center; align-items: center; 
     z-index: 100; backdrop-filter: blur(12px);
     .modal-content {
-        background: #0d0d30; padding: 2.2rem; border-radius: 1.5rem; width: 440px;
-        border: 1px solid rgba(255, 255, 255, 0.12); box-shadow: 0 15px 40px rgba(0,0,0,0.6);
+        background: var(--bg-panel); padding: 2.2rem; border-radius: 1.5rem; width: 440px;
+        border: 1px solid var(--glass-border); box-shadow: 0 15px 40px rgba(0,0,0,0.2);
         max-height: 90vh; overflow-y: auto;
         
         &::-webkit-scrollbar { width: 4px; } 
         &::-webkit-scrollbar-track { background: transparent; }
-        &::-webkit-scrollbar-thumb { background-color: rgba(78, 14, 255, 0.5); border-radius: 10px; }
+        &::-webkit-scrollbar-thumb { background-color: var(--glass-border); border-radius: 10px; }
 
-        h3 { color: white; margin-bottom: 1.5rem; text-align: center; font-weight: 600; font-size: 1.3rem; }
-        .divider { border-color: rgba(255,255,255,0.1); margin: 1.5rem 0; }
+        h3 { color: var(--text-main); margin-bottom: 1.5rem; text-align: center; font-weight: 600; font-size: 1.3rem; }
+        .divider { border-color: var(--glass-border); margin: 1.5rem 0; }
         .settings-row { display: flex; gap: 1rem; }
-        select, input, textarea { width: 100%; padding: 0.9rem; margin-bottom: 0.8rem; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(78, 14, 255, 0.3); color: white; border-radius: 0.8rem; font-family: inherit; transition: 0.3s; &:focus { outline: none; border-color: #9a86f3; background: rgba(255,255,255,0.08); } }
-        .toggle-btn { padding: 0.9rem; background: rgba(255,255,255,0.05); color: white; border: 1px solid rgba(78, 14, 255, 0.3); border-radius: 0.8rem; cursor: pointer; width: 100%; transition: 0.3s; font-weight: 500;}
-        .toggle-btn.active { background: #4e0eff; border-color: #4e0eff; box-shadow: 0 4px 15px rgba(78, 14, 255, 0.3); }
+        select, input, textarea { width: 100%; padding: 0.9rem; margin-bottom: 0.8rem; background: var(--input-bg); border: 1px solid var(--glass-border); color: var(--text-main); border-radius: 0.8rem; font-family: inherit; transition: 0.3s; &:focus { outline: none; border-color: var(--msg-sent); } }
+        .toggle-btn { padding: 0.9rem; background: var(--input-bg); color: var(--text-main); border: 1px solid var(--glass-border); border-radius: 0.8rem; cursor: pointer; width: 100%; transition: 0.3s; font-weight: 500;}
+        .toggle-btn.active { background: var(--msg-sent); border-color: var(--msg-sent); color: white; box-shadow: 0 4px 15px rgba(78, 14, 255, 0.3); }
         textarea { resize: none; height: 95px; }
-        .input-group { display: flex; flex-direction: column; flex: 1; label { color: #888; font-size: 0.75rem; margin-bottom: 0.4rem; text-transform: uppercase; letter-spacing: 0.05rem; } }
-        .member-select { max-height: 180px; overflow-y: auto; margin-bottom: 1.5rem; h4 { color: #888; margin-bottom: 0.6rem; font-size: 0.8rem; text-transform: uppercase; } .select-item { padding: 0.75rem; color: #ddd; cursor: pointer; border-radius: 0.6rem; margin: 4px 0; transition: 0.2s; &:hover { background: rgba(255,255,255,0.06); } &.selected { background: #4e0eff; color: white; font-weight: 600; } } }
-        .modal-actions { display: flex; gap: 1rem; justify-content: center; margin-top: 1rem; button { padding: 0.8rem 2.4rem; border: none; border-radius: 0.8rem; cursor: pointer; background: #4e0eff; color: white; font-weight: bold; transition: 0.3s; &:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(78, 14, 255, 0.4); } } .cancel { background: #ff4e4e; &:hover { box-shadow: 0 5px 15px rgba(255, 78, 78, 0.4); } } }
+        .input-group { display: flex; flex-direction: column; flex: 1; label { color: var(--text-dim); font-size: 0.75rem; margin-bottom: 0.4rem; text-transform: uppercase; letter-spacing: 0.05rem; } }
+        .member-select { max-height: 180px; overflow-y: auto; margin-bottom: 1.5rem; h4 { color: var(--text-dim); margin-bottom: 0.6rem; font-size: 0.8rem; text-transform: uppercase; } .select-item { padding: 0.75rem; color: var(--text-main); cursor: pointer; border-radius: 0.6rem; margin: 4px 0; transition: 0.2s; &:hover { background: var(--input-bg); } &.selected { background: var(--msg-sent); color: white; font-weight: 600; } } }
+        .modal-actions { display: flex; gap: 1rem; justify-content: center; margin-top: 1rem; button { padding: 0.8rem 2.4rem; border: none; border-radius: 0.8rem; cursor: pointer; background: var(--msg-sent); color: white; font-weight: bold; transition: 0.3s; &:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.2); } } .cancel { background: #ff4e4e; } }
     }
 `;
 
 const StoryTray = styled.div`
-    display: flex; gap: 12px; padding: 0.8rem; overflow-x: auto; border-bottom: 1px solid rgba(255,255,255,0.05);
-    ${({ $themeType }) => $themeType === 'light' && css` border-bottom: 1px solid rgba(0,0,0,0.05); `}
+    display: flex; gap: 12px; padding: 0.8rem; overflow-x: auto; border-bottom: 1px solid var(--glass-border);
     &::-webkit-scrollbar { display: none; }
     
     .story-item {
         display: flex; flex-direction: column; align-items: center; gap: 5px; cursor: pointer; min-width: 60px;
-        p { color: ${({ $themeType }) => $themeType === 'light' ? '#666' : '#ccc'}; font-size: 0.65rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60px; text-align: center; }
+        p { color: var(--text-dim); font-size: 0.65rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60px; text-align: center; }
         
         .story-ring {
             width: 52px; height: 52px; border-radius: 50%; padding: 2px; position: relative;
             background: linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%);
             
-            img { width: 100%; height: 100%; border-radius: 50%; border: 2px solid #131324; object-fit: cover; }
+            img { width: 100%; height: 100%; border-radius: 50%; border: 2px solid var(--bg-panel); object-fit: cover; }
             
-            &.read { background: rgba(255, 255, 255, 0.2); }
-            &.empty { background: none; border: 1px dashed rgba(255, 255, 255, 0.3); padding: 0; }
+            &.read { background: var(--glass-bg); }
+            &.empty { background: none; border: 1px dashed var(--glass-border); padding: 0; }
             
             .add-icon {
-                position: absolute; bottom: 0; right: -2px; background: #4e0eff; color: white;
+                position: absolute; bottom: 0; right: -2px; background: var(--msg-sent); color: white;
                 border-radius: 50%; width: 18px; height: 18px; display: flex; align-items: center; justify-content: center;
-                font-size: 0.6rem; border: 2px solid #131324;
+                font-size: 0.6rem; border: 2px solid var(--bg-panel);
             }
         }
     }

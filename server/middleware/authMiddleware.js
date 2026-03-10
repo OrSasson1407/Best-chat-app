@@ -1,36 +1,102 @@
+/**
+ * JWT Authentication Middleware
+ * -------------------------------------------------------
+ * This middleware verifies the short-lived JWT Access Token
+ * sent by the client to protect private API routes.
+ *
+ * Responsibilities:
+ * - Extract JWT from request headers
+ * - Verify token authenticity
+ * - Decode the token payload
+ * - Attach user information to the request object
+ *
+ * Expected Header:
+ *    x-auth-token: <JWT_ACCESS_TOKEN>
+ *
+ * Typical Flow:
+ * 1. Client logs in
+ * 2. Server returns Access Token
+ * 3. Client sends token with every protected request
+ * 4. This middleware validates the token
+ * 5. Controllers access user data via req.user
+ *
+ * Security Notes:
+ * - Token expiration is handled by JWT itself
+ * - If expired, client should call the refresh endpoint
+ */
+
 const jwt = require("jsonwebtoken");
 
+
 /**
- * Middleware to verify the short-lived JWT Access Token.
- * This token is expected in the 'x-auth-token' header.
+ * Middleware function to verify JWT Access Token
+ *
+ * @param {Request} req - Express request object
+ * @param {Response} res - Express response object
+ * @param {Function} next - Next middleware in the chain
  */
 module.exports = (req, res, next) => {
-  // 1. Get the token from the header
+
+  /**
+   * Step 1: Extract token from request header
+   */
   const token = req.header("x-auth-token");
 
-  // 2. Check if no token is provided
+
+  /**
+   * Step 2: Ensure token exists
+   */
   if (!token) {
-    return res.status(401).json({ msg: "No token, authorization denied" });
+
+    return res.status(401).json({
+      msg: "No token, authorization denied"
+    });
+
   }
 
-  // 3. Verify the Access Token
+
   try {
-    // Verifies the token using the short-lived secret (JWT_SECRET)
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     /**
-     * Attach the decoded payload to the request object.
-     * Based on your new generateTokens function: { id: user._id }
-     * This ensures req.user.id is accessible in your controllers.
+     * Step 3: Verify the token
+     *
+     * jwt.verify:
+     * - checks signature
+     * - checks expiration
+     * - returns decoded payload
      */
-    req.user = decoded; 
-    
-    next(); 
-  } catch (err) {
+    const decoded = jwt.verify(
+      token,
+      process.env.JWT_SECRET
+    );
+
+
     /**
-     * If the token is expired or invalid, the client should 
-     * call the /api/auth/refresh endpoint to get a new one.
+     * Step 4: Attach decoded payload to request
+     *
+     * Your token structure:
+     * { id: user._id }
+     *
+     * Controllers can now access:
+     * req.user.id
      */
-    res.status(401).json({ msg: "Token is not valid or has expired" });
+    req.user = decoded;
+
+
+    /**
+     * Continue request lifecycle
+     */
+    next();
+
+  } catch (err) {
+
+    /**
+     * If token invalid or expired
+     */
+    res.status(401).json({
+      msg: "Token is not valid or has expired"
+    });
+
   }
+
 };

@@ -1,10 +1,74 @@
+/**
+ * Authentication Validation Schemas
+ * -------------------------------------------------------
+ * This module defines request validation schemas using Joi.
+ *
+ * Responsibilities:
+ * - Validate incoming API request data
+ * - Prevent malformed or malicious inputs
+ * - Ensure consistent data structure
+ *
+ * Used in:
+ *   • User registration
+ *   • User login
+ *
+ * Benefits:
+ * - Prevent invalid data from reaching controllers
+ * - Improve API reliability
+ * - Provide clear validation error messages
+ */
+
 const Joi = require("joi");
 
-// Validation for User Registration
+
+/* =====================================================
+   USER REGISTRATION VALIDATION
+   ===================================================== */
+
+/**
+ * Schema for validating user registration requests.
+ *
+ * Required fields:
+ * - username
+ * - email
+ * - password
+ * - gender
+ * - avatarImage
+ * - publicKey
+ */
 const registerSchema = Joi.object({
-  username: Joi.string().min(3).max(20).required(),
-  email: Joi.string().email().required(),
-  // Modified password validation to be less restrictive while maintaining security
+
+  /**
+   * Username validation
+   *
+   * Requirements:
+   * - Minimum length: 3
+   * - Maximum length: 20
+   */
+  username: Joi.string()
+    .min(3)
+    .max(20)
+    .required(),
+
+  /**
+   * Email validation
+   *
+   * Must follow standard email format.
+   */
+  email: Joi.string()
+    .email()
+    .required(),
+
+  /**
+   * Password validation
+   *
+   * Requirements:
+   * - Minimum length: 8
+   * - Maximum length: 30
+   *
+   * Custom error messages provided
+   * to improve frontend user experience.
+   */
   password: Joi.string()
     .min(8)
     .max(30)
@@ -14,19 +78,72 @@ const registerSchema = Joi.object({
       "string.max": "Password cannot exceed 30 characters.",
       "any.required": "Password is required.",
     }),
-  // Added gender validation to match the frontend 'Register.jsx' state
-  gender: Joi.string().valid("male", "female").required(),
-  // Added avatarImage validation to accept the Dicebear URL sent by the frontend
-  avatarImage: Joi.string().uri().required(),
-  
-  // --- FIX: Add publicKey to schema so it passes validation ---
-  publicKey: Joi.string().required(),
+
+  /**
+   * Gender validation
+   *
+   * Only two values allowed:
+   * - male
+   * - female
+   */
+  gender: Joi.string()
+    .valid("male", "female")
+    .required(),
+
+  /**
+   * Avatar image validation
+   *
+   * Must be a valid URL.
+   * The frontend sends Dicebear avatar URLs.
+   */
+  avatarImage: Joi.string()
+    .uri()
+    .required(),
+
+  /**
+   * Public encryption key
+   *
+   * Used for end-to-end encryption.
+   * Each user generates their own key pair.
+   */
+  publicKey: Joi.string()
+    .required(),
+
 });
 
-// Validation for Login
+
+/* =====================================================
+   USER LOGIN VALIDATION
+   ===================================================== */
+
+/**
+ * Schema for validating login requests.
+ *
+ * Required fields:
+ * - username
+ * - password
+ */
 const loginSchema = Joi.object({
-  username: Joi.string().required(),
-  password: Joi.string().required(),
+
+  /**
+   * Username field
+   */
+  username: Joi.string()
+    .required(),
+
+  /**
+   * Password field
+   */
+  password: Joi.string()
+    .required(),
+
 });
 
-module.exports = { registerSchema, loginSchema };
+
+/**
+ * Export validation schemas
+ */
+module.exports = {
+  registerSchema,
+  loginSchema
+};

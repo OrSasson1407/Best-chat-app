@@ -291,8 +291,8 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
 
   if (!canPost) {
       return (
-          <Wrapper $themeType={theme}>
-              <ReadOnlyBanner $themeType={theme}>
+          <Wrapper>
+              <ReadOnlyBanner>
                   <FaLock className="lock-icon" />
                   <span>Only admins and moderators can send messages here.</span>
               </ReadOnlyBanner>
@@ -304,7 +304,7 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
   const emojiTheme = theme === 'light' ? Theme.LIGHT : Theme.DARK;
 
   return (
-    <Wrapper $themeType={theme}>
+    <Wrapper>
       <div className="status-badges">
           {timerDuration && (
               <div className="badge timer-badge" onClick={() => setTimerDuration(null)}>
@@ -340,7 +340,7 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
       )}
 
       {mediaPreview && (
-          <PreviewOverlay $themeType={theme}>
+          <PreviewOverlay>
               <div className="preview-container">
                   <div className="preview-header">
                       <span>Preview {mediaPreview.type}</span>
@@ -372,7 +372,7 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
           </PreviewOverlay>
       )}
 
-      <Container $isRecording={isRecording} $themeType={theme}>
+      <Container $isRecording={isRecording}>
         <div className="button-container">
           <div className="emoji tool-toggle">
             <BsEmojiSmileFill onClick={(e) => { e.stopPropagation(); setShowEmojiPicker(!showEmojiPicker); setShowTimerMenu(false); setShowScheduleMenu(false); }} />
@@ -492,12 +492,12 @@ const wave = keyframes`
 
 const ReadOnlyBanner = styled.div`
   display: flex; align-items: center; justify-content: center;
-  background: ${({ $themeType }) => $themeType === 'light' ? 'rgba(0,0,0,0.05)' : 'rgba(0, 0, 0, 0.4)'};
-  color: ${({ $themeType }) => $themeType === 'light' ? '#666' : '#888'};
-  padding: 1.2rem; border-top: 1px solid ${({ $themeType }) => $themeType === 'light' ? 'rgba(0,0,0,0.1)' : 'rgba(255, 255, 255, 0.05)'};
+  background: var(--glass-bg);
+  color: var(--text-dim);
+  padding: 1.2rem; border-top: 1px solid var(--glass-border);
   font-style: italic; font-size: 0.95rem; min-height: 10%;
   
-  .lock-icon { margin-right: 10px; font-size: 1.1rem; color: #4e0eff; }
+  .lock-icon { margin-right: 10px; font-size: 1.1rem; color: var(--msg-sent); }
 `;
 
 const PreviewOverlay = styled.div`
@@ -505,29 +505,29 @@ const PreviewOverlay = styled.div`
     display: flex; justify-content: center; z-index: 100;
     
     .preview-container {
-        background: ${({ $themeType }) => $themeType === 'light' ? 'rgba(255, 255, 255, 0.95)' : 'rgba(26, 26, 37, 0.95)'}; 
+        background: var(--bg-panel); 
         backdrop-filter: blur(15px); border-radius: 1.5rem; padding: 1.2rem;
         box-shadow: 0 15px 40px rgba(0,0,0,0.4);
-        border: 1px solid ${({ $themeType }) => $themeType === 'light' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'};
+        border: 1px solid var(--glass-border);
         display: flex; flex-direction: column; gap: 1rem; width: 380px; 
         animation: ${popIn} 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-        color: ${({ $themeType }) => $themeType === 'light' ? '#333' : 'white'};
+        color: var(--text-main);
         
         .preview-header {
             display: flex; justify-content: space-between; font-weight: bold;
-            .close-btn { cursor: pointer; font-size: 1.5rem; transition: 0.2s; color: #888; &:hover { color: #ff4e4e; transform: scale(1.1); } }
+            .close-btn { cursor: pointer; font-size: 1.5rem; transition: 0.2s; color: var(--text-dim); &:hover { color: #ff4e4e; transform: scale(1.1); } }
         }
 
-        img, video { width: 100%; max-height: 250px; object-fit: contain; border-radius: 0.8rem; background: rgba(0,0,0,0.1); }
-        .file-preview-icon { height: 120px; display: flex; align-items: center; justify-content: center; text-align: center; background: rgba(128,128,128,0.1); border-radius: 0.8rem; border: 2px dashed rgba(128,128,128,0.3); }
+        img, video { width: 100%; max-height: 250px; object-fit: contain; border-radius: 0.8rem; background: var(--input-bg); }
+        .file-preview-icon { height: 120px; display: flex; align-items: center; justify-content: center; text-align: center; background: var(--input-bg); border-radius: 0.8rem; border: 2px dashed var(--glass-border); }
 
         .media-options {
             display: flex; justify-content: center;
             .view-once-toggle {
-                display: flex; align-items: center; gap: 0.5rem; background: rgba(128,128,128,0.1);
+                display: flex; align-items: center; gap: 0.5rem; background: var(--input-bg);
                 padding: 0.5rem 1rem; border-radius: 2rem; cursor: pointer; font-size: 0.85rem;
                 transition: 0.3s; border: 1px solid transparent;
-                &:hover { background: rgba(128,128,128,0.2); }
+                &:hover { filter: brightness(1.1); }
                 &.active { background: rgba(255, 85, 0, 0.1); color: #ff5500; border-color: #ff5500; font-weight: bold; }
                 input:disabled + svg { opacity: 0.5; }
             }
@@ -535,8 +535,8 @@ const PreviewOverlay = styled.div`
 
         .preview-actions {
             display: flex; gap: 0.8rem;
-            input { flex: 1; padding: 0.9rem 1.2rem; border-radius: 2rem; border: 1px solid rgba(128,128,128,0.2); background: transparent; color: inherit; outline: none; transition: 0.3s; &:focus { border-color: #4e0eff; } &:disabled { opacity: 0.5; } }
-            button { background: #4e0eff; border: none; border-radius: 50%; min-width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: white; font-size: 1.2rem; transition: 0.3s; &:hover:not(:disabled) { background: #9a86f3; transform: scale(1.05); } &:disabled { background: #555; cursor: not-allowed; } }
+            input { flex: 1; padding: 0.9rem 1.2rem; border-radius: 2rem; border: 1px solid var(--glass-border); background: transparent; color: inherit; outline: none; transition: 0.3s; &:focus { border-color: var(--msg-sent); } &:disabled { opacity: 0.5; } }
+            button { background: var(--msg-sent); border: none; border-radius: 50%; min-width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: white; font-size: 1.2rem; transition: 0.3s; &:hover:not(:disabled) { filter: brightness(1.2); transform: scale(1.05); } &:disabled { background: var(--text-dim); cursor: not-allowed; } }
             .spin-icon { animation: fa-spin 1s infinite linear; }
         }
     }
@@ -553,8 +553,8 @@ const Wrapper = styled.div`
   }
 
   .reply-banner {
-      background: ${({ $themeType }) => $themeType === 'light' ? 'rgba(78, 14, 255, 0.1)' : 'rgba(154, 65, 254, 0.15)'}; backdrop-filter: blur(10px); padding: 0.6rem 2rem; display: flex; justify-content: space-between; align-items: center; color: ${({ $themeType }) => $themeType === 'light' ? '#555' : '#ccc'}; font-size: 0.85rem; border-top: 1px solid ${({ $themeType }) => $themeType === 'light' ? 'rgba(0,0,0,0.05)' : 'rgba(255, 255, 255, 0.05)'};
-      .close-btn { cursor: pointer; color: ${({ $themeType }) => $themeType === 'light' ? '#888' : 'white'}; font-size: 1.2rem; transition: 0.2s; &:hover { color: #ff4e4e; transform: scale(1.2); } }
+      background: var(--input-bg); backdrop-filter: blur(10px); padding: 0.6rem 2rem; display: flex; justify-content: space-between; align-items: center; color: var(--text-dim); font-size: 0.85rem; border-top: 1px solid var(--glass-border);
+      .close-btn { cursor: pointer; color: var(--text-dim); font-size: 1.2rem; transition: 0.2s; &:hover { color: #ff4e4e; transform: scale(1.2); } }
   }
   .edit-banner { background: rgba(0, 255, 136, 0.15); }
   .link-banner { background: rgba(52, 183, 241, 0.1); border-top: 1px solid rgba(52, 183, 241, 0.2); justify-content: flex-start; animation: ${popIn} 0.3s ease; }
@@ -564,9 +564,9 @@ const Wrapper = styled.div`
 
 const Container = styled.div`
   display: grid; grid-template-columns: 25% 75%; align-items: center;
-  background-color: ${({ $themeType }) => $themeType === 'light' ? 'rgba(255, 255, 255, 0.5)' : 'rgba(255, 255, 255, 0.02)'}; 
+  background-color: transparent; 
   padding: 0 2rem; min-height: 10%; 
-  border-top: 1px solid ${({ $themeType }) => $themeType === 'light' ? 'rgba(0,0,0,0.05)' : 'rgba(255, 255, 255, 0.05)'};
+  border-top: 1px solid var(--glass-border);
   
   ${({ $isRecording }) => $isRecording && css` background: rgba(255, 78, 78, 0.05); box-shadow: inset 0 0 20px rgba(255, 78, 78, 0.1); `}
 
@@ -578,45 +578,44 @@ const Container = styled.div`
     
     .tool-toggle {
       position: relative; cursor: pointer;
-      svg { font-size: 1.4rem; color: ${({ $themeType }) => $themeType === 'light' ? '#888' : '#999'}; transition: 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); &:hover { color: ${({ $themeType }) => $themeType === 'light' ? '#333' : '#fff'}; transform: scale(1.15) translateY(-2px); } }
-      &.active svg { color: #4e0eff; filter: drop-shadow(0 0 5px rgba(78,14,255,0.5)); }
+      svg { font-size: 1.4rem; color: var(--text-dim); transition: 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); &:hover { color: var(--text-main); transform: scale(1.15) translateY(-2px); } }
+      &.active svg { color: var(--msg-sent); filter: drop-shadow(0 0 5px rgba(78,14,255,0.5)); }
     }
     
     .emoji svg { color: #d4d412; }
     .upload svg { color: #34B7F1; }
     .mic .recording-active { color: #ff4e4e; animation: ${pulse} 1s infinite; filter: drop-shadow(0 0 10px #ff4e4e); }
-    .loading-mic { color: #888; animation: fa-spin 1s infinite linear; }
+    .loading-mic { color: var(--text-dim); animation: fa-spin 1s infinite linear; }
     .code-toggle.active svg { color: #00ff88; filter: drop-shadow(0 0 5px #00ff88); }
 
     .floating-menu {
       position: absolute; bottom: 50px; left: 0; 
-      background: ${({ $themeType }) => $themeType === 'light' ? 'rgba(255, 255, 255, 0.95)' : 'rgba(13, 13, 48, 0.95)'}; 
+      background: var(--bg-panel); 
       backdrop-filter: blur(15px);
       box-shadow: 0 10px 30px rgba(0,0,0,0.3); 
-      border: 1px solid ${({ $themeType }) => $themeType === 'light' ? 'rgba(0,0,0,0.1)' : 'rgba(78, 14, 255, 0.3)'}; 
+      border: 1px solid var(--glass-border); 
       border-radius: 1rem; z-index: 99;
       animation: ${popIn} 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
     }
 
-    .emoji-picker-react { border: none; .epr-body::-webkit-scrollbar { width: 4px; &-thumb { background-color: #4e0eff; border-radius: 10px; } } }
+    .emoji-picker-react { border: none; background: transparent; .epr-body::-webkit-scrollbar { width: 4px; &-thumb { background-color: var(--msg-sent); border-radius: 10px; } } }
 
     .timer-menu, .schedule-menu {
         padding: 1.2rem; width: 220px; display: flex; flex-direction: column; gap: 0.6rem;
-        h4 { color: ${({ $themeType }) => $themeType === 'light' ? '#333' : 'white'}; margin-top: 0; margin-bottom: 0.5rem; font-size: 0.9rem; text-align: center; border-bottom: 1px solid rgba(128,128,128,0.2); padding-bottom: 0.5rem; }
-        button { background: rgba(128,128,128,0.1); border: 1px solid transparent; color: inherit; padding: 0.6rem; border-radius: 0.5rem; cursor: pointer; transition: 0.2s; &:hover { background: rgba(128,128,128,0.2); } &.selected { background: #4e0eff; color: white; font-weight: bold; box-shadow: 0 0 10px rgba(78,14,255,0.3); } }
-        input[type="datetime-local"] { background: rgba(128,128,128,0.1); color: inherit; border: 1px solid rgba(128,128,128,0.3); padding: 0.8rem; border-radius: 0.5rem; outline: none; margin-bottom: 0.5rem; font-family: inherit; color-scheme: ${({ $themeType }) => $themeType === 'light' ? 'light' : 'dark'}; }
+        h4 { color: var(--text-main); margin-top: 0; margin-bottom: 0.5rem; font-size: 0.9rem; text-align: center; border-bottom: 1px solid var(--glass-border); padding-bottom: 0.5rem; }
+        button { background: var(--input-bg); border: 1px solid transparent; color: inherit; padding: 0.6rem; border-radius: 0.5rem; cursor: pointer; transition: 0.2s; &:hover { filter: brightness(0.9); } &.selected { background: var(--msg-sent); color: white; font-weight: bold; box-shadow: 0 0 10px rgba(78,14,255,0.3); } }
+        input[type="datetime-local"] { background: var(--input-bg); color: inherit; border: 1px solid var(--glass-border); padding: 0.8rem; border-radius: 0.5rem; outline: none; margin-bottom: 0.5rem; font-family: inherit; }
     }
   }
 
   .input-container {
     width: 100%; border-radius: 1.5rem; display: flex; align-items: flex-end; gap: 1rem;
-    background-color: ${({ $themeType }) => $themeType === 'light' ? 'rgba(0,0,0,0.03)' : 'rgba(255, 255, 255, 0.05)'}; 
+    background-color: var(--input-bg); 
     padding: 0.5rem; transition: 0.3s;
-    border: 1px solid ${({ $themeType }) => $themeType === 'light' ? 'rgba(0,0,0,0.05)' : 'transparent'}; 
+    border: 1px solid transparent; 
     
     &:focus-within { 
-        background-color: ${({ $themeType }) => $themeType === 'light' ? '#fff' : 'rgba(255, 255, 255, 0.08)'}; 
-        border-color: rgba(78, 14, 255, 0.3); box-shadow: 0 0 15px rgba(78, 14, 255, 0.1); 
+        border-color: var(--msg-sent); box-shadow: 0 0 15px rgba(78, 14, 255, 0.1); 
     }
     
     .recording-ui {
@@ -627,13 +626,13 @@ const Container = styled.div`
 
     textarea { 
         width: 100%; background-color: transparent; 
-        color: ${({ $themeType }) => $themeType === 'light' ? '#333' : 'white'}; 
+        color: var(--text-main); 
         border: none; padding-left: 1rem; padding-top: 0.6rem; padding-bottom: 0.6rem;
         font-size: 1rem; resize: none; overflow-y: auto; line-height: 1.4;
         font-family: inherit;
         &::-webkit-scrollbar { width: 4px; }
-        &::-webkit-scrollbar-thumb { background-color: rgba(128,128,128,0.3); border-radius: 10px; }
-        &::selection { background-color: #9a86f3; color: white;} 
+        &::-webkit-scrollbar-thumb { background-color: var(--glass-border); border-radius: 10px; }
+        &::selection { background-color: var(--msg-sent); color: white;} 
         &:focus { outline: none; } 
         &:disabled { opacity: 0.5; cursor: not-allowed; } 
     }
@@ -643,12 +642,12 @@ const Container = styled.div`
       border: none; transition: 0.3s; 
       
       /* --- NEW: Dynamic Send Button State --- */
-      &.empty { background: ${({ $themeType }) => $themeType === 'light' ? '#e0e0e0' : '#2a2a35'}; color: ${({ $themeType }) => $themeType === 'light' ? '#fff' : '#555'}; cursor: default; }
-      &.ready { background: linear-gradient(135deg, #4e0eff 0%, #9a41fe 100%); color: white; cursor: pointer; box-shadow: 0 4px 15px rgba(78, 14, 255, 0.3); }
+      &.empty { background: var(--bg-panel); color: var(--text-dim); cursor: default; }
+      &.ready { background: var(--primary-gradient); color: white; cursor: pointer; box-shadow: 0 4px 15px rgba(78, 14, 255, 0.3); }
       &.ready:hover { transform: scale(1.08); box-shadow: 0 6px 20px rgba(78, 14, 255, 0.5); }
       
       svg { font-size: 1.3rem; }
-      &:disabled { background: ${({ $themeType }) => $themeType === 'light' ? '#e0e0e0' : '#2a2a35'}; cursor: not-allowed; box-shadow: none; color: #888; }
+      &:disabled { background: var(--bg-panel); cursor: not-allowed; box-shadow: none; color: var(--text-dim); }
       &.schedule-btn { background: linear-gradient(135deg, #00ff88 0%, #00b35f 100%); box-shadow: 0 4px 15px rgba(0, 255, 136, 0.3); color: black;}
       .spin-icon { animation: fa-spin 1s infinite linear; }
     }

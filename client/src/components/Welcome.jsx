@@ -48,7 +48,7 @@ export default function Welcome() {
         <div className="feature-card">
           <div className="icon-wrapper success"><FaPalette /></div>
           <h3>Custom Themes</h3>
-          <p>Click the gear icon in the sidebar to customize your experience with Cyberpunk or Midnight modes.</p>
+          <p>Click the gear icon in the sidebar to customize your experience with Cyberpunk or Light modes.</p>
         </div>
 
         <div className="feature-card">
@@ -79,7 +79,8 @@ const Container = styled.div`
   justify-content: center;
   align-items: center;
   flex-direction: column;
-  color: white;
+  /* Dynamically uses the text variable */
+  color: var(--text-main); 
   height: 100%;
   width: 100%;
   padding: 2rem;
@@ -88,11 +89,10 @@ const Container = styled.div`
   z-index: 1;
   box-sizing: border-box;
 
-  /* Default Glassmorphism Theme */
-  background: rgba(255, 255, 255, 0.02);
-  backdrop-filter: blur(10px);
+  /* Dynamically uses the background variable */
+  background: transparent; 
 
-  /* Dynamic Theming */
+  /* Dynamic Extra Themes */
   ${({ $themeType }) => $themeType === 'midnight' && css`
     background: #050505;
   `}
@@ -118,7 +118,7 @@ const Container = styled.div`
       height: 150px;
       margin-bottom: 1.5rem;
       animation: ${float} 4s ease-in-out infinite;
-      filter: drop-shadow(0 15px 25px rgba(0, 0, 0, 0.3));
+      filter: drop-shadow(0 15px 25px rgba(0, 0, 0, 0.2));
       
       ${({ $themeType }) => $themeType === 'cyberpunk' && css`
         filter: drop-shadow(0 10px 20px rgba(0, 255, 136, 0.2));
@@ -130,10 +130,10 @@ const Container = styled.div`
       margin-bottom: 0.8rem;
       font-weight: 700;
       letter-spacing: 0.5px;
+      color: var(--text-main);
       
       .accent-text {
-        color: #4e0eff;
-        text-shadow: 0 0 20px rgba(78, 14, 255, 0.4);
+        color: var(--msg-sent);
         
         ${({ $themeType }) => $themeType === 'cyberpunk' && css`
           color: #00ff88; text-shadow: 0 0 20px rgba(0, 255, 136, 0.4);
@@ -142,7 +142,7 @@ const Container = styled.div`
     }
 
     .subtitle {
-      color: rgba(255, 255, 255, 0.6);
+      color: var(--text-dim);
       font-size: 1.1rem;
       max-width: 520px;
       margin: 0 auto;
@@ -165,8 +165,9 @@ const Container = styled.div`
     }
 
     .feature-card {
-      background: rgba(255, 255, 255, 0.03);
-      border: 1px solid rgba(255, 255, 255, 0.05);
+      /* Replaced hardcoded transparent background with variables */
+      background: var(--input-bg);
+      border: 1px solid var(--glass-border);
       border-radius: 1.5rem;
       padding: 1.5rem;
       display: flex;
@@ -184,9 +185,9 @@ const Container = styled.div`
 
       &:hover {
         transform: translateY(-8px);
-        background: rgba(255, 255, 255, 0.06);
-        border-color: rgba(78, 14, 255, 0.4);
-        box-shadow: 0 15px 30px rgba(0, 0, 0, 0.4);
+        filter: brightness(0.95);
+        border-color: var(--msg-sent);
+        box-shadow: 0 15px 30px rgba(0, 0, 0, 0.1);
         
         ${({ $themeType }) => $themeType === 'cyberpunk' && css`
           border-color: rgba(0, 255, 136, 0.4); box-shadow: 0 15px 30px rgba(0, 255, 136, 0.1);
@@ -202,7 +203,7 @@ const Container = styled.div`
         align-items: center;
         font-size: 1.2rem;
         margin-bottom: 0.5rem;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 
         &.primary { background: rgba(78, 14, 255, 0.2); color: #9a86f3; border: 1px solid rgba(78, 14, 255, 0.3); }
         &.danger { background: rgba(255, 78, 78, 0.15); color: #ff4e4e; border: 1px solid rgba(255, 78, 78, 0.3); }
@@ -212,7 +213,7 @@ const Container = styled.div`
 
       h3 {
         font-size: 1.1rem;
-        color: #fff;
+        color: var(--text-main);
         font-weight: 700;
         margin: 0;
         letter-spacing: 0.3px;
@@ -220,7 +221,7 @@ const Container = styled.div`
 
       p {
         font-size: 0.9rem;
-        color: rgba(255, 255, 255, 0.55);
+        color: var(--text-dim);
         line-height: 1.6;
         margin: 0;
       }
