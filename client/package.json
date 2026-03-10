@@ -10,6 +10,7 @@
     "@yudiel/react-qr-scanner": "^2.5.1",
     "axios": "^1.13.5",
     "browser-image-compression": "^2.0.2",
+    "color-thief-react": "^2.1.0",
     "emoji-picker-react": "^4.18.0",
     "firebase": "^12.10.0",
     "process": "^0.11.10",
