@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import ChatInput from "./ChatInput";
 import axios from "axios";
 import { Virtuoso } from "react-virtuoso"; 
@@ -8,14 +8,14 @@ import {
     addGroupMemberRoute, reactMessageRoute, deleteMessageRoute, 
     deleteMessageForMeRoute, editMessageRoute, blockUserRoute, getChatMediaRoute,
     updateChatCustomizationRoute,
-    getQuickRepliesRoute // --- MERGE UPDATE: Import the AI route ---
+    getQuickRepliesRoute
 } from "../utils/APIRoutes";
 import { encryptMessage, decryptMessage, encryptGroupMessage, decryptGroupMessage } from "../utils/crypto"; 
 import { v4 as uuidv4 } from "uuid";
 import { toast } from "react-toastify";
 import { 
-    FaThumbtack, FaSpinner, FaCloudUploadAlt, FaTimes, FaCheckDouble, FaArrowDown, FaRobot 
-} from "react-icons/fa";
+    FaThumbtack, FaSpinner, FaCloudUploadAlt, FaTimes, FaCheckDouble, FaArrowDown, FaMagic 
+} from "react-icons/fa"; // --- POLISHED: Replaced FaRobot with FaMagic for a premium AI feel ---
 
 import { Container, DropOverlay, ScrollButton, Lightbox } from "./ChatContainer.styles"; 
 import CallModal from "./CallModal"; 
@@ -29,6 +29,7 @@ import { getSmallAvatar, formatTime } from "./chatHelpers";
 export default function ChatContainer({ socket, isTyping }) {
   const { currentChat, currentUser, theme, isCompact } = useChatStore();
 
+  // --- STATE MANAGEMENT ---
   const [messages, setMessages] = useState([]);
   const [arrivalMessage, setArrivalMessage] = useState(null);
   const [replyingTo, setReplyingTo] = useState(null);
@@ -37,9 +38,6 @@ export default function ChatContainer({ socket, isTyping }) {
   const [isFetchingHistory, setIsFetchingHistory] = useState(true); 
   
   const [activeGroupAesKey, setActiveGroupAesKey] = useState(null);
-
-  const virtuosoRef = useRef(null);
-  const [highlightedMsgId, setHighlightedMsgId] = useState(null);
   const [cursor, setCursor] = useState(null);
   const [hasMore, setHasMore] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -47,37 +45,39 @@ export default function ChatContainer({ socket, isTyping }) {
   const [isOnline, setIsOnline] = useState(false);
   const [lastSeen, setLastSeen] = useState(null);
 
+  // UI States
   const [showSidePanel, setShowSidePanel] = useState(false);
   const [chatMedia, setChatMedia] = useState({ media: [], links: [], files: [] });
   const [activeSideTab, setActiveSideTab] = useState("about");
   const [isFetchingMedia, setIsFetchingMedia] = useState(false);
-
   const [isDragging, setIsDragging] = useState(false);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
-  
   const [unreadScrollCount, setUnreadScrollCount] = useState(0);
-  const isScrolledUpRef = useRef(false);
-
   const [lightboxImage, setLightboxImage] = useState(null);
   const [readReceiptsMsg, setReadReceiptsMsg] = useState(null); 
-
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [isBlocked, setIsBlocked] = useState(false);
-
   const [showCallModal, setShowCallModal] = useState(false);
   const [incomingCallData, setIncomingCallData] = useState(null);
 
+  // Customization & AI States
   const [wallpaper, setWallpaper] = useState("");
   const [customTheme, setCustomTheme] = useState("#4e0eff");
-
-  // --- MERGE UPDATE: AI QUICK REPLIES STATE ---
   const [quickReplies, setQuickReplies] = useState([]);
   const [isGeneratingReplies, setIsGeneratingReplies] = useState(false);
 
+  // Refs
+  const virtuosoRef = useRef(null);
+  const isScrolledUpRef = useRef(false);
+  const [highlightedMsgId, setHighlightedMsgId] = useState(null);
+
+  // --- POLISHED: Memoized skeleton widths to prevent hydration/render jumping ---
+  const skeletonWidths = useMemo(() => ['45%', '65%', '35%', '80%', '50%'], []);
+
   const getAuthHeader = useCallback(() => ({ headers: { "x-auth-token": currentUser.token } }), [currentUser.token]);
 
-  // Fetch customizations
+  // --- EFFECTS ---
   useEffect(() => {
     if (currentUser && currentChat) {
       const custom = currentUser.chatCustomizations?.find(c => c.chatId === currentChat._id);
@@ -88,24 +88,9 @@ export default function ChatContainer({ socket, isTyping }) {
         setWallpaper("");
         setCustomTheme("#4e0eff");
       }
-      // Reset quick replies when changing chats
       setQuickReplies([]);
     }
   }, [currentChat, currentUser]);
-
-  const handleWallpaperChange = async (colorOrUrl) => {
-    setWallpaper(colorOrUrl);
-    try {
-      await axios.post(updateChatCustomizationRoute, {
-        userId: currentUser._id,
-        chatId: currentChat._id,
-        wallpaper: colorOrUrl,
-      }, getAuthHeader());
-      toast.success("Chat wallpaper updated!");
-    } catch (e) {
-      toast.error("Failed to update wallpaper");
-    }
-  };
 
   useEffect(() => {
       isScrolledUpRef.current = showScrollBtn;
@@ -176,7 +161,6 @@ export default function ChatContainer({ socket, isTyping }) {
             const pinned = fetchedMessages.find(m => m.isPinned);
             setPinnedMessage(pinned || null);
 
-            // Fetch AI Quick Replies for the very last received message (if it's text and from them)
             const lastMsg = decryptedMessages[decryptedMessages.length - 1];
             if (lastMsg && !lastMsg.fromSelf && lastMsg.type === "text") {
                 generateAIReplies(lastMsg.message);
@@ -226,55 +210,6 @@ export default function ChatContainer({ socket, isTyping }) {
       }
   }, [showSidePanel, currentChat, currentUser, activeSideTab, getAuthHeader]);
 
-  const loadMoreMessages = useCallback(async () => {
-    if (hasMore && !isLoadingMore) {
-      setIsLoadingMore(true);
-      try {
-          let response;
-          if (currentChat.admin) {
-              response = await axios.post(getGroupMessagesRoute, { from: currentUser._id, groupId: currentChat._id, cursor }, getAuthHeader());
-          } else {
-              response = await axios.post(receiveMessageRoute, { from: currentUser._id, to: currentChat._id, cursor }, getAuthHeader());
-          }
-
-          const newMessages = response.data.messages ? response.data.messages : response.data;
-          const myPrivateKeyRaw = localStorage.getItem(`privateKey_${currentUser._id}`);
-          const myPrivateKey = myPrivateKeyRaw ? JSON.parse(myPrivateKeyRaw) : null;
-          
-          const decryptedNewMessages = await Promise.all(newMessages.map(async (msg) => {
-              if (msg.type === "text" && !msg.isDeleted) {
-                  if (!currentChat.admin && !msg.fromSelf && myPrivateKey) {
-                      const decryptedText = await decryptMessage(msg.message, myPrivateKey);
-                      return { ...msg, message: decryptedText };
-                  } else if (currentChat.admin && activeGroupAesKey) {
-                      const decryptedGroupText = await decryptGroupMessage(msg.message, activeGroupAesKey);
-                      return { ...msg, message: decryptedGroupText };
-                  }
-              }
-              return msg;
-          }));
-
-          setMessages((prev) => [...decryptedNewMessages, ...prev]);
-          
-          if (response.data.nextCursor !== undefined) {
-              setCursor(response.data.nextCursor);
-              setHasMore(response.data.hasMore);
-          } else {
-              setHasMore(false);
-          }
-      } catch (error) {
-          console.error("Failed to fetch older messages", error);
-      } finally {
-          setIsLoadingMore(false);
-      }
-    }
-  }, [hasMore, isLoadingMore, currentChat, currentUser, cursor, activeGroupAesKey, getAuthHeader]);
-
-  const scrollToBottom = useCallback(() => {
-      virtuosoRef.current?.scrollToIndex({ index: messages.length - 1, behavior: 'smooth' });
-      setUnreadScrollCount(0); 
-  }, [messages.length]);
-
   useEffect(() => {
       if (socket.current && currentUser) {
           const s = socket.current;
@@ -282,34 +217,6 @@ export default function ChatContainer({ socket, isTyping }) {
           return () => clearInterval(heartbeatInterval);
       }
   }, [socket, currentUser]);
-
-  const handleDragOver = (e) => { e.preventDefault(); setIsDragging(true); };
-  const handleDragLeave = (e) => { e.preventDefault(); setIsDragging(false); };
-  const handleDrop = (e) => {
-    e.preventDefault(); setIsDragging(false);
-    const files = e.dataTransfer.files;
-    if (files.length > 0) toast.info(`Preparing to upload ${files[0].name}...`);
-  };
-
-  // --- MERGE UPDATE: AI QUICK REPLIES FETCHER ---
-  const generateAIReplies = async (text) => {
-      if (!text || text.length < 5) {
-          setQuickReplies([]);
-          return;
-      }
-      setIsGeneratingReplies(true);
-      try {
-          const { data } = await axios.post(getQuickRepliesRoute, { message: text }, getAuthHeader());
-          if (data.status && Array.isArray(data.replies)) {
-              setQuickReplies(data.replies);
-          }
-      } catch (err) {
-          console.error("Failed to generate AI replies");
-          setQuickReplies([]);
-      } finally {
-          setIsGeneratingReplies(false);
-      }
-  };
 
   useEffect(() => {
     if (socket.current) {
@@ -333,7 +240,6 @@ export default function ChatContainer({ socket, isTyping }) {
                 decryptedText = await decryptGroupMessage(data.msg, activeGroupAesKey);
             }
             
-            // Generate AI replies for incoming text messages
             if (data.from === currentChat._id || data.isGroup) {
                 generateAIReplies(decryptedText);
             }
@@ -424,26 +330,105 @@ export default function ChatContainer({ socket, isTyping }) {
     }
   }, [arrivalMessage]);
 
+  // --- ACTIONS & HANDLERS ---
+  const loadMoreMessages = useCallback(async () => {
+    if (hasMore && !isLoadingMore) {
+      setIsLoadingMore(true);
+      try {
+          let response;
+          if (currentChat.admin) {
+              response = await axios.post(getGroupMessagesRoute, { from: currentUser._id, groupId: currentChat._id, cursor }, getAuthHeader());
+          } else {
+              response = await axios.post(receiveMessageRoute, { from: currentUser._id, to: currentChat._id, cursor }, getAuthHeader());
+          }
+
+          const newMessages = response.data.messages ? response.data.messages : response.data;
+          const myPrivateKeyRaw = localStorage.getItem(`privateKey_${currentUser._id}`);
+          const myPrivateKey = myPrivateKeyRaw ? JSON.parse(myPrivateKeyRaw) : null;
+          
+          const decryptedNewMessages = await Promise.all(newMessages.map(async (msg) => {
+              if (msg.type === "text" && !msg.isDeleted) {
+                  if (!currentChat.admin && !msg.fromSelf && myPrivateKey) {
+                      const decryptedText = await decryptMessage(msg.message, myPrivateKey);
+                      return { ...msg, message: decryptedText };
+                  } else if (currentChat.admin && activeGroupAesKey) {
+                      const decryptedGroupText = await decryptGroupMessage(msg.message, activeGroupAesKey);
+                      return { ...msg, message: decryptedGroupText };
+                  }
+              }
+              return msg;
+          }));
+
+          setMessages((prev) => [...decryptedNewMessages, ...prev]);
+          
+          if (response.data.nextCursor !== undefined) {
+              setCursor(response.data.nextCursor);
+              setHasMore(response.data.hasMore);
+          } else {
+              setHasMore(false);
+          }
+      } catch (error) {
+          console.error("Failed to fetch older messages", error);
+      } finally {
+          setIsLoadingMore(false);
+      }
+    }
+  }, [hasMore, isLoadingMore, currentChat, currentUser, cursor, activeGroupAesKey, getAuthHeader]);
+
+  const scrollToBottom = useCallback(() => {
+      virtuosoRef.current?.scrollToIndex({ index: messages.length - 1, behavior: 'smooth' });
+      setUnreadScrollCount(0); 
+  }, [messages.length]);
+
+  const handleDragOver = (e) => { e.preventDefault(); setIsDragging(true); };
+  const handleDragLeave = (e) => { e.preventDefault(); setIsDragging(false); };
+  const handleDrop = (e) => {
+    e.preventDefault(); setIsDragging(false);
+    const files = e.dataTransfer.files;
+    if (files.length > 0) toast.info(`Preparing to upload ${files[0].name}...`);
+  };
+
+  const handleWallpaperChange = async (colorOrUrl) => {
+    setWallpaper(colorOrUrl);
+    try {
+      await axios.post(updateChatCustomizationRoute, { userId: currentUser._id, chatId: currentChat._id, wallpaper: colorOrUrl }, getAuthHeader());
+      toast.success("Chat wallpaper updated!");
+    } catch (e) {
+      toast.error("Failed to update wallpaper");
+    }
+  };
+
+  const generateAIReplies = async (text) => {
+      if (!text || text.length < 5) {
+          setQuickReplies([]);
+          return;
+      }
+      setIsGeneratingReplies(true);
+      try {
+          const { data } = await axios.post(getQuickRepliesRoute, { message: text }, getAuthHeader());
+          if (data.status && Array.isArray(data.replies)) setQuickReplies(data.replies);
+      } catch (err) {
+          console.error("Failed to generate AI replies");
+          setQuickReplies([]);
+      } finally {
+          setIsGeneratingReplies(false);
+      }
+  };
+
   const handleSendMsg = useCallback(async (msg, type = "text", replyToId = null, extraData = {}) => {
     const time = new Date().toISOString();
     let finalMessageContent = msg;
     const newMessageId = uuidv4(); 
-
-    // Hide AI replies as soon as we send a message
     setQuickReplies([]);
 
     try {
         if (type === "text") {
             if (!currentChat.admin) {
                 try {
-                    const pkResponse = await axios.get(`${host}/api/auth/publickey/${currentChat._id}`, getAuthHeader());
+                    const pkResponse = await axios.get(`${publicKeyRoute}/${currentChat._id}`, getAuthHeader());
                     const receiverPublicKey = pkResponse.data.publicKey;
-                    if (receiverPublicKey) {
-                        finalMessageContent = await encryptMessage(msg, receiverPublicKey);
-                    }
-                } catch (err) {
-                    console.error("Could not fetch public key for encryption");
-                }
+                    if (receiverPublicKey) finalMessageContent = await encryptMessage(msg, receiverPublicKey);
+                } catch (err) { console.error("Could not fetch public key for encryption"); }
             } else if (currentChat.admin && activeGroupAesKey) {
                 finalMessageContent = await encryptGroupMessage(msg, activeGroupAesKey);
             }
@@ -466,16 +451,12 @@ export default function ChatContainer({ socket, isTyping }) {
             ...payload, linkMetadata: null, fileMetadata: fileMetadataObj 
         };
         
-        setMessages((prev) => [
-            ...prev, 
-            { 
+        setMessages((prev) => [ ...prev, { 
               id: newMessageId, fromSelf: true, message: msg, type: type, createdAt: time, 
               replyTo: socketData.replyTo, reactions: [], status: "pending", isDeleted: false, isEdited: false,
               isForwarded: payload.isForwarded, isViewOnce: payload.isViewOnce, viewed: false, 
-              pollData: payload.pollData, linkMetadata: null, timer: payload.timer,
-              fileMetadata: fileMetadataObj, readBy: []
-            }
-        ]);
+              pollData: payload.pollData, linkMetadata: null, timer: payload.timer, fileMetadata: fileMetadataObj, readBy: []
+        }]);
         setReplyingTo(null); 
 
         const res = await axios.post(sendMessageRoute, payload, getAuthHeader());
@@ -484,9 +465,7 @@ export default function ChatContainer({ socket, isTyping }) {
 
         socket.current.emit("send-msg", socketData, (response) => {
             if (response && response.status) {
-                setMessages((prev) => prev.map(m => m.id === newMessageId ? { 
-                    ...m, status: response.status, linkMetadata: generatedLinkData 
-                } : m));
+                setMessages((prev) => prev.map(m => m.id === newMessageId ? { ...m, status: response.status, linkMetadata: generatedLinkData } : m));
             }
         });
 
@@ -560,11 +539,14 @@ export default function ChatContainer({ socket, isTyping }) {
       } catch (e) { toast.error("Failed to update block status"); }
   };
 
-  const filteredMessages = messages.filter(msg => {
+  // --- POLISHED: Memoized Filter ---
+  const filteredMessages = useMemo(() => {
+    return messages.filter(msg => {
       if (!searchQuery) return true;
       if (msg.type !== "text" && msg.type !== "link") return false;
       return msg.message && msg.message.toLowerCase().includes(searchQuery.toLowerCase());
-  });
+    });
+  }, [messages, searchQuery]);
 
   const scrollToMessage = useCallback((msgId) => {
       const index = filteredMessages.findIndex(m => m.id === msgId);
@@ -597,7 +579,7 @@ export default function ChatContainer({ socket, isTyping }) {
             {isDragging && (
               <DropOverlay onDragLeave={handleDragLeave} onDrop={handleDrop}>
                 <div className="overlay-content">
-                  <FaCloudUploadAlt size={80} />
+                  <FaCloudUploadAlt size={80} color={adaptiveAccent} />
                   <h2>Drop files to share</h2>
                   <p>Images, Videos, and Documents</p>
                 </div>
@@ -628,7 +610,7 @@ export default function ChatContainer({ socket, isTyping }) {
                           <h4><FaCheckDouble color="#34B7F1"/> Read by ({readReceiptsMsg.readBy?.length || 0})</h4>
                           
                           {(!readReceiptsMsg.readBy || readReceiptsMsg.readBy.length === 0) ? (
-                              <p style={{color: '#888', fontStyle: 'italic', fontSize: '0.9rem', marginTop: '10px'}}>No one has read this yet.</p>
+                              <p style={{color: 'rgba(255,255,255,0.4)', fontStyle: 'italic', fontSize: '0.9rem', marginTop: '10px'}}>No one has read this yet.</p>
                           ) : (
                               readReceiptsMsg.readBy.map((reader, index) => (
                                   <div key={index} className="reader-item">
@@ -670,7 +652,7 @@ export default function ChatContainer({ socket, isTyping }) {
                     <FaThumbtack /> 
                     <div className="pin-content">
                         <span className="pin-title">Pinned Message</span>
-                        <span className="pin-text">{pinnedMessage.message.substring(0, 50)}...</span>
+                        <span className="pin-text">{pinnedMessage.message.substring(0, 80)}...</span>
                     </div>
                 </div>
             )}
@@ -680,7 +662,8 @@ export default function ChatContainer({ socket, isTyping }) {
                   <div className="skeleton-container">
                       {Array.from({ length: 5 }).map((_, i) => (
                           <div key={i} className={`message skeleton-msg ${i % 2 === 0 ? 'sended' : 'recieved'}`}>
-                              <div className="content skeleton-anim" style={{width: `${Math.random() * 40 + 20}%`, height: '40px'}}/>
+                              {/* --- POLISHED: Memoized realistic skeleton widths --- */}
+                              <div className="content skeleton-anim" style={{width: skeletonWidths[i], height: '45px'}}/>
                           </div>
                       ))}
                   </div>
@@ -736,29 +719,40 @@ export default function ChatContainer({ socket, isTyping }) {
               </ScrollButton>
             )}
 
-            {/* --- MERGE UPDATE: AI QUICK REPLIES BAR --- */}
+            {/* --- POLISHED: AI Quick Replies Smart Chips UI --- */}
             {(!currentChat?.isChannel || currentChat?.admins?.includes(currentUser._id) || currentChat?.moderators?.includes(currentUser._id)) && (
                 <div style={{ position: 'relative', width: '100%', padding: '0 2rem' }}>
                     {isGeneratingReplies && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#00ff88', fontSize: '0.8rem', fontStyle: 'italic', marginBottom: '8px' }}>
-                            <FaRobot className="fa-spin" /> AI is generating replies...
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'rgba(255,255,255,0.6)', fontSize: '0.85rem', fontStyle: 'italic', marginBottom: '8px' }}>
+                            <FaMagic className="fa-spin" color={adaptiveAccent} /> AI is thinking...
                         </div>
                     )}
                     {!isGeneratingReplies && quickReplies.length > 0 && (
-                        <div style={{ display: 'flex', gap: '10px', overflowX: 'auto', marginBottom: '10px', paddingBottom: '4px' }}>
-                            <FaRobot color="#00ff88" style={{ marginTop: '8px', flexShrink: 0 }} title="AI Suggestions" />
+                        <div style={{ display: 'flex', gap: '12px', overflowX: 'auto', marginBottom: '12px', paddingBottom: '6px' }}>
+                            <FaMagic color={adaptiveAccent} style={{ marginTop: '10px', flexShrink: 0, fontSize: '1.2rem' }} title="AI Suggestions" />
                             {quickReplies.map((reply, i) => (
                                 <button 
                                     key={i} 
                                     onClick={() => handleSendMsg(reply, "text")}
                                     style={{
-                                        background: 'rgba(0, 255, 136, 0.1)', border: '1px solid #00ff88',
-                                        color: '#fff', padding: '6px 12px', borderRadius: '15px',
-                                        fontSize: '0.85rem', cursor: 'pointer', whiteSpace: 'nowrap',
-                                        transition: '0.2s'
+                                        background: 'rgba(255, 255, 255, 0.08)', 
+                                        border: '1px solid rgba(255, 255, 255, 0.15)',
+                                        color: '#fff', padding: '8px 16px', borderRadius: '20px',
+                                        fontSize: '0.9rem', cursor: 'pointer', whiteSpace: 'nowrap',
+                                        transition: 'all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
+                                        backdropFilter: 'blur(10px)',
+                                        boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
                                     }}
-                                    onMouseOver={(e) => e.target.style.background = 'rgba(0, 255, 136, 0.3)'}
-                                    onMouseOut={(e) => e.target.style.background = 'rgba(0, 255, 136, 0.1)'}
+                                    onMouseOver={(e) => {
+                                        e.target.style.background = 'rgba(255, 255, 255, 0.15)';
+                                        e.target.style.transform = 'translateY(-2px)';
+                                        e.target.style.borderColor = adaptiveAccent;
+                                    }}
+                                    onMouseOut={(e) => {
+                                        e.target.style.background = 'rgba(255, 255, 255, 0.08)';
+                                        e.target.style.transform = 'translateY(0)';
+                                        e.target.style.borderColor = 'rgba(255, 255, 255, 0.15)';
+                                    }}
                                 >
                                     {reply}
                                 </button>

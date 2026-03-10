@@ -8,7 +8,7 @@ import {
     BsEmojiSmileFill, BsPaperclip, BsMicFill, 
     BsStopCircleFill, BsCodeSlash, BsClockHistory 
 } from "react-icons/bs";
-import { FaBomb, FaFire, FaCalendarAlt, FaLink, FaSpinner, FaLock } from "react-icons/fa"; // <-- NEW: Added FaLock
+import { FaBomb, FaFire, FaCalendarAlt, FaLink, FaSpinner, FaLock } from "react-icons/fa";
 
 // --- MERGE UPDATE: IMPORT ZUSTAND STORE ---
 import useChatStore from "../store/chatStore";
@@ -19,8 +19,8 @@ const CLOUDINARY_UPLOAD_PRESET = "chat_app_preset"; // MUST be an "Unsigned" pre
 
 export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, setReplyingTo, editingMessage, setEditingMessage, handleEditMsgSubmit }) {
   
-  // --- MERGE UPDATE: GET CURRENT CHAT FOR PERMISSIONS ---
-  const { currentChat, currentUser } = useChatStore();
+  // --- MERGE UPDATE: GET THEME & CURRENT CHAT ---
+  const { currentChat, currentUser, theme } = useChatStore();
 
   const [msg, setMsg] = useState("");
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -39,19 +39,26 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
   const [detectedUrl, setDetectedUrl] = useState(null);
   
   const fileInputRef = useRef(null);
+  const textareaRef = useRef(null); // <-- NEW: Ref for auto-expanding textarea
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
 
-  // --- MERGE UPDATE: CHANNEL PERMISSIONS LOGIC ---
   const isChannel = currentChat?.isChannel || false;
   const isAdmin = currentChat?.admins?.includes(currentUser?._id);
   const isMod = currentChat?.moderators?.includes(currentUser?._id);
   const canPost = !isChannel || isAdmin || isMod;
 
+  // Has content check for styling the Send button
+  const hasContent = msg.trim().length > 0 || mediaPreview !== null;
+
   useEffect(() => {
       if (editingMessage) {
           setMsg(editingMessage.text);
           setReplyingTo(null); 
+          if (textareaRef.current) {
+              textareaRef.current.style.height = 'auto';
+              textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+          }
       }
   }, [editingMessage, setReplyingTo]);
 
@@ -65,14 +72,33 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
       }
   }, [msg]);
 
+  // Click outside listener to close menus
+  useEffect(() => {
+      const handleClickOutside = (e) => {
+          if (!e.target.closest('.button-container')) {
+              setShowEmojiPicker(false);
+              setShowTimerMenu(false);
+              setShowScheduleMenu(false);
+          }
+      };
+      document.addEventListener('click', handleClickOutside);
+      return () => document.removeEventListener('click', handleClickOutside);
+  }, []);
+
   const handleEmojiClick = (emojiData) => {
     setMsg((prev) => prev + emojiData.emoji);
     handleTyping(true); 
   };
 
+  const resetTextarea = () => {
+      if (textareaRef.current) {
+          textareaRef.current.style.height = 'auto';
+      }
+  };
+
   const sendChat = (event) => {
     event?.preventDefault();
-    if (msg.length > 0 && canPost) {
+    if (hasContent && canPost && !isUploading) {
       if (editingMessage) {
           handleEditMsgSubmit(editingMessage.id, msg);
           setEditingMessage(null);
@@ -83,6 +109,7 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
           }); 
       }
       setMsg("");
+      resetTextarea();
       setIsCodeMode(false);
       setReplyingTo(null);
       handleTyping(false);
@@ -93,9 +120,22 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
     }
   };
 
-  const handleChange = (e) => {
-    setMsg(e.target.value);
-    handleTyping(e.target.value.length > 0);
+  // --- NEW: Auto-expanding textarea logic ---
+  const handleInput = (e) => {
+      setMsg(e.target.value);
+      handleTyping(e.target.value.length > 0);
+      
+      // Auto-expand logic
+      e.target.style.height = 'auto';
+      const newHeight = Math.min(e.target.scrollHeight, 150); // Max height 150px
+      e.target.style.height = `${newHeight}px`;
+  };
+
+  const handleKeyDown = (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault(); // Prevent new line
+          sendChat();
+      }
   };
 
   const formatFileSize = (bytes) => {
@@ -171,11 +211,7 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
       } else if (mediaPreview.type === "image") {
           resType = "image";
           try {
-              const options = {
-                  maxSizeMB: 1,          
-                  maxWidthOrHeight: 1920, 
-                  useWebWorker: true      
-              };
+              const options = { maxSizeMB: 1, maxWidthOrHeight: 1920, useWebWorker: true };
               fileToUpload = await imageCompression(mediaPreview.rawFile, options);
           } catch (error) {
               console.error("Image compression error, falling back to original:", error);
@@ -185,7 +221,6 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
       }
 
       const cloudUrl = await uploadToCloudinary(fileToUpload, resType);
-
       setIsUploading(false);
 
       if (cloudUrl) {
@@ -198,7 +233,7 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
           setMediaPreview(null);
           setReplyingTo(null);
           
-          if (msg.length > 0) {
+          if (msg.trim().length > 0) {
               setTimeout(() => sendChat(), 200); 
           }
       } else {
@@ -254,11 +289,10 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
       setShowTimerMenu(false);
   };
 
-  // --- MERGE UPDATE: RENDER READ-ONLY UI FOR CHANNELS ---
   if (!canPost) {
       return (
-          <Wrapper>
-              <ReadOnlyBanner>
+          <Wrapper $themeType={theme}>
+              <ReadOnlyBanner $themeType={theme}>
                   <FaLock className="lock-icon" />
                   <span>Only admins and moderators can send messages here.</span>
               </ReadOnlyBanner>
@@ -266,8 +300,11 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
       );
   }
 
+  // Set Emoji Theme dynamically
+  const emojiTheme = theme === 'light' ? Theme.LIGHT : Theme.DARK;
+
   return (
-    <Wrapper>
+    <Wrapper $themeType={theme}>
       <div className="status-badges">
           {timerDuration && (
               <div className="badge timer-badge" onClick={() => setTimerDuration(null)}>
@@ -298,12 +335,12 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
       {editingMessage && (
         <div className="reply-banner edit-banner">
             <span>Editing message...</span>
-            <IoMdClose onClick={() => { setEditingMessage(null); setMsg(""); }} className="close-btn" />
+            <IoMdClose onClick={() => { setEditingMessage(null); setMsg(""); resetTextarea(); }} className="close-btn" />
         </div>
       )}
 
       {mediaPreview && (
-          <PreviewOverlay>
+          <PreviewOverlay $themeType={theme}>
               <div className="preview-container">
                   <div className="preview-header">
                       <span>Preview {mediaPreview.type}</span>
@@ -335,30 +372,30 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
           </PreviewOverlay>
       )}
 
-      <Container $isRecording={isRecording}>
+      <Container $isRecording={isRecording} $themeType={theme}>
         <div className="button-container">
-          <div className="emoji">
-            <BsEmojiSmileFill onClick={() => { setShowEmojiPicker(!showEmojiPicker); setShowTimerMenu(false); setShowScheduleMenu(false); }} />
+          <div className="emoji tool-toggle">
+            <BsEmojiSmileFill onClick={(e) => { e.stopPropagation(); setShowEmojiPicker(!showEmojiPicker); setShowTimerMenu(false); setShowScheduleMenu(false); }} />
             {showEmojiPicker && (
-               <div className="floating-menu emoji-picker-react">
-                 <EmojiPicker theme={Theme.DARK} onEmojiClick={handleEmojiClick} />
+               <div className="floating-menu emoji-picker-react" onClick={e => e.stopPropagation()}>
+                 <EmojiPicker theme={emojiTheme} onEmojiClick={handleEmojiClick} />
                </div>
             )}
           </div>
 
-          <div className="upload" onClick={() => !isUploading && fileInputRef.current.click()} title="Attach File">
+          <div className="upload tool-toggle" onClick={() => !isUploading && fileInputRef.current.click()} title="Attach File">
             <BsPaperclip />
             <input type="file" ref={fileInputRef} style={{ display: "none" }} accept="image/*,video/*,.pdf,.doc,.docx,.txt,.zip,.rar" onChange={handleFileUpload} />
           </div>
 
-          <div className="mic" onClick={isRecording ? stopRecording : startRecording} title="Record Audio">
-            {isRecording ? <BsStopCircleFill className="recording-active" /> : (isUploading ? <FaSpinner className="spin-icon text-white" /> : <BsMicFill />)}
+          <div className="mic tool-toggle" onClick={isRecording ? stopRecording : startRecording} title="Record Audio">
+            {isRecording ? <BsStopCircleFill className="recording-active" /> : (isUploading ? <FaSpinner className="spin-icon loading-mic" /> : <BsMicFill />)}
           </div>
 
           <div className={`tool-toggle ${timerDuration ? 'active' : ''}`} title="Self-Destruct Timer">
-              <FaBomb onClick={() => { setShowTimerMenu(!showTimerMenu); setShowEmojiPicker(false); setShowScheduleMenu(false); }} />
+              <FaBomb onClick={(e) => { e.stopPropagation(); setShowTimerMenu(!showTimerMenu); setShowEmojiPicker(false); setShowScheduleMenu(false); }} />
               {showTimerMenu && (
-                  <div className="floating-menu timer-menu">
+                  <div className="floating-menu timer-menu" onClick={e => e.stopPropagation()}>
                       <h4>Self-Destruct</h4>
                       <button className={timerDuration === null ? 'selected' : ''} onClick={() => toggleTimer(null)}>Off</button>
                       <button className={timerDuration === 3600 ? 'selected' : ''} onClick={() => toggleTimer(3600)}>1 Hour</button>
@@ -369,9 +406,9 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
           </div>
 
           <div className={`tool-toggle ${scheduleDate ? 'active' : ''}`} title="Schedule Message">
-              <BsClockHistory onClick={() => { setShowScheduleMenu(!showScheduleMenu); setShowEmojiPicker(false); setShowTimerMenu(false); }} />
+              <BsClockHistory onClick={(e) => { e.stopPropagation(); setShowScheduleMenu(!showScheduleMenu); setShowEmojiPicker(false); setShowTimerMenu(false); }} />
               {showScheduleMenu && (
-                  <div className="floating-menu schedule-menu">
+                  <div className="floating-menu schedule-menu" onClick={e => e.stopPropagation()}>
                       <h4>Schedule Message</h4>
                       <input 
                         type="datetime-local" 
@@ -385,7 +422,7 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
           </div>
 
           <div className={`code-toggle tool-toggle ${isCodeMode ? 'active' : ''}`} onClick={() => setIsCodeMode(!isCodeMode)} title="Send Code Snippet">
-             <BsCodeSlash />
+              <BsCodeSlash />
           </div>
         </div>
 
@@ -401,25 +438,32 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
           ) : isCodeMode ? (
             <textarea 
               placeholder="Paste your code snippet here..." 
-              onChange={handleChange} 
+              onChange={handleInput} 
+              onKeyDown={handleKeyDown}
               value={msg} 
               onPaste={handlePaste} 
               rows="2" 
               disabled={isUploading}
             />
           ) : (
-            <input
-              type="text"
-              placeholder={isUploading ? "Uploading media..." : "Type a message or paste (Ctrl+V) an image..."}
-              onChange={handleChange}
+            <textarea
+              ref={textareaRef}
+              placeholder={isUploading ? "Uploading media..." : "Type a message or paste an image..."}
+              onChange={handleInput}
+              onKeyDown={handleKeyDown}
               value={msg}
               onPaste={handlePaste}
               onBlur={() => handleTyping(false)}
               disabled={isUploading}
+              rows="1"
             />
           )}
           
-          <button type="submit" className={scheduleDate ? 'schedule-btn' : ''} disabled={isRecording || isUploading}>
+          <button 
+             type="submit" 
+             className={`${scheduleDate ? 'schedule-btn' : ''} ${hasContent ? 'ready' : 'empty'}`} 
+             disabled={isRecording || isUploading || (!hasContent && !mediaPreview)}
+          >
             {isUploading ? <FaSpinner className="spin-icon" /> : (editingMessage ? <IoMdCheckmark /> : (scheduleDate ? <BsClockHistory /> : <IoMdSend />))}
           </button>
         </form>
@@ -446,24 +490,14 @@ const wave = keyframes`
   50% { height: 24px; }
 `;
 
-// --- MERGE UPDATE: NEW STYLED COMPONENT FOR READ ONLY MODE ---
 const ReadOnlyBanner = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.4);
-  color: #888;
-  padding: 1.2rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
-  font-style: italic;
-  font-size: 0.95rem;
-  min-height: 10%;
+  display: flex; align-items: center; justify-content: center;
+  background: ${({ $themeType }) => $themeType === 'light' ? 'rgba(0,0,0,0.05)' : 'rgba(0, 0, 0, 0.4)'};
+  color: ${({ $themeType }) => $themeType === 'light' ? '#666' : '#888'};
+  padding: 1.2rem; border-top: 1px solid ${({ $themeType }) => $themeType === 'light' ? 'rgba(0,0,0,0.1)' : 'rgba(255, 255, 255, 0.05)'};
+  font-style: italic; font-size: 0.95rem; min-height: 10%;
   
-  .lock-icon {
-    margin-right: 10px;
-    font-size: 1.1rem;
-    color: #4e0eff;
-  }
+  .lock-icon { margin-right: 10px; font-size: 1.1rem; color: #4e0eff; }
 `;
 
 const PreviewOverlay = styled.div`
@@ -471,28 +505,29 @@ const PreviewOverlay = styled.div`
     display: flex; justify-content: center; z-index: 100;
     
     .preview-container {
-        background: rgba(26, 26, 37, 0.95); backdrop-filter: blur(15px);
-        border-radius: 1.5rem; padding: 1.2rem;
-        box-shadow: 0 15px 40px rgba(0,0,0,0.8);
-        border: 1px solid rgba(255,255,255,0.1);
-        display: flex; flex-direction: column; gap: 1rem;
-        width: 380px; animation: ${popIn} 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        background: ${({ $themeType }) => $themeType === 'light' ? 'rgba(255, 255, 255, 0.95)' : 'rgba(26, 26, 37, 0.95)'}; 
+        backdrop-filter: blur(15px); border-radius: 1.5rem; padding: 1.2rem;
+        box-shadow: 0 15px 40px rgba(0,0,0,0.4);
+        border: 1px solid ${({ $themeType }) => $themeType === 'light' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)'};
+        display: flex; flex-direction: column; gap: 1rem; width: 380px; 
+        animation: ${popIn} 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        color: ${({ $themeType }) => $themeType === 'light' ? '#333' : 'white'};
         
         .preview-header {
-            display: flex; justify-content: space-between; color: white; font-weight: bold;
-            .close-btn { cursor: pointer; font-size: 1.5rem; transition: 0.2s; &:hover { color: #ff4e4e; transform: scale(1.1); } }
+            display: flex; justify-content: space-between; font-weight: bold;
+            .close-btn { cursor: pointer; font-size: 1.5rem; transition: 0.2s; color: #888; &:hover { color: #ff4e4e; transform: scale(1.1); } }
         }
 
-        img, video { width: 100%; max-height: 250px; object-fit: contain; border-radius: 0.8rem; background: rgba(0,0,0,0.5); }
-        .file-preview-icon { height: 120px; display: flex; align-items: center; justify-content: center; text-align: center; background: rgba(255,255,255,0.05); color: white; border-radius: 0.8rem; border: 2px dashed rgba(255,255,255,0.2); }
+        img, video { width: 100%; max-height: 250px; object-fit: contain; border-radius: 0.8rem; background: rgba(0,0,0,0.1); }
+        .file-preview-icon { height: 120px; display: flex; align-items: center; justify-content: center; text-align: center; background: rgba(128,128,128,0.1); border-radius: 0.8rem; border: 2px dashed rgba(128,128,128,0.3); }
 
         .media-options {
             display: flex; justify-content: center;
             .view-once-toggle {
-                display: flex; align-items: center; gap: 0.5rem; background: rgba(255,255,255,0.05);
-                padding: 0.5rem 1rem; border-radius: 2rem; cursor: pointer; color: #ccc; font-size: 0.85rem;
+                display: flex; align-items: center; gap: 0.5rem; background: rgba(128,128,128,0.1);
+                padding: 0.5rem 1rem; border-radius: 2rem; cursor: pointer; font-size: 0.85rem;
                 transition: 0.3s; border: 1px solid transparent;
-                &:hover { background: rgba(255,255,255,0.1); }
+                &:hover { background: rgba(128,128,128,0.2); }
                 &.active { background: rgba(255, 85, 0, 0.1); color: #ff5500; border-color: #ff5500; font-weight: bold; }
                 input:disabled + svg { opacity: 0.5; }
             }
@@ -500,7 +535,7 @@ const PreviewOverlay = styled.div`
 
         .preview-actions {
             display: flex; gap: 0.8rem;
-            input { flex: 1; padding: 0.9rem 1.2rem; border-radius: 2rem; border: none; background: rgba(255,255,255,0.08); color: white; outline: none; transition: 0.3s; &:focus { background: rgba(255,255,255,0.15); box-shadow: 0 0 10px rgba(78, 14, 255, 0.3); } &:disabled { opacity: 0.5; } }
+            input { flex: 1; padding: 0.9rem 1.2rem; border-radius: 2rem; border: 1px solid rgba(128,128,128,0.2); background: transparent; color: inherit; outline: none; transition: 0.3s; &:focus { border-color: #4e0eff; } &:disabled { opacity: 0.5; } }
             button { background: #4e0eff; border: none; border-radius: 50%; min-width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: white; font-size: 1.2rem; transition: 0.3s; &:hover:not(:disabled) { background: #9a86f3; transform: scale(1.05); } &:disabled { background: #555; cursor: not-allowed; } }
             .spin-icon { animation: fa-spin 1s infinite linear; }
         }
@@ -512,17 +547,14 @@ const Wrapper = styled.div`
   
   .status-badges {
       position: absolute; top: -35px; left: 2rem; display: flex; gap: 0.8rem; z-index: 10;
-      .badge {
-          display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.8rem; border-radius: 1rem; font-size: 0.75rem; font-weight: bold; cursor: pointer; color: white; animation: ${popIn} 0.3s ease; box-shadow: 0 4px 10px rgba(0,0,0,0.5);
-          .close { margin-left: 5px; opacity: 0.6; &:hover { opacity: 1; } }
-      }
+      .badge { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.8rem; border-radius: 1rem; font-size: 0.75rem; font-weight: bold; cursor: pointer; color: white; animation: ${popIn} 0.3s ease; box-shadow: 0 4px 10px rgba(0,0,0,0.2); .close { margin-left: 5px; opacity: 0.6; &:hover { opacity: 1; } } }
       .timer-badge { background: rgba(255, 85, 0, 0.2); border: 1px solid #ff5500; color: #ff5500; backdrop-filter: blur(5px); }
       .schedule-badge { background: rgba(0, 255, 136, 0.2); border: 1px solid #00ff88; color: #00ff88; backdrop-filter: blur(5px); }
   }
 
   .reply-banner {
-      background: rgba(154, 65, 254, 0.15); backdrop-filter: blur(10px); padding: 0.6rem 2rem; display: flex; justify-content: space-between; align-items: center; color: #ccc; font-size: 0.85rem; border-top: 1px solid rgba(255, 255, 255, 0.05);
-      .close-btn { cursor: pointer; color: white; font-size: 1.2rem; transition: 0.2s; &:hover { color: #ff4e4e; transform: scale(1.2); } }
+      background: ${({ $themeType }) => $themeType === 'light' ? 'rgba(78, 14, 255, 0.1)' : 'rgba(154, 65, 254, 0.15)'}; backdrop-filter: blur(10px); padding: 0.6rem 2rem; display: flex; justify-content: space-between; align-items: center; color: ${({ $themeType }) => $themeType === 'light' ? '#555' : '#ccc'}; font-size: 0.85rem; border-top: 1px solid ${({ $themeType }) => $themeType === 'light' ? 'rgba(0,0,0,0.05)' : 'rgba(255, 255, 255, 0.05)'};
+      .close-btn { cursor: pointer; color: ${({ $themeType }) => $themeType === 'light' ? '#888' : 'white'}; font-size: 1.2rem; transition: 0.2s; &:hover { color: #ff4e4e; transform: scale(1.2); } }
   }
   .edit-banner { background: rgba(0, 255, 136, 0.15); }
   .link-banner { background: rgba(52, 183, 241, 0.1); border-top: 1px solid rgba(52, 183, 241, 0.2); justify-content: flex-start; animation: ${popIn} 0.3s ease; }
@@ -532,33 +564,37 @@ const Wrapper = styled.div`
 
 const Container = styled.div`
   display: grid; grid-template-columns: 25% 75%; align-items: center;
-  background-color: rgba(255, 255, 255, 0.02); padding: 0 2rem; min-height: 10%; border-top: 1px solid rgba(255, 255, 255, 0.05);
+  background-color: ${({ $themeType }) => $themeType === 'light' ? 'rgba(255, 255, 255, 0.5)' : 'rgba(255, 255, 255, 0.02)'}; 
+  padding: 0 2rem; min-height: 10%; 
+  border-top: 1px solid ${({ $themeType }) => $themeType === 'light' ? 'rgba(0,0,0,0.05)' : 'rgba(255, 255, 255, 0.05)'};
   
-  ${({ $isRecording }) => $isRecording && css`
-     background: rgba(255, 78, 78, 0.05);
-     box-shadow: inset 0 0 20px rgba(255, 78, 78, 0.1);
-  `}
+  ${({ $isRecording }) => $isRecording && css` background: rgba(255, 78, 78, 0.05); box-shadow: inset 0 0 20px rgba(255, 78, 78, 0.1); `}
 
   @media screen and (max-width: 1080px) { grid-template-columns: 35% 65%; }
   @media screen and (max-width: 720px) { padding: 0 1rem; gap: 1rem; grid-template-columns: 40% 60%; }
   
   .button-container {
-    display: flex; align-items: center; color: white; gap: 1.2rem;
+    display: flex; align-items: center; gap: 1.2rem;
     
-    .emoji, .upload, .mic, .tool-toggle {
+    .tool-toggle {
       position: relative; cursor: pointer;
-      svg { font-size: 1.5rem; color: #999; transition: 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); &:hover { color: #fff; transform: scale(1.15) translateY(-2px); } }
+      svg { font-size: 1.4rem; color: ${({ $themeType }) => $themeType === 'light' ? '#888' : '#999'}; transition: 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); &:hover { color: ${({ $themeType }) => $themeType === 'light' ? '#333' : '#fff'}; transform: scale(1.15) translateY(-2px); } }
       &.active svg { color: #4e0eff; filter: drop-shadow(0 0 5px rgba(78,14,255,0.5)); }
     }
     
-    .emoji svg { color: #ffff00c8; }
+    .emoji svg { color: #d4d412; }
     .upload svg { color: #34B7F1; }
     .mic .recording-active { color: #ff4e4e; animation: ${pulse} 1s infinite; filter: drop-shadow(0 0 10px #ff4e4e); }
+    .loading-mic { color: #888; animation: fa-spin 1s infinite linear; }
     .code-toggle.active svg { color: #00ff88; filter: drop-shadow(0 0 5px #00ff88); }
 
     .floating-menu {
-      position: absolute; bottom: 50px; left: 0; background: rgba(13, 13, 48, 0.95); backdrop-filter: blur(15px);
-      box-shadow: 0 10px 30px rgba(0,0,0,0.8); border: 1px solid rgba(78, 14, 255, 0.3); border-radius: 1rem; z-index: 99;
+      position: absolute; bottom: 50px; left: 0; 
+      background: ${({ $themeType }) => $themeType === 'light' ? 'rgba(255, 255, 255, 0.95)' : 'rgba(13, 13, 48, 0.95)'}; 
+      backdrop-filter: blur(15px);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.3); 
+      border: 1px solid ${({ $themeType }) => $themeType === 'light' ? 'rgba(0,0,0,0.1)' : 'rgba(78, 14, 255, 0.3)'}; 
+      border-radius: 1rem; z-index: 99;
       animation: ${popIn} 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
     }
 
@@ -566,40 +602,54 @@ const Container = styled.div`
 
     .timer-menu, .schedule-menu {
         padding: 1.2rem; width: 220px; display: flex; flex-direction: column; gap: 0.6rem;
-        h4 { color: white; margin-top: 0; margin-bottom: 0.5rem; font-size: 0.9rem; text-align: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 0.5rem; }
-        button { background: rgba(255,255,255,0.05); border: 1px solid transparent; color: white; padding: 0.6rem; border-radius: 0.5rem; cursor: pointer; transition: 0.2s; &:hover { background: rgba(255,255,255,0.1); } &.selected { background: #4e0eff; font-weight: bold; box-shadow: 0 0 10px rgba(78,14,255,0.3); } }
-        input[type="datetime-local"] { background: rgba(0,0,0,0.3); color: white; border: 1px solid rgba(78,14,255,0.3); padding: 0.8rem; border-radius: 0.5rem; outline: none; margin-bottom: 0.5rem; font-family: inherit; color-scheme: dark; }
+        h4 { color: ${({ $themeType }) => $themeType === 'light' ? '#333' : 'white'}; margin-top: 0; margin-bottom: 0.5rem; font-size: 0.9rem; text-align: center; border-bottom: 1px solid rgba(128,128,128,0.2); padding-bottom: 0.5rem; }
+        button { background: rgba(128,128,128,0.1); border: 1px solid transparent; color: inherit; padding: 0.6rem; border-radius: 0.5rem; cursor: pointer; transition: 0.2s; &:hover { background: rgba(128,128,128,0.2); } &.selected { background: #4e0eff; color: white; font-weight: bold; box-shadow: 0 0 10px rgba(78,14,255,0.3); } }
+        input[type="datetime-local"] { background: rgba(128,128,128,0.1); color: inherit; border: 1px solid rgba(128,128,128,0.3); padding: 0.8rem; border-radius: 0.5rem; outline: none; margin-bottom: 0.5rem; font-family: inherit; color-scheme: ${({ $themeType }) => $themeType === 'light' ? 'light' : 'dark'}; }
     }
   }
 
   .input-container {
-    width: 100%; border-radius: 2rem; display: flex; align-items: center; gap: 1rem;
-    background-color: rgba(255, 255, 255, 0.05); padding: 0.4rem; transition: 0.3s;
-    border: 1px solid transparent;
-    &:focus-within { background-color: rgba(255, 255, 255, 0.08); border-color: rgba(78, 14, 255, 0.3); box-shadow: 0 0 15px rgba(78, 14, 255, 0.1); }
+    width: 100%; border-radius: 1.5rem; display: flex; align-items: flex-end; gap: 1rem;
+    background-color: ${({ $themeType }) => $themeType === 'light' ? 'rgba(0,0,0,0.03)' : 'rgba(255, 255, 255, 0.05)'}; 
+    padding: 0.5rem; transition: 0.3s;
+    border: 1px solid ${({ $themeType }) => $themeType === 'light' ? 'rgba(0,0,0,0.05)' : 'transparent'}; 
+    
+    &:focus-within { 
+        background-color: ${({ $themeType }) => $themeType === 'light' ? '#fff' : 'rgba(255, 255, 255, 0.08)'}; 
+        border-color: rgba(78, 14, 255, 0.3); box-shadow: 0 0 15px rgba(78, 14, 255, 0.1); 
+    }
     
     .recording-ui {
-        width: 100%; height: 60%; display: flex; align-items: center; justify-content: space-between; padding-left: 1.5rem; padding-right: 1rem;
+        width: 100%; height: 40px; display: flex; align-items: center; justify-content: space-between; padding-left: 1.5rem; padding-right: 1rem;
         .rec-text { color: #ff4e4e; font-style: italic; font-weight: bold; animation: ${pulse} 1.5s infinite; }
-        .waveform {
-            display: flex; align-items: center; gap: 4px; height: 30px;
-            .bar { display: block; width: 4px; background: #ff4e4e; border-radius: 4px; animation: ${wave} 1s ease-in-out infinite; }
-            .bar:nth-child(2) { animation-delay: 0.1s; } .bar:nth-child(3) { animation-delay: 0.2s; }
-            .bar:nth-child(4) { animation-delay: 0.3s; } .bar:nth-child(5) { animation-delay: 0.4s; }
-            .bar:nth-child(6) { animation-delay: 0.5s; }
-        }
+        .waveform { display: flex; align-items: center; gap: 4px; height: 30px; .bar { display: block; width: 4px; background: #ff4e4e; border-radius: 4px; animation: ${wave} 1s ease-in-out infinite; } .bar:nth-child(2) { animation-delay: 0.1s; } .bar:nth-child(3) { animation-delay: 0.2s; } .bar:nth-child(4) { animation-delay: 0.3s; } .bar:nth-child(5) { animation-delay: 0.4s; } .bar:nth-child(6) { animation-delay: 0.5s; } }
     }
 
-    input { width: 100%; height: 60%; background-color: transparent; color: white; border: none; padding-left: 1.5rem; font-size: 1.1rem; &::selection { background-color: #9a86f3; } &:focus { outline: none; } &:disabled { opacity: 0.5; cursor: not-allowed; } }
-    textarea { width: 100%; background-color: transparent; color: #00ff88; border: none; padding-left: 1.5rem; font-size: 1rem; resize: none; font-family: 'JetBrains Mono', monospace; &:focus { outline: none; } &:disabled { opacity: 0.5; cursor: not-allowed; } }
+    textarea { 
+        width: 100%; background-color: transparent; 
+        color: ${({ $themeType }) => $themeType === 'light' ? '#333' : 'white'}; 
+        border: none; padding-left: 1rem; padding-top: 0.6rem; padding-bottom: 0.6rem;
+        font-size: 1rem; resize: none; overflow-y: auto; line-height: 1.4;
+        font-family: inherit;
+        &::-webkit-scrollbar { width: 4px; }
+        &::-webkit-scrollbar-thumb { background-color: rgba(128,128,128,0.3); border-radius: 10px; }
+        &::selection { background-color: #9a86f3; color: white;} 
+        &:focus { outline: none; } 
+        &:disabled { opacity: 0.5; cursor: not-allowed; } 
+    }
     
     button {
-      padding: 0.6rem 1.5rem; border-radius: 2rem; display: flex; justify-content: center; align-items: center;
-      background: linear-gradient(135deg, #4e0eff 0%, #9a41fe 100%); border: none; cursor: pointer; transition: 0.3s; box-shadow: 0 4px 15px rgba(78, 14, 255, 0.3);
-      svg { font-size: 1.5rem; color: white; }
-      &:hover:not(:disabled) { transform: scale(1.05); box-shadow: 0 6px 20px rgba(78, 14, 255, 0.5); }
-      &:disabled { background: #555; cursor: not-allowed; box-shadow: none; }
-      &.schedule-btn { background: linear-gradient(135deg, #00ff88 0%, #00b35f 100%); box-shadow: 0 4px 15px rgba(0, 255, 136, 0.3); }
+      padding: 0.8rem; border-radius: 50%; display: flex; justify-content: center; align-items: center;
+      border: none; transition: 0.3s; 
+      
+      /* --- NEW: Dynamic Send Button State --- */
+      &.empty { background: ${({ $themeType }) => $themeType === 'light' ? '#e0e0e0' : '#2a2a35'}; color: ${({ $themeType }) => $themeType === 'light' ? '#fff' : '#555'}; cursor: default; }
+      &.ready { background: linear-gradient(135deg, #4e0eff 0%, #9a41fe 100%); color: white; cursor: pointer; box-shadow: 0 4px 15px rgba(78, 14, 255, 0.3); }
+      &.ready:hover { transform: scale(1.08); box-shadow: 0 6px 20px rgba(78, 14, 255, 0.5); }
+      
+      svg { font-size: 1.3rem; }
+      &:disabled { background: ${({ $themeType }) => $themeType === 'light' ? '#e0e0e0' : '#2a2a35'}; cursor: not-allowed; box-shadow: none; color: #888; }
+      &.schedule-btn { background: linear-gradient(135deg, #00ff88 0%, #00b35f 100%); box-shadow: 0 4px 15px rgba(0, 255, 136, 0.3); color: black;}
       .spin-icon { animation: fa-spin 1s infinite linear; }
     }
   }

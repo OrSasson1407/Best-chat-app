@@ -3,7 +3,8 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import styled, { keyframes, css } from "styled-components";
 import { 
     FaUserFriends, FaPlus, FaSearch, FaCog, FaThumbtack, 
-    FaRegEnvelope, FaTimes, FaSpinner, FaShieldAlt, FaEye, FaGlobe // <-- NEW: Added FaGlobe
+    FaRegEnvelope, FaTimes, FaSpinner, FaShieldAlt, FaEye, FaGlobe,
+    FaSun, FaMoon // <-- Theme Icons
 } from "react-icons/fa";
 import { BsChatDotsFill, BsPeopleFill } from "react-icons/bs";
 import { MdOutlineAllInclusive } from "react-icons/md";
@@ -11,7 +12,7 @@ import axios from "axios";
 import { 
     host, createGroupRoute, getUserGroupsRoute, updateProfileRoute, 
     searchMessageRoute, getStoryFeedRoute, addStoryRoute, viewStoryRoute,
-    searchChannelsRoute, joinChannelRoute // <-- NEW: Added Channel Routes
+    searchChannelsRoute, joinChannelRoute 
 } from "../utils/APIRoutes";
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -54,7 +55,7 @@ export default function Contacts({
       currentUser,
       onlineUsers,
       theme,
-      setTheme,
+      setTheme, // <-- Controls theme
       isCompact,
       setIsCompact,
       globalTypingUsers
@@ -87,7 +88,6 @@ export default function Contacts({
 
   const [showProfileModal, setShowProfileModal] = useState(false);
   
-  // --- MERGE UPDATE: DISCOVER CHANNELS STATE ---
   const [showDiscoverModal, setShowDiscoverModal] = useState(false);
   const [channelSearchQuery, setChannelSearchQuery] = useState("");
   const [discoveredChannels, setDiscoveredChannels] = useState([]);
@@ -118,13 +118,11 @@ export default function Contacts({
     const fetchGroupsAndStories = async () => {
       if(currentUser && currentUser.token) {
           try {
-              // Fetch Groups
               const groupRes = await axios.get(getUserGroupsRoute, {
                   headers: { "x-auth-token": currentUser.token }
               });
               setGroups(groupRes.data);
 
-              // Fetch Story Feed
               const storyRes = await axios.get(getStoryFeedRoute, {
                   headers: { "x-auth-token": currentUser.token }
               });
@@ -163,7 +161,6 @@ export default function Contacts({
     }
   }, [pinnedIds, currentUser]);
 
-  // Auto-play Stories Logic
   useEffect(() => {
       let timer;
       if (viewingStoryUser && viewingStoryUser.stories) {
@@ -203,7 +200,6 @@ export default function Contacts({
       return () => clearTimeout(delayDebounceFn);
   }, [searchTerm, currentUser]);
 
-  // --- MERGE UPDATE: DEBOUNCED CHANNEL SEARCH ---
   useEffect(() => {
       if (!channelSearchQuery) {
           setDiscoveredChannels([]);
@@ -403,7 +399,6 @@ export default function Contacts({
     }
   };
 
-  // --- MERGE UPDATE: HANDLE JOIN CHANNEL ---
   const handleJoinChannel = async (channelId) => {
       try {
           const { data } = await axios.post(joinChannelRoute, { channelId }, {
@@ -454,6 +449,15 @@ export default function Contacts({
       const isFemale = user?.gender === 'female';
       const tops = isFemale ? femaleTops : maleTops;
       return `https://api.dicebear.com/9.x/avataaars/svg?seed=${seed}&top=${tops}&backgroundColor=${backgroundColors}`;
+  };
+
+  // --- THEME TOGGLE HANDLER ---
+  const toggleTheme = () => {
+      if (theme === 'light') {
+          setTheme('glass');
+      } else {
+          setTheme('light');
+      }
   };
 
   const unreadPersonalChatsCount = contacts.filter(c => c.unreadCount > 0).length;
@@ -531,7 +535,6 @@ export default function Contacts({
                 ))
             ) : (
               <>
-                {/* --- MERGE UPDATE: ADDED DISCOVER BUTTON --- */}
                 {activeFolder === "groups" && !searchTerm && (
                     <div style={{display:'flex', gap:'10px', width: '92%', marginBottom: '10px'}}>
                         <div className="create-group-btn" style={{flex: 1, width: 'auto'}} onClick={() => setShowGroupModal(true)}><FaPlus /> Create</div>
@@ -638,8 +641,12 @@ export default function Contacts({
                      <p className="status-text">{currentUser?.statusIcon || "✨"} {currentUser?.statusMessage || "Available"}</p>
                  </div>
                  <div className="actions">
+                     {/* --- THEME BUTTON --- */}
+                     <button className="theme-btn" onClick={toggleTheme} title="Toggle Light/Dark Mode">
+                         {theme === 'light' ? <FaMoon size={16}/> : <FaSun size={16}/>}
+                     </button>
                      <button className="profile-btn" onClick={() => setShowProfileModal(true)} title="Settings & Profile"><FaCog size={16}/></button>
-                     <button className="logout-btn" onClick={handleLogout}>Logout</button>
+                     <button className="logout-btn" onClick={handleLogout} title="Logout"><FaTimes size={16}/></button>
                  </div>
              </div>
           </div>
@@ -663,7 +670,6 @@ export default function Contacts({
               </Modal>
           )}
 
-          {/* --- MERGE UPDATE: NEW DISCOVER CHANNELS MODAL --- */}
           {showDiscoverModal && (
             <Modal>
                 <div className="modal-content profile-modal">
@@ -720,6 +726,7 @@ export default function Contacts({
                                   <option value="glass">Glassmorphism</option>
                                   <option value="midnight">Midnight (OLED)</option>
                                   <option value="cyberpunk">Cyberpunk</option>
+                                  <option value="light">Light Mode</option>
                               </select>
                           </div>
                           <div className="input-group">
@@ -895,10 +902,15 @@ const Container = styled.div`
   
   ${({ $themeType }) => $themeType === 'cyberpunk' && css` border-right: 1px solid #00ff88; `}
   ${({ $themeType }) => $themeType === 'midnight' && css` background: #000; border-right: 1px solid #333; `}
+  ${({ $themeType }) => $themeType === 'light' && css` background: #fff; border-right: 1px solid #ddd; `}
 
   .brand { 
     display: flex; align-items: center; justify-content: center; position: relative;
-    h3 { color: #fff; text-transform: uppercase; letter-spacing: 0.3rem; font-weight: 700; ${({ $isCompact }) => $isCompact && css`font-size: 1rem;`} } 
+    h3 { 
+        color: ${({ $themeType }) => $themeType === 'light' ? '#333' : '#fff'}; 
+        text-transform: uppercase; letter-spacing: 0.3rem; font-weight: 700; 
+        ${({ $isCompact }) => $isCompact && css`font-size: 1rem;`} 
+    } 
   }
 
   .glass-shine-effect {
@@ -906,6 +918,7 @@ const Container = styled.div`
     &::after {
       content: ""; position: absolute; top: 0; left: -100%; width: 50%; height: 100%;
       background: linear-gradient(90deg, transparent, rgba(255,255,255,0.05), transparent);
+      ${({ $themeType }) => $themeType === 'light' && css` background: linear-gradient(90deg, transparent, rgba(0,0,0,0.05), transparent); `}
       transform: skewX(-25deg); animation: ${glassShine} 4s infinite linear;
     }
   }
@@ -913,13 +926,18 @@ const Container = styled.div`
   .folders-bar {
       display: flex; justify-content: space-around; align-items: center;
       padding: 0 1rem; border-bottom: 1px solid rgba(255,255,255,0.05);
+      ${({ $themeType }) => $themeType === 'light' && css` border-bottom: 1px solid rgba(0,0,0,0.05); `}
   }
 
   .search-bar { 
       display: flex; align-items: center; justify-content: center; padding: 0 1.2rem; position: relative; 
       .search-icon { position: absolute; left: 2.2rem; color: #666; font-size: 0.9rem; } 
-      .clear-icon { position: absolute; right: 2.2rem; color: #888; font-size: 0.9rem; cursor: pointer; transition: 0.2s; &:hover { color: #fff; transform: scale(1.1); } }
-      input { width: 100%; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255,255,255,0.05); padding: 0.6rem 2.8rem; border-radius: 1.2rem; color: white; outline: none; transition: 0.3s; font-size: 0.9rem; &:focus { background: rgba(255, 255, 255, 0.08); border-color: rgba(78, 14, 255, 0.4); box-shadow: 0 0 10px rgba(78, 14, 255, 0.1); } } 
+      .clear-icon { position: absolute; right: 2.2rem; color: #888; font-size: 0.9rem; cursor: pointer; transition: 0.2s; &:hover { color: ${({ $themeType }) => $themeType === 'light' ? '#333' : '#fff'}; transform: scale(1.1); } }
+      input { 
+          width: 100%; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255,255,255,0.05); padding: 0.6rem 2.8rem; border-radius: 1.2rem; color: white; outline: none; transition: 0.3s; font-size: 0.9rem; 
+          ${({ $themeType }) => $themeType === 'light' && css` background: rgba(0,0,0,0.03); border: 1px solid rgba(0,0,0,0.05); color: #333; `}
+          &:focus { background: rgba(255, 255, 255, 0.08); border-color: rgba(78, 14, 255, 0.4); box-shadow: 0 0 10px rgba(78, 14, 255, 0.1); } 
+      } 
   }
   
   .contacts {
@@ -930,6 +948,7 @@ const Container = styled.div`
     &::-webkit-scrollbar { width: 4px; } 
     &::-webkit-scrollbar-track { background: transparent; }
     &::-webkit-scrollbar-thumb { background-color: rgba(255, 255, 255, 0.15); border-radius: 10px; }
+    ${({ $themeType }) => $themeType === 'light' && css` &::-webkit-scrollbar-thumb { background-color: rgba(0, 0, 0, 0.15); } `}
     
     .empty-state { color: #666; font-style: italic; margin-top: 2rem; font-size: 0.9rem; }
     
@@ -949,9 +968,10 @@ const Container = styled.div`
         background: rgba(255, 255, 255, 0.03); width: 90%; padding: 0.8rem; 
         border-radius: 0.8rem; cursor: pointer; transition: 0.3s;
         border: 1px solid rgba(78, 14, 255, 0.2); flex-shrink: 0;
+        ${({ $themeType }) => $themeType === 'light' && css` background: rgba(0,0,0,0.03); border: 1px solid rgba(78, 14, 255, 0.1); `}
         
         &:hover { background: rgba(78, 14, 255, 0.15); border-color: rgba(78, 14, 255, 0.4); transform: translateY(-2px); }
-        .msg-text { color: #e0e0e0; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-style: italic;}
+        .msg-text { color: ${({ $themeType }) => $themeType === 'light' ? '#333' : '#e0e0e0'}; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-style: italic;}
         .msg-date { color: #666; font-size: 0.65rem; display: block; margin-top: 6px; text-align: right;}
     }
   }
@@ -959,11 +979,25 @@ const Container = styled.div`
   .current-user {
       background: rgba(0, 0, 0, 0.3); padding: 1.2rem; display: flex; justify-content: center; align-items: center;
       border-top: 1px solid rgba(255,255,255,0.05); height: 100%; 
+      ${({ $themeType }) => $themeType === 'light' && css` background: #fff; border-top: 1px solid #ddd; `}
+
       .user-info {
           display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 12px;
           .current-user-avatar { height: 2.8rem; min-width: 2.8rem; width: 2.8rem; border-radius: 50%; overflow: hidden; border: 2px solid rgba(0, 255, 136, 0.2); img { width: 100%; height: 100%; object-fit: cover; } }
-          .details { display: flex; flex-direction: column; flex-grow: 1; h2 { color: white; font-size: 1.1rem; font-weight: 600; } .status-text { color: #00ff88; font-size: 0.75rem; font-weight: 500; } }
-          .actions { display: flex; gap: 0.6rem; align-items: center; button { border: none; border-radius: 0.6rem; color: white; cursor: pointer; font-size: 0.8rem; font-weight: bold; padding: 0.5rem 0.9rem; display: flex; align-items: center; justify-content: center; transition: 0.3s; } .profile-btn { background: rgba(78, 14, 255, 0.2); color: #9a86f3; &:hover { background: #4e0eff; color: white; } } .logout-btn { background: rgba(255, 78, 78, 0.1); color: #ff4e4e; &:hover { background: #ff4e4e; color: white; } } }
+          
+          .details { 
+              display: flex; flex-direction: column; flex-grow: 1; 
+              h2 { color: ${({ $themeType }) => $themeType === 'light' ? '#333' : 'white'}; font-size: 1.1rem; font-weight: 600; margin: 0;} 
+              .status-text { margin: 0; color: #00ff88; font-size: 0.75rem; font-weight: 500; } 
+          }
+          
+          .actions { 
+              display: flex; gap: 0.6rem; align-items: center; 
+              button { border: none; border-radius: 0.6rem; color: white; cursor: pointer; font-size: 0.8rem; font-weight: bold; padding: 0.5rem 0.9rem; display: flex; align-items: center; justify-content: center; transition: 0.3s; } 
+              .theme-btn { background: rgba(0, 198, 255, 0.15); color: #00c6ff; &:hover { background: #00c6ff; color: white; transform: rotate(15deg); } }
+              .profile-btn { background: rgba(78, 14, 255, 0.2); color: #9a86f3; &:hover { background: #4e0eff; color: white; transform: rotate(90deg); } } 
+              .logout-btn { background: rgba(255, 78, 78, 0.1); color: #ff4e4e; &:hover { background: #ff4e4e; color: white; } } 
+          }
       }
   }
 `;
@@ -977,14 +1011,18 @@ const ContactItem = styled.div`
   transition: all 0.25s cubic-bezier(0.25, 0.8, 0.25, 1);
   overflow: hidden; 
 
+  ${({ $themeType }) => $themeType === 'light' && css` background: rgba(0,0,0,0.03); `}
+
   ${({ $isPinned }) => $isPinned && css`
     background: rgba(255, 255, 255, 0.06); border-left: 3.5px solid #4e0eff;
+    ${({ $themeType }) => $themeType === 'light' && css` background: rgba(0,0,0,0.06); `}
   `}
 
   &:hover { 
     background: rgba(255, 255, 255, 0.08); 
     transform: scale(1.03) translateY(-2px); 
     box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+    ${({ $themeType }) => $themeType === 'light' && css` background: #fff; box-shadow: 0 5px 15px rgba(0,0,0,0.05); `}
     .pin-btn { opacity: 1; }
   }
 
@@ -993,6 +1031,7 @@ const ContactItem = styled.div`
       border-color: rgba(78, 14, 255, 0.4);
       transform: scale(1.02);
       ${$themeType === 'cyberpunk' && css`background: rgba(0, 255, 136, 0.1); border-color: #00ff88;`}
+      ${$themeType === 'light' && css`background: rgba(78, 14, 255, 0.1); border-color: rgba(78, 14, 255, 0.2);`}
   `}
 
   .avatar { 
@@ -1006,7 +1045,7 @@ const ContactItem = styled.div`
 
   .username { 
     flex-grow: 1; display: flex; flex-direction: column; justify-content: center; overflow: hidden; 
-    h3 { color: #e0e0e0; font-size: 0.95rem; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } 
+    h3 { color: ${({ $themeType }) => $themeType === 'light' ? '#333' : '#e0e0e0'}; font-size: 0.95rem; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } 
     .presence-container { display: flex; align-items: center; gap: 5px; }
     .status-text { color: #888; font-size: 0.75rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px; } 
     .typing-text { color: #00ff88; font-style: italic; font-weight: 600; letter-spacing: 0.5px; animation: ${glassShine} 2s infinite linear; }
@@ -1020,7 +1059,7 @@ const ContactItem = styled.div`
     .pin-btn {
       background: none; border: none; color: #555; cursor: pointer; transition: 0.2s; font-size: 0.85rem;
       opacity: ${({ $isPinned }) => $isPinned ? 1 : 0};
-      &:hover { color: #fff; transform: scale(1.2); }
+      &:hover { color: ${({ $themeType }) => $themeType === 'light' ? '#333' : '#fff'}; transform: scale(1.2); }
       &.pinned { color: #4e0eff; }
     }
   }
@@ -1073,11 +1112,12 @@ const Modal = styled.div`
 
 const StoryTray = styled.div`
     display: flex; gap: 12px; padding: 0.8rem; overflow-x: auto; border-bottom: 1px solid rgba(255,255,255,0.05);
+    ${({ $themeType }) => $themeType === 'light' && css` border-bottom: 1px solid rgba(0,0,0,0.05); `}
     &::-webkit-scrollbar { display: none; }
     
     .story-item {
         display: flex; flex-direction: column; align-items: center; gap: 5px; cursor: pointer; min-width: 60px;
-        p { color: #ccc; font-size: 0.65rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60px; text-align: center; }
+        p { color: ${({ $themeType }) => $themeType === 'light' ? '#666' : '#ccc'}; font-size: 0.65rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60px; text-align: center; }
         
         .story-ring {
             width: 52px; height: 52px; border-radius: 50%; padding: 2px; position: relative;

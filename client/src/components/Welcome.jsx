@@ -1,27 +1,35 @@
-import React, { useState, useEffect } from "react";
-import styled, { keyframes } from "styled-components";
+import React, { useMemo } from "react";
+import styled, { keyframes, css } from "styled-components";
 import { FaComments, FaBomb, FaPalette, FaShieldAlt } from "react-icons/fa";
+import useChatStore from "../store/chatStore";
 
 export default function Welcome() {
-  const [userName, setUserName] = useState("");
+  const { currentUser, theme } = useChatStore();
+  const userName = currentUser?.username || "Guest";
 
-  useEffect(() => {
-    // Get the user data from sessionStorage to display the name
-    const storedUser = sessionStorage.getItem("chat-app-user");
-    if (storedUser) {
-      setUserName(JSON.parse(storedUser).username);
-    }
+  // Dynamic time-based greeting
+  const greeting = useMemo(() => {
+    const currentHour = new Date().getHours();
+    if (currentHour >= 5 && currentHour < 12) return "Good morning";
+    if (currentHour >= 12 && currentHour < 18) return "Good afternoon";
+    return "Good evening";
   }, []);
 
   return (
-    <Container>
+    <Container $themeType={theme}>
       <div className="hero-section">
-        {/* You can replace this Robot with your actual logo if you have one */}
-        <img src="https://api.dicebear.com/9.x/bottts/svg?seed=Snappy&backgroundColor=transparent" alt="Welcome Robot" className="robot-mascot" />
+        {/* Personalized robot mascot based on the user's name */}
+        <img 
+          src={`https://api.dicebear.com/9.x/bottts/svg?seed=${userName}&backgroundColor=transparent`} 
+          alt="Welcome Robot" 
+          className="robot-mascot" 
+        />
         <h1>
-          Welcome back, <span>{userName}!</span>
+          {greeting}, <span className="accent-text">{userName}!</span>
         </h1>
-        <p className="subtitle">Please select a friend from the left to start chatting, or explore new features below.</p>
+        <p className="subtitle">
+          Please select a friend from the left to start chatting, or explore new features below.
+        </p>
       </div>
 
       <div className="features-grid">
@@ -76,103 +84,144 @@ const Container = styled.div`
   width: 100%;
   padding: 2rem;
   overflow-y: auto;
+  position: relative;
+  z-index: 1;
+  box-sizing: border-box;
 
-  /* Matches the glassmorphism theme from your main chat */
+  /* Default Glassmorphism Theme */
   background: rgba(255, 255, 255, 0.02);
   backdrop-filter: blur(10px);
+
+  /* Dynamic Theming */
+  ${({ $themeType }) => $themeType === 'midnight' && css`
+    background: #050505;
+  `}
+
+  ${({ $themeType }) => $themeType === 'cyberpunk' && css`
+    background: rgba(10, 5, 20, 0.9);
+    &::before {
+      content: ""; position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: -1;
+      background-image: 
+        linear-gradient(rgba(0, 255, 136, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 255, 136, 0.03) 1px, transparent 1px);
+      background-size: 30px 30px;
+    }
+  `}
 
   .hero-section {
     text-align: center;
     margin-bottom: 3rem;
     animation: ${popIn} 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    width: 100%;
 
     .robot-mascot {
       height: 150px;
       margin-bottom: 1.5rem;
       animation: ${float} 4s ease-in-out infinite;
-      filter: drop-shadow(0 10px 15px rgba(78, 14, 255, 0.4));
+      filter: drop-shadow(0 15px 25px rgba(0, 0, 0, 0.3));
+      
+      ${({ $themeType }) => $themeType === 'cyberpunk' && css`
+        filter: drop-shadow(0 10px 20px rgba(0, 255, 136, 0.2));
+      `}
     }
 
     h1 {
-      font-size: 2.5rem;
-      margin-bottom: 0.5rem;
-      span {
+      font-size: 2.2rem;
+      margin-bottom: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      
+      .accent-text {
         color: #4e0eff;
-        text-shadow: 0 0 20px rgba(78, 14, 255, 0.5);
+        text-shadow: 0 0 20px rgba(78, 14, 255, 0.4);
+        
+        ${({ $themeType }) => $themeType === 'cyberpunk' && css`
+          color: #00ff88; text-shadow: 0 0 20px rgba(0, 255, 136, 0.4);
+        `}
       }
     }
 
     .subtitle {
-      color: #aaa;
+      color: rgba(255, 255, 255, 0.6);
       font-size: 1.1rem;
-      max-width: 500px;
+      max-width: 520px;
       margin: 0 auto;
-      line-height: 1.5;
+      line-height: 1.6;
+      font-weight: 400;
     }
   }
 
   .features-grid {
     display: grid;
+    /* STRICT 2-COLUMN GRID: Prevents layout breaking on browser zoom */
     grid-template-columns: repeat(2, 1fr);
     gap: 1.5rem;
     max-width: 800px;
     width: 100%;
 
-    @media screen and (max-width: 900px) {
+    /* Only stack on literal mobile phones (very small widths) */
+    @media screen and (max-width: 550px) {
       grid-template-columns: 1fr;
     }
 
     .feature-card {
-      background: rgba(0, 0, 0, 0.2);
+      background: rgba(255, 255, 255, 0.03);
       border: 1px solid rgba(255, 255, 255, 0.05);
-      border-radius: 1.2rem;
+      border-radius: 1.5rem;
       padding: 1.5rem;
       display: flex;
       flex-direction: column;
       gap: 0.8rem;
-      transition: all 0.3s ease;
+      transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
       animation: ${popIn} 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) backwards;
+      backdrop-filter: blur(12px);
 
-      /* Staggering the animations for a cool effect */
+      /* Staggering the animations */
       &:nth-child(1) { animation-delay: 0.1s; }
       &:nth-child(2) { animation-delay: 0.2s; }
       &:nth-child(3) { animation-delay: 0.3s; }
       &:nth-child(4) { animation-delay: 0.4s; }
 
       &:hover {
-        transform: translateY(-5px);
-        background: rgba(255, 255, 255, 0.05);
-        border-color: rgba(78, 14, 255, 0.3);
-        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+        transform: translateY(-8px);
+        background: rgba(255, 255, 255, 0.06);
+        border-color: rgba(78, 14, 255, 0.4);
+        box-shadow: 0 15px 30px rgba(0, 0, 0, 0.4);
+        
+        ${({ $themeType }) => $themeType === 'cyberpunk' && css`
+          border-color: rgba(0, 255, 136, 0.4); box-shadow: 0 15px 30px rgba(0, 255, 136, 0.1);
+        `}
       }
 
       .icon-wrapper {
         width: 45px;
         height: 45px;
-        border-radius: 12px;
+        border-radius: 14px;
         display: flex;
         justify-content: center;
         align-items: center;
         font-size: 1.2rem;
         margin-bottom: 0.5rem;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 
-        &.primary { background: rgba(78, 14, 255, 0.2); color: #9a86f3; }
-        &.danger { background: rgba(255, 78, 78, 0.2); color: #ff4e4e; }
-        &.success { background: rgba(0, 255, 136, 0.2); color: #00ff88; }
-        &.warning { background: rgba(255, 170, 0, 0.2); color: #ffaa00; }
+        &.primary { background: rgba(78, 14, 255, 0.2); color: #9a86f3; border: 1px solid rgba(78, 14, 255, 0.3); }
+        &.danger { background: rgba(255, 78, 78, 0.15); color: #ff4e4e; border: 1px solid rgba(255, 78, 78, 0.3); }
+        &.success { background: rgba(0, 255, 136, 0.15); color: #00ff88; border: 1px solid rgba(0, 255, 136, 0.3); }
+        &.warning { background: rgba(255, 170, 0, 0.15); color: #ffaa00; border: 1px solid rgba(255, 170, 0, 0.3); }
       }
 
       h3 {
         font-size: 1.1rem;
         color: #fff;
-        font-weight: 600;
+        font-weight: 700;
         margin: 0;
+        letter-spacing: 0.3px;
       }
 
       p {
         font-size: 0.9rem;
-        color: #888;
-        line-height: 1.5;
+        color: rgba(255, 255, 255, 0.55);
+        line-height: 1.6;
         margin: 0;
       }
     }

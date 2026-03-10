@@ -120,7 +120,7 @@ module.exports.refreshToken = async (req, res) => {
   });
 };
 
-// --- HIGH-PERFORMANCE REDIS MGET CACHING WITH PRIVACY ENFORCEMENT ---
+// --- HIGH-PERFORMANCE REDIS MGET CACHING WITH PRIVACY ENFORCEMENT & GRACEFUL FALLBACK ---
 module.exports.getAllUsers = async (req, res, next) => {
   try {
     const currentUserId = req.params.id;
@@ -142,10 +142,22 @@ module.exports.getAllUsers = async (req, res, next) => {
     const userIds = usersBasic.map(u => u._id.toString());
     const cacheKeys = userIds.map(id => `user_profile:${id}`);
 
-    const cachedProfiles = await cacheClient.mGet(cacheKeys);
-
+    let cachedProfiles = [];
     let finalUsersRaw = [];
     let cacheMisses = []; 
+
+    // --- GRACEFUL REDIS FALLBACK: Try fetching from Redis, fallback to DB if offline ---
+    try {
+      if (cacheClient.isReady) {
+        cachedProfiles = await cacheClient.mGet(cacheKeys);
+      } else {
+        throw new Error("Redis client not connected");
+      }
+    } catch (redisErr) {
+      console.warn("⚠️ Redis cache unavailable, falling back to DB directly.");
+      // Treat all users as a cache miss to force fetching from DB
+      cachedProfiles = new Array(userIds.length).fill(null);
+    }
 
     cachedProfiles.forEach((profileStr, index) => {
       if (profileStr) {
@@ -169,9 +181,16 @@ module.exports.getAllUsers = async (req, res, next) => {
         msetArgs.push(JSON.stringify(userObj));
       });
 
+      // --- GRACEFUL REDIS SAVE: Try writing missing profiles to cache ---
       if (msetArgs.length > 0) {
-        await cacheClient.mSet(msetArgs);
-        missedUsers.forEach(user => cacheClient.expire(`user_profile:${user._id.toString()}`, 3600));
+        try {
+          if (cacheClient.isReady) {
+            await cacheClient.mSet(msetArgs);
+            missedUsers.forEach(user => cacheClient.expire(`user_profile:${user._id.toString()}`, 3600));
+          }
+        } catch (redisSaveErr) {
+          // Ignore save errors if Redis is down
+        }
       }
     }
 
@@ -215,8 +234,14 @@ module.exports.updateProfile = async (req, res, next) => {
 
     const userResponse = user.toObject();
     
-    // TARGETED INVALIDATION
-    await cacheClient.setEx(`user_profile:${userId}`, 3600, JSON.stringify(userResponse));
+    // TARGETED INVALIDATION WITH FALLBACK
+    try {
+      if (cacheClient.isReady) {
+        await cacheClient.setEx(`user_profile:${userId}`, 3600, JSON.stringify(userResponse));
+      }
+    } catch (e) {
+      console.warn("⚠️ Redis unavailable, skipping cache update.");
+    }
 
     return res.json({ status: true, user: userResponse });
   } catch (ex) {
@@ -304,7 +329,13 @@ module.exports.updateChatCustomization = async (req, res, next) => {
     
     // Update Redis cache so the frontend gets the latest wallpaper immediately on refresh
     const userResponse = user.toObject();
-    await cacheClient.setEx(`user_profile:${userId}`, 3600, JSON.stringify(userResponse));
+    try {
+      if (cacheClient.isReady) {
+        await cacheClient.setEx(`user_profile:${userId}`, 3600, JSON.stringify(userResponse));
+      }
+    } catch (e) {
+      console.warn("⚠️ Redis unavailable, skipping cache update.");
+    }
 
     return res.json({ status: true, customizations: user.chatCustomizations });
   } catch (ex) {

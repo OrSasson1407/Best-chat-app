@@ -163,3 +163,13 @@
 {"level":"info","message":"Server started on Port 5000","service":"chat-backend","timestamp":"2026-03-09 22:31:14"}
 {"level":"info","message":"Redis Adapter connected to Socket.io","service":"chat-backend","timestamp":"2026-03-09 22:31:14"}
 {"level":"info","message":"DB Connection Successful","service":"chat-backend","timestamp":"2026-03-09 22:31:14"}
+{"level":"info","message":"Server started on Port 5000","service":"chat-backend","timestamp":"2026-03-10 09:26:19"}
+{"level":"info","message":"Redis Adapter connected to Socket.io","service":"chat-backend","timestamp":"2026-03-10 09:26:19"}
+{"level":"info","message":"DB Connection Successful","service":"chat-backend","timestamp":"2026-03-10 09:26:19"}
+{"level":"info","message":"Server started on Port 5000","service":"chat-backend","timestamp":"2026-03-10 10:08:43"}
+{"level":"info","message":"Redis Adapter connected to Socket.io","service":"chat-backend","timestamp":"2026-03-10 10:08:43"}
+{"level":"info","message":"DB Connection Successful","service":"chat-backend","timestamp":"2026-03-10 10:08:43"}
+{"level":"info","message":"SIGINT signal received: Closing server & cleaning up resources...","service":"chat-backend","timestamp":"2026-03-10 10:08:54"}
+{"level":"info","message":"Server started on Port 5000","service":"chat-backend","timestamp":"2026-03-10 10:09:01"}
+{"level":"info","message":"Redis Adapter connected to Socket.io","service":"chat-backend","timestamp":"2026-03-10 10:09:01"}
+{"level":"info","message":"DB Connection Successful","service":"chat-backend","timestamp":"2026-03-10 10:09:01"}

@@ -3,7 +3,7 @@ import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { io } from "socket.io-client";
 import styled, { keyframes, css } from "styled-components";
-import { allUsersRoute, host, updateFcmTokenRoute } from "../utils/APIRoutes"; // --- MERGE UPDATE: Imported FCM Route
+import { allUsersRoute, host, updateFcmTokenRoute } from "../utils/APIRoutes"; 
 import Contacts from "../components/Contacts";
 import Welcome from "../components/Welcome";
 import ChatContainer from "../components/ChatContainer";
@@ -12,7 +12,7 @@ import ChatContainer from "../components/ChatContainer";
 import useChatStore from "../store/chatStore";
 import { ToastContainer, toast } from "react-toastify";
 
-// --- MERGE UPDATE: Import Firebase utilities ---
+// --- FIREBASE UTILITIES ---
 import { requestForToken, onMessageListener } from "../firebase"; 
 
 export default function Chat() {
@@ -49,17 +49,13 @@ export default function Chat() {
     checkAuth();
   }, [navigate, setCurrentUser]);
 
-  // 2. Setup STABLE Socket Connection (Runs ONLY when currentUser logs in)
+  // 2. Setup STABLE Socket Connection
   useEffect(() => {
-    // IMPROVEMENT: Only connect if we have a user and socket isn't already connected
     if (currentUser && currentUser._id && !socket.current) {
       socket.current = io(host, {
-        auth: {
-          token: currentUser.token 
-        }
+        auth: { token: currentUser.token }
       });
 
-      // IMPROVEMENT: Ensure 'add-user' only fires AFTER connection is fully established
       socket.current.on("connect", () => {
         socket.current.emit("add-user", currentUser._id);
       });
@@ -79,13 +75,13 @@ export default function Chat() {
       return () => {
         if (socket.current) {
           socket.current.disconnect();
-          socket.current = null; // Clear the ref on unmount
+          socket.current = null;
         }
       };
     }
   }, [currentUser, navigate, setOnlineUsers]);
 
-  // 3. Dynamic Socket Listeners (Updates when currentChat changes WITHOUT disconnecting socket)
+  // 3. Dynamic Socket Listeners
   useEffect(() => {
     if (socket.current) {
       const handleTypingStatus = (data) => {
@@ -123,11 +119,8 @@ export default function Chat() {
     async function fetchContacts() {
       if (currentUser && currentUser._id) {
         try {
-          const token = currentUser.token; 
           const response = await axios.get(`${allUsersRoute}/${currentUser._id}`, {
-            headers: {
-              "x-auth-token": token,
-            },
+            headers: { "x-auth-token": currentUser.token },
           });
           setContacts(response.data);
         } catch (error) {
@@ -142,10 +135,9 @@ export default function Chat() {
     fetchContacts();
   }, [currentUser, navigate]);
 
-  // --- MERGE UPDATE: 5. Firebase Push Notification Setup ---
+  // 5. Firebase Push Notification Setup
   useEffect(() => {
     if (currentUser && currentUser.token) {
-      
       const setupPushNotifications = async () => {
         const token = await requestForToken();
         if (token) {
@@ -153,9 +145,7 @@ export default function Chat() {
               await axios.post(updateFcmTokenRoute, {
                  userId: currentUser._id,
                  fcmToken: token
-              }, {
-                 headers: { "x-auth-token": currentUser.token }
-              });
+              }, { headers: { "x-auth-token": currentUser.token } });
            } catch (err) {
               console.error("Failed to save FCM token to DB", err);
            }
@@ -164,10 +154,8 @@ export default function Chat() {
 
       setupPushNotifications();
 
-      // Listen for foreground messages (when app is open)
       onMessageListener()
         .then((payload) => {
-          // Display a custom toast notification instead of system push
           toast.info(`📬 ${payload.notification.title}: ${payload.notification.body}`, {
              position: "top-right",
              autoClose: 5000,
@@ -175,15 +163,13 @@ export default function Chat() {
              closeOnClick: true,
              pauseOnHover: true,
              draggable: true,
-             theme: "dark",
+             theme: theme === 'light' ? 'light' : 'dark',
           });
         })
         .catch((err) => console.log('Failed to listen to foreground messages: ', err));
     }
-  }, [currentUser]);
-  // --------------------------------------------------------
+  }, [currentUser, theme]);
 
-  // IMPROVEMENT: Wrapped in useCallback and used finally block for DRY code
   const handleLogout = useCallback(async () => {
     try {
       await axios.get(`${host}/api/auth/logout`, { withCredentials: true }); 
@@ -197,11 +183,9 @@ export default function Chat() {
     }
   }, [navigate, setCurrentUser, setCurrentChat]);
 
-  // IMPROVEMENT: Wrapped in useCallback to stop <Contacts /> from re-rendering uselessly
   const handleChatChange = useCallback((chat) => {
     setCurrentChat(chat);
     setIsTyping(false);
-    // Close mobile menu when a chat is selected
     setIsMobileMenuOpen(false);
   }, [setCurrentChat]);
 
@@ -214,6 +198,7 @@ export default function Chat() {
       <div className="bg-orb orb-1"></div>
       <div className="bg-orb orb-2"></div>
       
+      {/* Mobile Menu Toggle */}
       <button 
         className="mobile-toggle" 
         onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
@@ -264,6 +249,19 @@ const pulseGlow = keyframes`
 
 const getThemeStyles = (themeType) => {
   switch (themeType) {
+    case 'light':
+      return css`
+        background-color: #f0f2f5;
+        color: #333;
+        .orb-1 { background: rgba(78, 14, 255, 0.15); }
+        .orb-2 { background: rgba(0, 198, 255, 0.15); }
+        .glass-container { 
+          background: rgba(255, 255, 255, 0.6); 
+          backdrop-filter: blur(25px); 
+          border: 1px solid rgba(255, 255, 255, 0.6); 
+          box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.05);
+        }
+      `;
     case 'midnight':
       return css`
         background-color: #000000;
@@ -286,7 +284,7 @@ const getThemeStyles = (themeType) => {
           box-shadow: 0 0 20px rgba(0, 255, 136, 0.2); 
         }
       `;
-    default:
+    default: // 'glass'
       return css`
         background-color: #050510;
         .orb-1 { background: rgba(78, 14, 255, 0.3); }
@@ -315,8 +313,8 @@ const Container = styled.div`
   .mobile-toggle {
     display: none;
     position: absolute;
-    top: 1rem;
-    left: 1rem;
+    top: 1.5rem;
+    left: 1.5rem;
     z-index: 10;
     background: rgba(78, 14, 255, 0.8);
     color: white;
@@ -392,7 +390,7 @@ const Container = styled.div`
       width: 80%;
       height: 100%;
       z-index: 5;
-      background: #050510;
+      background: ${({ $themeType }) => $themeType === 'light' ? '#fff' : '#050510'};
       transition: 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
       border-right: 1px solid rgba(255, 255, 255, 0.1);
       
