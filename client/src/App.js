@@ -1,6 +1,7 @@
 // client/src/App.js
-import React, { Suspense, lazy } from "react";
+import React, { Suspense, lazy, useEffect } from "react"; // <-- ADDED useEffect
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import axios from "axios"; // <-- ADDED axios
 import AppLock from "./components/AppLock";
 import PageLoader from "./components/PageLoader";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -23,6 +24,32 @@ const PublicRoute = ({ children }) => {
 };
 
 export default function App() {
+
+  // --- NEW: GLOBAL AXIOS 401 INTERCEPTOR ---
+  useEffect(() => {
+    const interceptor = axios.interceptors.response.use(
+      (response) => response, 
+      (error) => {
+        // If the backend says the token is invalid/expired (401)
+        if (error.response && error.response.status === 401) {
+          console.warn("Session expired. Logging out globally...");
+          
+          // 1. Destroy the dead token
+          sessionStorage.removeItem("chat-app-user");
+          
+          // 2. Force the browser to go to the login screen
+          if (window.location.pathname !== ROUTES.LOGIN) {
+            window.location.href = ROUTES.LOGIN; 
+          }
+        }
+        return Promise.reject(error);
+      }
+    );
+
+    // Clean up the interceptor when the app unmounts
+    return () => axios.interceptors.response.eject(interceptor);
+  }, []);
+
   return (
     <BrowserRouter>
       {/* שכבת הגנה כללית של האפליקציה */}

@@ -29,8 +29,8 @@ import MessageItem from "./MessageItem";
 import { getSmallAvatar, formatTime } from "./chatHelpers";
 
 export default function ChatContainer({ socket, isTyping }) {
-  // --- MERGE UPDATE: Pull offline caching functions from store ---
-  const { currentChat, currentUser, theme, isCompact, offlineMessages, cacheMessages } = useChatStore();
+  // --- MERGE UPDATE: Destructure loadOfflineMessages instead of the massive offlineMessages object ---
+  const { currentChat, currentUser, theme, isCompact, loadOfflineMessages, cacheMessages } = useChatStore();
 
   // --- STATE MANAGEMENT ---
   const [messages, setMessages] = useState([]);
@@ -112,9 +112,10 @@ export default function ChatContainer({ socket, isTyping }) {
         setIsFetchingHistory(true);
         setActiveGroupAesKey(null); 
 
-        // --- MERGE UPDATE: OFFLINE CHECK ---
+        // --- MERGE UPDATE: ASYNC OFFLINE CHECK ---
         if (!navigator.onLine) {
-            const cached = offlineMessages[currentChat._id];
+            // Fetch directly from IndexedDB asynchronously
+            const cached = await loadOfflineMessages(currentChat._id);
             if (cached && cached.length > 0) {
                 setMessages(cached);
                 toast.info("Offline mode: Showing cached messages.");
@@ -208,7 +209,8 @@ export default function ChatContainer({ socket, isTyping }) {
       }
     }
     fetchHistory();
-  }, [currentChat, currentUser, getAuthHeader, socket, offlineMessages]);
+    // Added loadOfflineMessages to dependency array
+  }, [currentChat, currentUser, getAuthHeader, socket, loadOfflineMessages]);
 
   // --- MERGE UPDATE: AUTO-CACHE MESSAGES ---
   useEffect(() => {
@@ -217,6 +219,28 @@ export default function ChatContainer({ socket, isTyping }) {
           cacheMessages(currentChat._id, messages);
       }
   }, [messages, currentChat, cacheMessages]);
+
+  // --- MERGE UPDATE: SENTIMENT ANALYSIS ---
+  useEffect(() => {
+      if (messages.length > 0) {
+          const last5 = messages.slice(-5);
+          const positiveWords = ['happy', 'lol', 'love', 'great', 'awesome', 'good', 'nice', 'sweet', 'yay', 'haha'];
+          const negativeWords = ['bad', 'sad', 'angry', 'hate', 'stop', 'terrible', 'worst', 'ugh', 'mad'];
+          
+          let score = 0;
+          last5.forEach(m => {
+              if (m.type === 'text' && typeof m.message === 'string') {
+                  const text = m.message.toLowerCase();
+                  positiveWords.forEach(w => { if(text.includes(w)) score++ });
+                  negativeWords.forEach(w => { if(text.includes(w)) score-- });
+              }
+          });
+
+          // Update global sentiment hue: Positive=Green(140), Negative=Red(0), Neutral=Purple(250)
+          const hue = score > 0 ? '140' : score < 0 ? '0' : '250';
+          document.documentElement.style.setProperty('--sentiment-hue', hue);
+      }
+  }, [messages]);
 
   useEffect(() => {
       if (showSidePanel && currentChat && (activeSideTab === 'media' || activeSideTab === 'links' || activeSideTab === 'files')) {

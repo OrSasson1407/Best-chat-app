@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
-import { motion } from "framer-motion"; // <-- NEW: Imported Framer Motion
+import { motion } from "framer-motion"; 
+import styled, { keyframes, css } from "styled-components"; // <-- NEW: Styled components added
 import { 
     FaReply, FaSmile, FaTrash, FaPen, FaShare, FaStar, 
     FaClock, FaCheckDouble, FaFire, FaFileDownload, FaPoll, 
@@ -10,6 +11,46 @@ import { getSmallAvatar, formatTime, isNewDay, formatDateBadge, isSameSender, is
 import axios from "axios";
 import { translateMessageRoute } from "../utils/APIRoutes";
 import { toast } from "react-toastify";
+
+// --- ZUSTAND STORE ---
+import useChatStore from "../store/chatStore"; // <-- NEW: Accessing theme globally
+
+// --- NEW: Holographic Glitch Animation ---
+const glitch = keyframes`
+  0% { clip: rect(44px, 450px, 56px, 0); transform: skew(0.5deg); }
+  5% { clip: rect(62px, 450px, 100px, 0); transform: skew(0.5deg); }
+  10% { clip: rect(20px, 450px, 40px, 0); transform: skew(0.8deg); }
+  15% { clip: rect(0, 0, 0, 0); }
+  100% { clip: rect(0, 0, 0, 0); }
+`;
+
+// --- NEW: Styled Motion Div for the Bubble ---
+const MessageBubble = styled(motion.div)`
+  ${({ $themeType }) => $themeType === 'cyberpunk' && css`
+    position: relative;
+    
+    &::before, &::after {
+      content: attr(data-text);
+      position: absolute; 
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: transparent; 
+      clip: rect(0, 0, 0, 0);
+      pointer-events: none;
+      padding: inherit;
+      color: inherit;
+    }
+    
+    /* Reveal glitch on hover in Cyberpunk mode */
+    &:hover::before {
+      left: 2px; text-shadow: -2px 0 #ff0055;
+      animation: ${glitch} 2s infinite linear alternate-reverse;
+    }
+    &:hover::after {
+      left: -2px; text-shadow: 2px 0 #00ff88;
+      animation: ${glitch} 3s infinite linear alternate-reverse;
+    }
+  `}
+`;
 
 const HighlightedText = React.memo(({ text, query }) => {
     if (!query) return <span>{text}</span>;
@@ -30,6 +71,9 @@ const MessageItem = React.memo(({
     setLightboxImage, setReadReceiptsMsg, scrollToMessage, setReplyingTo,
     setEditingMessage, handleDeleteMsg, handleReaction, handleOpenViewOnce
 }) => {
+    
+    // Grab the active theme from the store
+    const { theme } = useChatStore();
     
     const [translatedText, setTranslatedText] = useState(null);
     const [isTranslating, setIsTranslating] = useState(false);
@@ -187,11 +231,10 @@ const MessageItem = React.memo(({
         return <p>{msg.message}</p>;
     };
 
-    // --- NEW: Framer Motion Animation Variants ---
     const messageVariants = {
         hidden: { 
             opacity: 0, 
-            x: message.fromSelf ? 50 : -50, // Slide in from right if sent, left if received
+            x: message.fromSelf ? 50 : -50, 
             y: 10,
             scale: 0.95
         },
@@ -221,13 +264,15 @@ const MessageItem = React.memo(({
                 id={`msg-${message.id}`}
                 className={`message-wrapper ${highlightedMsgId === message.id ? 'highlight-flash' : ''} ${isGroupedWithNext ? 'grouped-next' : ''} ${isGroupedWithPrev ? 'grouped-prev' : ''}`}
             >
-                {/* --- APPLIED FRAMER MOTION TO THE MESSAGE BUBBLE --- */}
-                <motion.div 
+                {/* --- APPLIED STYLED MOTION COMPONENT --- */}
+                <MessageBubble 
+                    $themeType={theme}
+                    data-text={message.type === 'text' ? message.message : ""}
                     className={`message ${message.fromSelf ? "sended" : "recieved"} ${message.isDeleted ? "deleted-msg" : ""}`}
                     initial="hidden"
                     animate="visible"
                     variants={messageVariants}
-                    layout="position" // This ensures smooth re-ordering when earlier messages are deleted
+                    layout="position" 
                 >
                     <div className="content tail-physics">
                         {message.isForwarded && <div className="forwarded-tag"><FaShare /> Forwarded</div>}
@@ -309,7 +354,7 @@ const MessageItem = React.memo(({
                             </div>
                         )}
                     </div>
-                </motion.div>
+                </MessageBubble>
             </div>
         </div>
     );

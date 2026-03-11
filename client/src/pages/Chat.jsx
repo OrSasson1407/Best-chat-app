@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useCallback } from "react";
+import React, { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { io } from "socket.io-client";
@@ -34,6 +34,15 @@ export default function Chat() {
   const [isLoaded, setIsLoaded] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  // --- NEW: Time-based Mesh Gradient Colors ---
+  const timeBasedColors = useMemo(() => {
+    const hour = new Date().getHours();
+    if (hour >= 5 && hour < 12) return ["#ff9a9e", "#fecfef"]; // Morning (Warm/Pink)
+    if (hour >= 12 && hour < 17) return ["#a1c4fd", "#c2e9fb"]; // Afternoon (Cool/Blue)
+    if (hour >= 17 && hour < 21) return ["#f6d365", "#fda085"]; // Evening (Sunset)
+    return ["#30cfd0", "#330867"]; // Night (Deep Purple/Teal)
+  }, []);
 
   // 1. Authentication Check & Data Retrieval
   useEffect(() => {
@@ -194,9 +203,17 @@ export default function Chat() {
       $themeType={theme} 
       $isTyping={!!isTyping} 
       $isMobileMenuOpen={isMobileMenuOpen}
+      $timeColors={timeBasedColors}
     >
-      <div className="bg-orb orb-1"></div>
-      <div className="bg-orb orb-2"></div>
+      {/* --- NEW: Mesh Gradient Orbs --- */}
+      <div className="mesh-gradient">
+        <div className="orb orb-1"></div>
+        <div className="orb orb-2"></div>
+        <div className="orb orb-3"></div>
+      </div>
+
+      {/* --- NEW: Cyberpunk Scanlines Overlay --- */}
+      {theme === 'cyberpunk' && <div className="scanlines"></div>}
       
       {/* Mobile Menu Toggle */}
       <button 
@@ -235,16 +252,22 @@ export default function Chat() {
 
 // --- Styles & Animations ---
 
-const float = keyframes`
+const pulseGlow = keyframes`
+  0% { filter: blur(100px) brightness(1); }
+  50% { filter: blur(120px) brightness(1.5); }
+  100% { filter: blur(100px) brightness(1); }
+`;
+
+const meshAnimation = keyframes`
   0% { transform: translate(0, 0) scale(1); }
-  50% { transform: translate(30px, -50px) scale(1.05); }
+  33% { transform: translate(30px, -50px) scale(1.1); }
+  66% { transform: translate(-20px, 20px) scale(0.9); }
   100% { transform: translate(0, 0) scale(1); }
 `;
 
-const pulseGlow = keyframes`
-  0% { filter: blur(80px) brightness(1); }
-  50% { filter: blur(100px) brightness(1.5); }
-  100% { filter: blur(80px) brightness(1); }
+const scanlineAnim = keyframes`
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100%); }
 `;
 
 const getThemeStyles = (themeType) => {
@@ -253,8 +276,7 @@ const getThemeStyles = (themeType) => {
       return css`
         background-color: #f0f2f5;
         color: #333;
-        .orb-1 { background: rgba(78, 14, 255, 0.15); }
-        .orb-2 { background: rgba(0, 198, 255, 0.15); }
+        .mesh-gradient { display: none; }
         .glass-container { 
           background: rgba(255, 255, 255, 0.6); 
           backdrop-filter: blur(25px); 
@@ -265,7 +287,7 @@ const getThemeStyles = (themeType) => {
     case 'midnight':
       return css`
         background-color: #000000;
-        .bg-orb { display: none; }
+        .mesh-gradient { display: none; }
         .glass-container { 
           background: #0a0a0a; 
           border: 1px solid #1a1a1a; 
@@ -276,19 +298,14 @@ const getThemeStyles = (themeType) => {
     case 'cyberpunk':
       return css`
         background-color: #0d0221;
-        .orb-1 { background: rgba(0, 255, 136, 0.2); }
-        .orb-2 { background: rgba(255, 0, 85, 0.2); }
         .glass-container { 
-          background: rgba(13, 2, 33, 0.8); 
-          border: 1px solid #00ff88; 
-          box-shadow: 0 0 20px rgba(0, 255, 136, 0.2); 
+          background: rgba(13, 2, 33, 0.85); 
+          border: 2px solid #00ff88; 
+          box-shadow: 0 0 20px rgba(0, 255, 136, 0.3), inset 0 0 10px rgba(0, 255, 136, 0.2);
         }
       `;
     default: // 'glass'
       return css`
-        background-color: #050510;
-        .orb-1 { background: rgba(78, 14, 255, 0.3); }
-        .orb-2 { background: rgba(154, 65, 254, 0.3); }
         .glass-container { 
           background: rgba(255, 255, 255, 0.03); 
           backdrop-filter: blur(20px); 
@@ -307,8 +324,37 @@ const Container = styled.div`
   overflow: hidden;
   position: relative;
   transition: background-color 0.5s ease;
+  
+  /* Apply Time-Based Background Gradient */
+  background: ${({ $timeColors }) => `linear-gradient(135deg, ${$timeColors[0]} 0%, ${$timeColors[1]} 100%)`};
 
   ${({ $themeType }) => getThemeStyles($themeType)}
+
+  .mesh-gradient {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow: hidden; z-index: 0;
+    filter: blur(100px);
+    ${({ $isTyping }) => $isTyping && css` animation: ${pulseGlow} 2s infinite ease-in-out; `}
+    
+    .orb {
+      position: absolute; border-radius: 50%; opacity: 0.6;
+      animation: ${meshAnimation} 20s infinite ease-in-out;
+    }
+    .orb-1 { width: 600px; height: 600px; top: -10%; left: -10%; background: var(--msg-sent); }
+    .orb-2 { width: 500px; height: 500px; bottom: -10%; right: -10%; background: #00ff88; animation-delay: -5s; }
+    .orb-3 { width: 400px; height: 400px; top: 30%; left: 40%; background: #ff0055; animation-delay: -10s; }
+  }
+
+  .scanlines {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2;
+    pointer-events: none;
+    background: linear-gradient(to bottom, transparent 50%, rgba(0, 255, 136, 0.05) 50%);
+    background-size: 100% 4px;
+    &::after {
+      content: ""; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0, 255, 136, 0.1);
+      opacity: 0.1; animation: ${scanlineAnim} 8s linear infinite;
+    }
+  }
 
   .mobile-toggle {
     display: none;
@@ -328,18 +374,6 @@ const Container = styled.div`
     &:hover { background: #4e0eff; }
   }
 
-  .bg-orb {
-    position: absolute;
-    border-radius: 50%;
-    filter: blur(80px);
-    z-index: 0;
-    animation: ${float} 10s infinite ease-in-out;
-    ${({ $isTyping }) => $isTyping && css` animation: ${pulseGlow} 2s infinite ease-in-out; `}
-  }
-  
-  .orb-1 { width: 400px; height: 400px; top: -10%; left: -10%; }
-  .orb-2 { width: 350px; height: 350px; bottom: -5%; right: -5%; animation-delay: -5s; }
-
   .glass-container {
     height: 85vh;
     width: 85vw;
@@ -347,7 +381,7 @@ const Container = styled.div`
     display: grid;
     grid-template-columns: 25% 75%;
     overflow: hidden;
-    z-index: 1;
+    z-index: 3; /* Lifted above scanlines */
     box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8);
     transition: all 0.3s ease;
     

@@ -1,4 +1,3 @@
-// client/src/components/ChatContainer.styles.js
 import styled, { keyframes, css } from "styled-components";
 
 // --- REFINED ANIMATIONS ---
@@ -33,13 +32,23 @@ const pulseBorder = keyframes`
   100% { border-color: rgba(78, 14, 255, 0.4); box-shadow: 0 0 0 rgba(78, 14, 255, 0); }
 `;
 
+// --- NEW: Scanline Animation for Cyberpunk ---
+const scanline = keyframes`
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100%); }
+`;
+
 export const Container = styled.div`
   display: grid; 
-  /* Adjusted grid to accommodate floating pinned banner naturally */
   grid-template-rows: ${({ $hasPinned }) => $hasPinned ? '10% auto 1fr 10%' : '10% 1fr 10%'}; 
   overflow: hidden;
   height: 100%;
   position: relative;
+  
+  /* --- NEW: Apply Chat Wallpaper globally --- */
+  background: var(--chat-wallpaper);
+  background-size: cover;
+  background-position: center;
   
   ${({ $isCompact, $hasPinned }) => $isCompact && css`
       grid-template-rows: ${$hasPinned ? '8% auto 1fr 10%' : '8% 1fr 10%'};
@@ -53,14 +62,15 @@ export const Container = styled.div`
       box-shadow: 0 0 10px rgba(255, 204, 0, 0.4);
   }
 
-  /* --- POLISHED: FLOATING PINNED BANNER --- */
+  /* --- POLISHED: FLOATING PINNED BANNER (Sentiment Adaptive) --- */
   .pinned-banner {
       margin: 12px auto 0 auto;
       width: 96%;
       border-radius: 12px;
-      background: var(--bg-panel); 
+      /* Dynamic adaptive hue based on message sentiment */
+      background: hsla(var(--sentiment-hue), 50%, 15%, 0.85); 
       border: 1px solid var(--glass-border);
-      border-left: 4px solid var(--msg-sent);
+      border-left: 4px solid var(--adaptive-accent);
       padding: 0.6rem 1.5rem; 
       display: flex; align-items: center; gap: 1rem; color: var(--text-main); 
       cursor: pointer;
@@ -71,13 +81,13 @@ export const Container = styled.div`
       box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
       
       &:hover { 
-          background: var(--input-bg); 
+          background: hsla(var(--sentiment-hue), 50%, 25%, 0.95); 
           transform: translateY(-2px);
           box-shadow: 0 12px 28px rgba(0, 0, 0, 0.15);
       }
       .pin-content { 
           display: flex; flex-direction: column; 
-          .pin-title { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.9; color: var(--msg-sent);} 
+          .pin-title { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.9; color: var(--adaptive-accent);} 
           .pin-text { font-size: 0.85rem; color: var(--text-dim); margin-top: 2px;} 
       }
   }
@@ -89,7 +99,6 @@ export const Container = styled.div`
     border-bottom: 1px solid var(--glass-border);
     backdrop-filter: blur(10px); z-index: 2;
     
-    /* Optional Theme overrides if you kept them in index.css */
     ${({ $themeType }) => $themeType === 'cyberpunk' && css`border-bottom: 1px solid rgba(0, 255, 136, 0.3);`}
     
     .user-details {
@@ -116,8 +125,8 @@ export const Container = styled.div`
     
     .admin-controls {
         display: flex; align-items: center; gap: 1rem;
-        .chat-search-input { background: var(--input-bg); color: var(--text-main); border: 1px solid var(--glass-border); padding: 0.5rem 1rem; border-radius: 2rem; outline: none; font-size: 0.85rem; animation: ${springyPop} 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); transition: all 0.2s; &:focus { border-color: var(--msg-sent); box-shadow: 0 0 10px rgba(78, 14, 255, 0.2); } }
-        .huddle-btn { background: var(--msg-sent); color: white; border: none; padding: 0.5rem 1rem; border-radius: 2rem; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; font-weight: 600; transition: all 0.2s ease; box-shadow: 0 4px 15px rgba(0,0,0,0.2); &:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(78, 14, 255, 0.4); filter: brightness(1.1); } }
+        .chat-search-input { background: var(--input-bg); color: var(--text-main); border: 1px solid var(--glass-border); padding: 0.5rem 1rem; border-radius: 2rem; outline: none; font-size: 0.85rem; animation: ${springyPop} 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); transition: all 0.2s; &:focus { border-color: var(--adaptive-accent); box-shadow: 0 0 10px rgba(78, 14, 255, 0.2); } }
+        .huddle-btn { background: var(--adaptive-accent); color: white; border: none; padding: 0.5rem 1rem; border-radius: 2rem; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; font-weight: 600; transition: all 0.2s ease; box-shadow: 0 4px 15px rgba(0,0,0,0.2); &:hover { transform: translateY(-2px); filter: brightness(1.1); } }
         .admin-badge { background: var(--input-bg); color: #00ff88; padding: 0.3rem 0.8rem; border-radius: 1rem; border: 1px solid var(--glass-border); font-size: 0.7rem; font-weight: 700; display: flex; align-items: center; gap: 0.4rem; backdrop-filter: blur(4px); }
         .action-icon { color: var(--text-dim); cursor: pointer; font-size: 1.2rem; transition: 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275); &:hover { transform: scale(1.15); color: var(--text-main); } &.blocked { color: #ff0055; } }
     }
@@ -140,17 +149,35 @@ export const Container = styled.div`
             background-size: 40px 40px; opacity: 0.3;
         `}
     }
+
+    /* --- NEW: Holographic Scanline Overlay --- */
+    ${({ $themeType }) => $themeType === 'cyberpunk' && css`
+        &::after {
+            content: ""; position: absolute;
+            top: 0; left: 0; width: 100%; height: 200%;
+            background: linear-gradient(
+              to bottom,
+              transparent 0%,
+              rgba(0, 255, 136, 0.1) 50%,
+              transparent 100%
+            );
+            background-size: 100% 4px;
+            animation: ${scanline} 8s linear infinite;
+            pointer-events: none;
+            z-index: 10;
+        }
+    `}
     
-    /* --- FIX: ENFORCE NO HORIZONTAL SCROLLING --- */
     .virtuoso-scroll { 
         height: 100% !important; width: 100% !important; 
         overflow-x: hidden !important; 
         &::-webkit-scrollbar { width: 6px; } 
         &::-webkit-scrollbar-track { background: transparent; }
-        &::-webkit-scrollbar-thumb { background-color: var(--glass-border); border-radius: 10px; border: 2px solid transparent; background-clip: padding-box; transition: background-color 0.2s; } 
+        /* --- DYNAMIC SCROLLBAR THUMB --- */
+        &::-webkit-scrollbar-thumb { background-color: var(--adaptive-accent); border-radius: 10px; border: 2px solid transparent; background-clip: padding-box; transition: background-color 0.2s; } 
     }
 
-    .loading-older { text-align: center; padding: 1rem; color: var(--msg-sent); font-size: 0.85rem; font-weight: 500; opacity: 0.8; }
+    .loading-older { text-align: center; padding: 1rem; color: var(--adaptive-accent); font-size: 0.85rem; font-weight: 500; opacity: 0.8; }
     
     .skeleton-container { display: flex; flex-direction: column; gap: 1.2rem; }
     .skeleton-msg .content { background: var(--input-bg); border: 1px solid var(--glass-border) !important; border-radius: 1.2rem; box-shadow: none !important; }
@@ -176,7 +203,7 @@ export const Container = styled.div`
     }
 
     .highlight-flash .content { animation: flashBg 1.5s ease-out; }
-    @keyframes flashBg { 0% { background-color: var(--msg-sent); box-shadow: 0 0 25px rgba(255,255,255,0.3); transform: scale(1.02); } 100% { background-color: inherit; box-shadow: inherit; transform: scale(1); } }
+    @keyframes flashBg { 0% { background-color: var(--adaptive-accent); box-shadow: 0 0 25px rgba(255,255,255,0.3); transform: scale(1.02); } 100% { background-color: inherit; box-shadow: inherit; transform: scale(1); } }
 
     .message-wrapper { padding-bottom: 1.2rem; animation: ${slideUpFade} 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) backwards; transition: padding 0.2s ease; }
     .message-wrapper.grouped-next { padding-bottom: 4px; }
@@ -187,7 +214,7 @@ export const Container = styled.div`
       .content {
         max-width: 65%;
         word-wrap: break-word;
-        word-break: break-word; /* Prevents long text from breaking flexbox */
+        word-break: break-word; 
         padding: 0.9rem 1.2rem;
         border-radius: 1.2rem;
         color: var(--text-main); line-height: 1.45; display: flex; flex-direction: column;
@@ -198,10 +225,9 @@ export const Container = styled.div`
 
         &::before { content: ""; position: absolute; bottom: 0; width: 16px; height: 16px; z-index: -1; }
 
-        /* --- FIX: WHATSAPP-STYLE FLOATING ACTIONS --- */
         .message-actions {
             position: absolute; 
-            top: 50%; /* Center vertically to align neatly beside the bubble */
+            top: 50%; 
             margin-top: -16px; 
             background: var(--bg-panel); padding: 0.4rem 0.6rem; border-radius: 2rem;
             display: flex; gap: 0.6rem; opacity: 0; visibility: hidden; 
@@ -209,9 +235,6 @@ export const Container = styled.div`
             box-shadow: 0 4px 15px rgba(0,0,0,0.1); z-index: 5;
             backdrop-filter: blur(8px);
             border: 1px solid var(--glass-border);
-            
-            /* DEFAULT SETTING: Received Messages (Left side of screen) */
-            /* Places actions on the outer RIGHT edge of the bubble */
             left: 100%;
             margin-left: 8px;
             transform: translateX(-10px) scale(0.95);
@@ -233,7 +256,6 @@ export const Container = styled.div`
             }
         }
 
-        /* Hover reveals the actions for both sent & received naturally */
         &:hover .message-actions { opacity: 1; visibility: visible; transform: translateX(0) scale(1); }
 
         .reactions-display {
@@ -250,7 +272,7 @@ export const Container = styled.div`
                 display: flex; align-items: center; justify-content: center;
                 backdrop-filter: blur(5px);
                 
-                &:hover { transform: scale(1.2) translateY(-4px); z-index: 10; border-color: var(--msg-sent); box-shadow: 0 6px 15px rgba(0,0,0,0.15);}
+                &:hover { transform: scale(1.2) translateY(-4px); z-index: 10; border-color: var(--adaptive-accent); box-shadow: 0 6px 15px rgba(0,0,0,0.15);}
                 .reaction-anim { display: inline-block; animation: ${springyPop} 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
             }
         }
@@ -278,16 +300,16 @@ export const Container = styled.div`
             .poll-option {
                 position: relative; background: var(--bg-panel); padding: 0.8rem; border-radius: 0.8rem; margin-bottom: 0.6rem; cursor: pointer; overflow: hidden; display: flex; justify-content: space-between; border: 1px solid transparent; transition: all 0.2s ease;
                 &:hover { border-color: var(--glass-border); filter: brightness(0.95); }
-                &.voted { border-color: var(--msg-sent); box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
-                .poll-bar { position: absolute; top: 0; left: 0; height: 100%; background: var(--msg-sent); opacity: 0.2; z-index: 0; transition: width 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+                &.voted { border-color: var(--adaptive-accent); box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
+                .poll-bar { position: absolute; top: 0; left: 0; height: 100%; background: var(--adaptive-accent); opacity: 0.2; z-index: 0; transition: width 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
                 .opt-text, .opt-percent { position: relative; z-index: 1; font-size: 0.9rem; font-weight: 500; }
             }
         }
 
         .quoted-message {
-            background: var(--input-bg); border-left: 4px solid var(--msg-sent); padding: 0.6rem 0.8rem; border-radius: 0.4rem 0.8rem 0.8rem 0.4rem; font-size: 0.85rem; margin-bottom: 0.8rem; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; transition: all 0.2s;
+            background: var(--input-bg); border-left: 4px solid var(--adaptive-accent); padding: 0.6rem 0.8rem; border-radius: 0.4rem 0.8rem 0.8rem 0.4rem; font-size: 0.85rem; margin-bottom: 0.8rem; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; transition: all 0.2s;
             &:hover { filter: brightness(0.9); }
-            span { font-weight: 600; color: var(--msg-sent); }
+            span { font-weight: 600; color: var(--adaptive-accent); }
         }
 
         .code-snippet { background: var(--bg-panel); padding: 1rem; border-radius: 0.8rem; overflow-x: auto; font-family: 'JetBrains Mono', 'Fira Code', monospace; border: 1px solid var(--glass-border); margin: 0.6rem 0; box-shadow: inset 0 2px 10px rgba(0,0,0,0.05); code { white-space: pre-wrap; word-break: break-all; font-size: 0.85rem; line-height: 1.5; } }
@@ -324,20 +346,18 @@ export const Container = styled.div`
         &::before { display: none; }
     }
 
-    /* --- SENT MESSAGES (Right side) --- */
     .sended {
       justify-content: flex-end;
       .content {
         background: var(--msg-sent);
-        color: white; /* Force white text for sent messages regardless of theme */
+        color: white; 
         border-bottom-right-radius: 0.3rem; 
         box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
 
         &::before { right: -6px; background: var(--msg-sent); clip-path: polygon(0 0, 0% 100%, 100% 100%); }
         
-        /* FIX: Push sent message actions to the LEFT side */
         .message-actions { 
-            right: 100%; /* Pushes out to the left */
+            right: 100%; 
             left: auto; 
             margin-right: 8px; 
             margin-left: 0;
@@ -349,15 +369,9 @@ export const Container = styled.div`
       .tail-physics { transform-origin: bottom right; }
     }
     
-    .message-wrapper.grouped-next .sended .content {
-        border-bottom-right-radius: 1.2rem; 
-        &::before { display: none; } 
-    }
-    .message-wrapper.grouped-prev .sended .content {
-        border-top-right-radius: 0.3rem; 
-    }
+    .message-wrapper.grouped-next .sended .content { border-bottom-right-radius: 1.2rem; &::before { display: none; } }
+    .message-wrapper.grouped-prev .sended .content { border-top-right-radius: 0.3rem; }
 
-    /* --- RECEIVED MESSAGES (Left side) --- */
     .recieved {
       justify-content: flex-start;
       .content {
@@ -373,13 +387,8 @@ export const Container = styled.div`
       .tail-physics { transform-origin: bottom left; }
     }
 
-    .message-wrapper.grouped-next .recieved .content {
-        border-bottom-left-radius: 1.2rem; 
-        &::before { display: none; } 
-    }
-    .message-wrapper.grouped-prev .recieved .content {
-        border-top-left-radius: 0.3rem; 
-    }
+    .message-wrapper.grouped-next .recieved .content { border-bottom-left-radius: 1.2rem; &::before { display: none; } }
+    .message-wrapper.grouped-prev .recieved .content { border-top-left-radius: 0.3rem; }
     
     .typing-dots {
         display: flex; align-items: center; gap: 4px; height: 15px; padding: 0 5px;
@@ -394,7 +403,7 @@ export const DropOverlay = styled.div`
     position: absolute; top: 0; left: 0; width: 100%; height: 100%;
     background: rgba(0, 0, 0, 0.4); backdrop-filter: blur(12px);
     z-index: 100; display: flex; justify-content: center; align-items: center;
-    border: 4px dashed var(--msg-sent); border-radius: 1.5rem;
+    border: 4px dashed var(--adaptive-accent); border-radius: 1.5rem;
     animation: ${pulseBorder} 2s infinite ease-in-out;
     margin: 10px; width: calc(100% - 20px); height: calc(100% - 20px);
     .overlay-content { 
@@ -407,12 +416,13 @@ export const DropOverlay = styled.div`
 
 export const ScrollButton = styled.button`
     position: absolute; bottom: 90px; right: 30px; width: 48px; height: 48px;
-    border-radius: 50%; background: var(--msg-sent); color: white; border: none;
+    border-radius: 50%; 
+    background: var(--adaptive-accent); 
+    color: white; border: none;
     cursor: pointer; box-shadow: 0 6px 20px rgba(0,0,0,0.2); 
     display: flex; justify-content: center; align-items: center; z-index: 10;
     transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
     font-size: 1.1rem;
-    /* Framer Motion will handle the initial scaling/opacity, but we keep hover styles for fallback */
     &:hover { filter: brightness(1.15); box-shadow: 0 10px 25px rgba(0,0,0,0.3); }
 
     .unread-badge {
@@ -481,6 +491,8 @@ export const SideInfoPanel = styled.div`
   flex-direction: column;
   animation: slideInRight 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
   box-shadow: -10px 0 40px rgba(0, 0, 0, 0.2);
+  /* Added overflow hidden to cleanly hide Framer Motion exiting elements */
+  overflow: hidden; 
 
   @keyframes slideInRight {
     from { transform: translateX(100%); opacity: 0; }
@@ -499,22 +511,31 @@ export const SideInfoPanel = styled.div`
     display: flex; border-bottom: 1px solid var(--glass-border);
     background: transparent;
     button { flex: 1; background: none; border: none; padding: 1rem; color: var(--text-dim); font-weight: 600; cursor: pointer; transition: all 0.2s ease; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px;
-      &.active { color: var(--text-main); border-bottom: 3px solid var(--msg-sent); background: var(--input-bg); }
+      &.active { color: var(--text-main); border-bottom: 3px solid var(--adaptive-accent); background: var(--input-bg); }
       &:hover:not(.active) { color: var(--text-main); background: var(--input-bg); }
     }
   }
 
   .panel-content {
-    flex: 1; overflow-y: auto; padding: 1.5rem;
+    flex: 1; overflow-y: auto; overflow-x: hidden; padding: 1.5rem;
     &::-webkit-scrollbar { width: 4px; } &::-webkit-scrollbar-thumb { background-color: var(--glass-border); border-radius: 10px; }
     
-    .loader { display: flex; justify-content: center; align-items: center; height: 100px; color: var(--msg-sent); font-size: 1.5rem; }
+    .loader { display: flex; justify-content: center; align-items: center; height: 100px; color: var(--adaptive-accent); font-size: 1.5rem; }
     .empty-state { color: var(--text-dim); text-align: center; margin-top: 3rem; font-style: italic; font-size: 0.9rem; }
+
+    /* --- IDEA 3: IN-TAB SEARCH BAR --- */
+    .tab-search {
+        display: flex; align-items: center; background: var(--input-bg);
+        border: 1px solid var(--glass-border); border-radius: 12px; padding: 0.6rem 1rem;
+        margin-bottom: 1.5rem;
+        .icon { color: var(--text-dim); margin-right: 10px; }
+        input { background: none; border: none; color: var(--text-main); outline: none; width: 100%; font-size: 0.9rem; }
+    }
 
     .about-section {
         .profile-hero { 
             text-align: center; margin-bottom: 2.5rem; 
-            img { width: 110px; height: 110px; border-radius: 50%; border: 3px solid var(--msg-sent); margin-bottom: 1.2rem; object-fit: cover; box-shadow: 0 8px 25px rgba(0,0,0,0.1); } 
+            img { width: 110px; height: 110px; border-radius: 50%; border: 3px solid var(--adaptive-accent); margin-bottom: 1.2rem; object-fit: cover; box-shadow: 0 8px 25px rgba(0,0,0,0.1); } 
             h3 { color: var(--text-main); margin: 0; font-size: 1.3rem; font-weight: 700; letter-spacing: 0.5px; } 
             .presence { color: #00ff88; font-size: 0.85rem; font-weight: 600; margin-top: 8px; display: inline-block; background: rgba(0,255,136,0.1); padding: 4px 12px; border-radius: 12px;} 
         }
@@ -526,22 +547,56 @@ export const SideInfoPanel = styled.div`
         }
         .interests-grid { 
             display: flex; flex-wrap: wrap; gap: 8px; 
-            .interest-tag { background: var(--input-bg); color: var(--text-main); padding: 6px 14px; border-radius: 2rem; font-size: 0.8rem; border: 1px solid var(--glass-border); font-weight: 500; transition: 0.2s; cursor: default; &:hover { filter: brightness(0.9); border-color: var(--msg-sent); transform: translateY(-2px); }} 
+            .interest-tag { background: var(--input-bg); color: var(--text-main); padding: 6px 14px; border-radius: 2rem; font-size: 0.8rem; border: 1px solid var(--glass-border); font-weight: 500; transition: 0.2s; cursor: default; &:hover { filter: brightness(0.9); border-color: var(--adaptive-accent); transform: translateY(-2px); }} 
+        }
+
+        /* --- IDEA 3: CUSTOMIZATION UI --- */
+        .wallpaper-presets {
+            display: flex; gap: 10px; margin-top: 10px;
+            .color-swatch { width: 35px; height: 35px; border-radius: 50%; border: 2px solid var(--glass-border); cursor: pointer; transition: 0.2s; &:hover { transform: scale(1.1); border-color: var(--adaptive-accent); } }
+            .clear-wallpaper { background: var(--bg-panel); color: var(--text-dim); border: 1px solid var(--glass-border); border-radius: 8px; padding: 0 10px; cursor: pointer; font-size: 0.8rem; transition: 0.2s; &:hover { color: var(--text-main); background: var(--input-bg); } }
+        }
+
+        /* --- IDEA 2 & 3: TOGGLES & ACTIONS UI --- */
+        .toggle-card { cursor: pointer; display: flex; justify-content: space-between; alignItems: center; }
+        .toggle-switch { width: 40px; height: 22px; border-radius: 20px; background: var(--bg-panel); position: relative; transition: 0.3s; 
+            &::after { content: ''; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--text-dim); transition: 0.3s; }
+            &.on { background: #ff4e4e; &::after { left: 21px; background: white; } }
+        }
+
+        .view-all-btn { width: 100%; background: none; border: 1px dashed var(--glass-border); color: var(--text-dim); padding: 10px; border-radius: 8px; cursor: pointer; font-weight: 600; margin-top: 10px; transition: 0.2s; &:hover { border-color: var(--adaptive-accent); color: var(--adaptive-accent); background: var(--input-bg); } }
+
+        .action-dropdown {
+            position: absolute; right: 0; top: 40px; background: var(--bg-panel); border: 1px solid var(--glass-border); border-radius: 8px; padding: 4px 0; z-index: 100; box-shadow: 0 8px 24px rgba(0,0,0,0.3); width: 160px; overflow: hidden;
+            button { width: 100%; text-align: left; padding: 10px 14px; background: none; border: none; color: var(--text-main); cursor: pointer; font-size: 0.85rem; transition: background 0.2s; 
+                &:hover { background: var(--input-bg); }
+                &.warning { color: #ffcc00; }
+                &.danger { color: #ff4e4e; &:hover { background: rgba(255, 78, 78, 0.1); } }
+            }
+        }
+
+        /* --- IDEA 2: DANGER ZONE --- */
+        .danger-zone {
+            margin-top: 2rem; border-top: 1px solid var(--glass-border); padding-top: 1.5rem;
+            display: flex; flex-direction: column; gap: 10px;
+            .danger-btn { display: flex; alignItems: center; gap: 10px; width: 100%; background: var(--input-bg); border: 1px solid transparent; color: #ff4e4e; padding: 12px 16px; border-radius: 12px; cursor: pointer; font-weight: 600; font-size: 0.9rem; transition: 0.2s; 
+                &:hover { background: rgba(255, 78, 78, 0.1); border-color: rgba(255, 78, 78, 0.3); transform: translateX(5px); } 
+            }
         }
     }
 
     .media-grid {
       display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
       img, video { width: 100%; height: 95px; object-fit: cover; border-radius: 10px; cursor: pointer; transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); border: 2px solid transparent; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
-      img:hover { transform: scale(1.08); border-color: var(--msg-sent); z-index: 2; box-shadow: 0 10px 25px rgba(0,0,0,0.2); }
+      img:hover { transform: scale(1.08); border-color: var(--adaptive-accent); z-index: 2; box-shadow: 0 10px 25px rgba(0,0,0,0.2); }
     }
 
     .links-list {
       display: flex; flex-direction: column; gap: 12px;
       .link-item {
         display: flex; align-items: center; gap: 12px; background: var(--input-bg); padding: 14px; border-radius: 12px; text-decoration: none; transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275); border: 1px solid var(--glass-border); margin-bottom: 4px;
-        &:hover { filter: brightness(0.95); border-color: var(--msg-sent); transform: translateY(-3px); box-shadow: 0 8px 20px rgba(0,0,0,0.1); }
-        .link-icon { background: var(--bg-panel); color: var(--msg-sent); padding: 12px; border-radius: 10px; font-size: 1.2rem; display: flex; align-items: center; justify-content: center; }
+        &:hover { filter: brightness(0.95); border-color: var(--adaptive-accent); transform: translateY(-3px); box-shadow: 0 8px 20px rgba(0,0,0,0.1); }
+        .link-icon { background: var(--bg-panel); color: var(--adaptive-accent); padding: 12px; border-radius: 10px; font-size: 1.2rem; display: flex; align-items: center; justify-content: center; }
         .link-info { overflow: hidden; flex: 1; h4 { color: var(--text-main); font-size: 0.9rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px; margin-top: 0; } p { color: var(--text-dim); font-size: 0.75rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 0; } }
       }
     }

@@ -1,11 +1,25 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import styled, { keyframes, css } from "styled-components";
+import { motion } from "framer-motion"; // <-- Added Framer Motion
 import { FaComments, FaBomb, FaPalette, FaShieldAlt } from "react-icons/fa";
+import { toast } from "react-toastify";
 import useChatStore from "../store/chatStore";
 
 export default function Welcome() {
-  const { currentUser, theme } = useChatStore();
+  const { currentUser, theme, setTheme } = useChatStore();
   const userName = currentUser?.username || "Guest";
+
+  // State to track mouse position for the Spotlight hover effect
+  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
+  const handleMouseMove = (e) => {
+    const { currentTarget, clientX, clientY } = e;
+    const { left, top } = currentTarget.getBoundingClientRect();
+    setMousePos({
+      x: clientX - left,
+      y: clientY - top,
+    });
+  };
 
   // Dynamic time-based greeting
   const greeting = useMemo(() => {
@@ -15,14 +29,29 @@ export default function Welcome() {
     return "Good evening";
   }, []);
 
+  // Action Handlers for the feature cards
+  const handleCardClick = (action) => {
+      if (action === 'theme') {
+          const nextTheme = theme === 'glass' ? 'midnight' : theme === 'midnight' ? 'cyberpunk' : theme === 'cyberpunk' ? 'light' : 'glass';
+          setTheme(nextTheme);
+          toast.success(`Theme changed to ${nextTheme.charAt(0).toUpperCase() + nextTheme.slice(1)}!`);
+      } else if (action === 'secure') {
+          toast.info("End-to-End Encryption is active.");
+      }
+  };
+
   return (
     <Container $themeType={theme}>
-      <div className="hero-section">
-        {/* Personalized robot mascot based on the user's name */}
-        <img 
+      <div className="hero-pedestal">
+        <motion.img 
           src={`https://api.dicebear.com/9.x/bottts/svg?seed=${userName}&backgroundColor=transparent`} 
           alt="Welcome Robot" 
           className="robot-mascot" 
+          whileHover={{ 
+            scale: 1.15, 
+            rotate: [0, -10, 10, -10, 10, 0],
+            transition: { duration: 0.5 }
+          }}
         />
         <h1>
           {greeting}, <span className="accent-text">{userName}!</span>
@@ -32,29 +61,45 @@ export default function Welcome() {
         </p>
       </div>
 
-      <div className="features-grid">
-        <div className="feature-card">
-          <div className="icon-wrapper primary"><FaComments /></div>
-          <h3>Jump Right In</h3>
-          <p>Select a personal chat or a group from your folders to continue the conversation.</p>
+      <div 
+        className="features-grid" 
+        onMouseMove={handleMouseMove}
+        style={{ '--mouse-x': `${mousePos.x}px`, '--mouse-y': `${mousePos.y}px` }}
+      >
+        <div className="feature-card" onClick={() => toast.info("Select a chat from the left panel!")}>
+          <div className="spotlight-overlay"></div>
+          <div className="content-wrapper">
+              <div className="icon-wrapper primary"><FaComments /></div>
+              <h3>Jump Right In</h3>
+              <p>Select a personal chat or a group from your folders to continue the conversation.</p>
+          </div>
         </div>
 
-        <div className="feature-card">
-          <div className="icon-wrapper danger"><FaBomb /></div>
-          <h3>Self-Destructing</h3>
-          <p>Use the timer icon in the chat input to send messages that vanish after being read.</p>
+        <div className="feature-card" onClick={() => toast.info("Send a message and click the timer icon.")}>
+          <div className="spotlight-overlay"></div>
+          <div className="content-wrapper">
+              <div className="icon-wrapper danger"><FaBomb /></div>
+              <h3>Self-Destructing</h3>
+              <p>Use the timer icon in the chat input to send messages that vanish after being read.</p>
+          </div>
         </div>
 
-        <div className="feature-card">
-          <div className="icon-wrapper success"><FaPalette /></div>
-          <h3>Custom Themes</h3>
-          <p>Click the gear icon in the sidebar to customize your experience with Cyberpunk or Light modes.</p>
+        <div className="feature-card clickable" onClick={() => handleCardClick('theme')}>
+          <div className="spotlight-overlay"></div>
+          <div className="content-wrapper">
+              <div className="icon-wrapper success"><FaPalette /></div>
+              <h3>Custom Themes</h3>
+              <p>Click here to instantly cycle through our custom dynamic themes.</p>
+          </div>
         </div>
 
-        <div className="feature-card">
-          <div className="icon-wrapper warning"><FaShieldAlt /></div>
-          <h3>Private & Secure</h3>
-          <p>Your chats are secure. You can block unwanted contacts directly from the chat menu.</p>
+        <div className="feature-card clickable" onClick={() => handleCardClick('secure')}>
+          <div className="spotlight-overlay"></div>
+          <div className="content-wrapper">
+              <div className="icon-wrapper warning"><FaShieldAlt /></div>
+              <h3>Private & Secure</h3>
+              <p>Your chats are locked down. You can block unwanted contacts directly from the menu.</p>
+          </div>
         </div>
       </div>
     </Container>
@@ -69,7 +114,7 @@ const float = keyframes`
 `;
 
 const popIn = keyframes`
-  0% { transform: scale(0.9) translateY(20px); opacity: 0; }
+  0% { transform: scale(0.95) translateY(20px); opacity: 0; }
   100% { transform: scale(1) translateY(0); opacity: 1; }
 `;
 
@@ -79,12 +124,16 @@ const Container = styled.div`
   justify-content: center;
   align-items: center;
   flex-direction: column;
-  /* Dynamically uses the text variable */
   color: var(--text-main); 
   height: 100%;
   width: 100%;
-  padding: 2rem;
+  
+  /* --- IDEA 1: FLUID LAYOUT USING CLAMP --- */
+  padding: clamp(1rem, 5vh, 4rem);
+  gap: clamp(1.5rem, 5vh, 4rem);
+  
   overflow-y: auto;
+  overflow-x: hidden;
   position: relative;
   z-index: 1;
   box-sizing: border-box;
@@ -108,17 +157,27 @@ const Container = styled.div`
     }
   `}
 
-  .hero-section {
+  /* --- IDEA 5: GLASSMORPHIC PEDESTAL --- */
+  .hero-pedestal {
     text-align: center;
-    margin-bottom: 3rem;
-    animation: ${popIn} 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
     width: 100%;
+    max-width: 800px;
+    animation: ${popIn} 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    
+    background: linear-gradient(180deg, var(--input-bg) 0%, transparent 100%);
+    border-top: 1px solid var(--glass-border);
+    border-radius: 32px;
+    padding: clamp(2rem, 5vh, 4rem) 2rem;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 10px 40px rgba(0,0,0,0.05);
 
     .robot-mascot {
-      height: 150px;
-      margin-bottom: 1.5rem;
-      animation: ${float} 4s ease-in-out infinite;
+      /* Fluid image sizing */
+      height: clamp(100px, 18vh, 160px);
+      margin-bottom: 1rem;
+      animation: ${float} 6s ease-in-out infinite;
       filter: drop-shadow(0 15px 25px rgba(0, 0, 0, 0.2));
+      cursor: pointer;
       
       ${({ $themeType }) => $themeType === 'cyberpunk' && css`
         filter: drop-shadow(0 10px 20px rgba(0, 255, 136, 0.2));
@@ -126,15 +185,15 @@ const Container = styled.div`
     }
 
     h1 {
-      font-size: 2.2rem;
+      /* Fluid typography */
+      font-size: clamp(1.5rem, 4vw, 2.5rem);
       margin-bottom: 0.8rem;
-      font-weight: 700;
-      letter-spacing: 0.5px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
       color: var(--text-main);
       
       .accent-text {
         color: var(--msg-sent);
-        
         ${({ $themeType }) => $themeType === 'cyberpunk' && css`
           color: #00ff88; text-shadow: 0 0 20px rgba(0, 255, 136, 0.4);
         `}
@@ -143,39 +202,71 @@ const Container = styled.div`
 
     .subtitle {
       color: var(--text-dim);
-      font-size: 1.1rem;
+      font-size: clamp(0.9rem, 1.5vw, 1.1rem);
       max-width: 520px;
       margin: 0 auto;
       line-height: 1.6;
-      font-weight: 400;
+      font-weight: 500;
     }
   }
 
   .features-grid {
     display: grid;
-    /* STRICT 2-COLUMN GRID: Prevents layout breaking on browser zoom */
-    grid-template-columns: repeat(2, 1fr);
-    gap: 1.5rem;
+    /* Responsive Grid: Automatically switches from 2 columns to 1 on small heights or widths */
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: clamp(1rem, 2vh, 1.5rem);
     max-width: 800px;
     width: 100%;
-
-    /* Only stack on literal mobile phones (very small widths) */
-    @media screen and (max-width: 550px) {
-      grid-template-columns: 1fr;
-    }
+    position: relative;
 
     .feature-card {
-      /* Replaced hardcoded transparent background with variables */
       background: var(--input-bg);
       border: 1px solid var(--glass-border);
       border-radius: 1.5rem;
-      padding: 1.5rem;
+      padding: clamp(1.2rem, 3vh, 1.8rem);
       display: flex;
       flex-direction: column;
       gap: 0.8rem;
       transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
       animation: ${popIn} 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) backwards;
       backdrop-filter: blur(12px);
+      
+      position: relative;
+      overflow: hidden;
+
+      &.clickable { cursor: pointer; }
+
+      /* --- IDEA 2: SPOTLIGHT HOVER EFFECT --- */
+      &::before {
+        content: "";
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        border-radius: inherit;
+        padding: 2px; /* thickness of the border glow */
+        background: radial-gradient(
+          600px circle at var(--mouse-x) var(--mouse-y), 
+          var(--msg-sent),
+          transparent 40%
+        );
+        -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+        -webkit-mask-composite: xor;
+        mask-composite: exclude;
+        opacity: 0;
+        transition: opacity 0.3s;
+      }
+
+      .spotlight-overlay {
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: radial-gradient(
+          800px circle at var(--mouse-x) var(--mouse-y), 
+          rgba(255,255,255,0.04),
+          transparent 40%
+        );
+        opacity: 0;
+        transition: opacity 0.3s;
+        z-index: 0;
+      }
 
       /* Staggering the animations */
       &:nth-child(1) { animation-delay: 0.1s; }
@@ -184,14 +275,20 @@ const Container = styled.div`
       &:nth-child(4) { animation-delay: 0.4s; }
 
       &:hover {
-        transform: translateY(-8px);
-        filter: brightness(0.95);
-        border-color: var(--msg-sent);
+        transform: translateY(-4px);
         box-shadow: 0 15px 30px rgba(0, 0, 0, 0.1);
+        &::before { opacity: 1; }
+        .spotlight-overlay { opacity: 1; }
         
         ${({ $themeType }) => $themeType === 'cyberpunk' && css`
-          border-color: rgba(0, 255, 136, 0.4); box-shadow: 0 15px 30px rgba(0, 255, 136, 0.1);
+          box-shadow: 0 15px 30px rgba(0, 255, 136, 0.1);
         `}
+      }
+
+      .content-wrapper {
+        position: relative;
+        z-index: 1;
+        pointer-events: none; /* Let the card handle the hover */
       }
 
       .icon-wrapper {
@@ -212,7 +309,7 @@ const Container = styled.div`
       }
 
       h3 {
-        font-size: 1.1rem;
+        font-size: clamp(1rem, 2vw, 1.1rem);
         color: var(--text-main);
         font-weight: 700;
         margin: 0;
@@ -220,7 +317,7 @@ const Container = styled.div`
       }
 
       p {
-        font-size: 0.9rem;
+        font-size: clamp(0.85rem, 1.5vw, 0.9rem);
         color: var(--text-dim);
         line-height: 1.6;
         margin: 0;

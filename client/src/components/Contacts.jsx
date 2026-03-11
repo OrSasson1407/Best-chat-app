@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import styled, { keyframes, css } from "styled-components";
+import { motion, AnimatePresence } from "framer-motion";
 import { 
     FaUserFriends, FaPlus, FaSearch, FaCog, FaThumbtack, 
     FaRegEnvelope, FaTimes, FaSpinner, FaShieldAlt, FaEye, FaGlobe,
-    FaSun, FaMoon // <-- Theme Icons
+    FaSun, FaMoon, FaSignOutAlt, FaCheck // <-- FIXED: Added missing icons here
 } from "react-icons/fa";
 import { BsChatDotsFill, BsPeopleFill } from "react-icons/bs";
 import { MdOutlineAllInclusive } from "react-icons/md";
@@ -16,16 +17,13 @@ import {
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
-// --- IMPORT ZUSTAND STORE & CRYPTO ---
 import useChatStore from "../store/chatStore";
 import { generateGroupAESKey, encryptMessage } from "../utils/crypto"; 
 
-// Safe API constants for Fallback avatar generation
 const femaleTops = "longHairBob,longHairBun,longHairCurly,longHairCurvy,longHairStraight,longHairNotTooLong";
 const maleTops = "shortHairDreads01,shortHairDreads02,shortHairFrizzle,shortHairShaggy,shortHairShortCurly,shortHairShortFlat,shortHairShortRound,shortHairShortWaved,shortHairSides";
 const backgroundColors = "b6e3f4,c0aede,d1d4f9,ffdfbf,ffd5dc";
 
-// Helper function to format the Last Seen timestamp dynamically
 const formatLastSeen = (dateString) => {
     if (!dateString) return "Offline";
     const date = new Date(dateString);
@@ -35,43 +33,31 @@ const formatLastSeen = (dateString) => {
     const diffHours = Math.floor(diffMins / 60);
     const diffDays = Math.floor(diffHours / 24);
 
-    if (diffMins < 1) return "Last seen just now";
-    if (diffMins < 60) return `Last seen ${diffMins}m ago`;
-    if (diffHours < 24) return `Last seen ${diffHours}h ago`;
-    if (diffDays === 1) return "Last seen yesterday";
-    if (diffDays < 7) return `Last seen ${diffDays}d ago`;
+    if (diffMins < 1) return "Just now";
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays === 1) return "Yesterday";
+    if (diffDays < 7) return `${diffDays}d ago`;
     
-    return `Last seen ${date.toLocaleDateString(undefined, { month: 'short', day: 'numeric'})}`;
+    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric'});
 };
 
-export default function Contacts({ 
-  contacts, 
-  changeChat, 
-  handleLogout
-}) {
-  
+export default function Contacts({ contacts, changeChat, handleLogout }) {
   const {
-      currentUser,
-      onlineUsers,
-      theme,
-      setTheme, // <-- Controls theme
-      isCompact,
-      setIsCompact,
-      globalTypingUsers
+      currentUser, onlineUsers, theme, setTheme, 
+      isCompact, setIsCompact, globalTypingUsers
   } = useChatStore();
 
   const [currentUserName, setCurrentUserName] = useState(undefined);
   const [currentSelected, setCurrentSelected] = useState(undefined);
-  
   const [activeFolder, setActiveFolder] = useState("all"); 
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
   
   const [pinnedIds, setPinnedIds] = useState(() => {
     try {
         const saved = localStorage.getItem(`pinned-chats-${currentUser?._id}`);
         return saved ? JSON.parse(saved) : [];
-    } catch (e) {
-        return [];
-    }
+    } catch (e) { return []; }
   });
 
   const [groups, setGroups] = useState([]);
@@ -81,135 +67,98 @@ export default function Contacts({
   const [globalMessages, setGlobalMessages] = useState([]);
   const [isSearchingGlobal, setIsSearchingGlobal] = useState(false);
 
+  // Modals
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [groupName, setGroupName] = useState("");
   const [selectedMembers, setSelectedMembers] = useState([]);
-
   const [showProfileModal, setShowProfileModal] = useState(false);
-  
   const [showDiscoverModal, setShowDiscoverModal] = useState(false);
+  
+  // Channels
   const [channelSearchQuery, setChannelSearchQuery] = useState("");
   const [discoveredChannels, setDiscoveredChannels] = useState([]);
   const [isSearchingChannels, setIsSearchingChannels] = useState(false);
 
+  // User Profile
   const [profileData, setProfileData] = useState({
-      statusIcon: "✨", 
-      statusMessage: "Available", 
-      bio: "", 
-      interests: "",
-      privacySettings: {
-          lastSeen: "everyone",
-          readReceipts: true,
-          profilePhoto: "everyone"
-      }
+      statusIcon: "✨", statusMessage: "Available", bio: "", interests: "",
+      privacySettings: { lastSeen: "everyone", readReceipts: true, profilePhoto: "everyone" }
   });
-
   const [hasPin, setHasPin] = useState(!!localStorage.getItem("app-pin-code"));
 
-  // --- STORY SYSTEM STATE ---
+  // Stories
   const [storyFeed, setStoryFeed] = useState([]);
   const [viewingStoryUser, setViewingStoryUser] = useState(null);
   const [currentStoryIndex, setCurrentStoryIndex] = useState(0);
   const [isUploadingStory, setIsUploadingStory] = useState(false);
   const fileInputRef = useRef(null);
 
+  // Initialize Data
   useEffect(() => {
     const fetchGroupsAndStories = async () => {
       if(currentUser && currentUser.token) {
           try {
-              const groupRes = await axios.get(getUserGroupsRoute, {
-                  headers: { "x-auth-token": currentUser.token }
-              });
+              const [groupRes, storyRes] = await Promise.all([
+                  axios.get(getUserGroupsRoute, { headers: { "x-auth-token": currentUser.token } }),
+                  axios.get(getStoryFeedRoute, { headers: { "x-auth-token": currentUser.token } })
+              ]);
               setGroups(groupRes.data);
-
-              const storyRes = await axios.get(getStoryFeedRoute, {
-                  headers: { "x-auth-token": currentUser.token }
-              });
-              if(storyRes.data.status) {
-                  setStoryFeed(storyRes.data.feed);
-              }
-          } catch (error) { 
-              console.error("Error fetching data:", error); 
-          } finally {
-              setIsLoading(false);
-          }
+              if(storyRes.data.status) setStoryFeed(storyRes.data.feed);
+          } catch (error) { console.error("Error fetching data:", error); } 
+          finally { setIsLoading(false); }
       }
     };
 
     if (currentUser) {
       setCurrentUserName(currentUser.username);
-      
       setProfileData({
           statusIcon: currentUser.statusIcon || "✨",
           statusMessage: currentUser.statusMessage || "Available",
           bio: currentUser.bio || "",
           interests: currentUser.interests ? currentUser.interests.join(", ") : "",
-          privacySettings: currentUser.privacySettings || {
-              lastSeen: "everyone",
-              readReceipts: true,
-              profilePhoto: "everyone"
-          }
+          privacySettings: currentUser.privacySettings || { lastSeen: "everyone", readReceipts: true, profilePhoto: "everyone" }
       });
       fetchGroupsAndStories();
     }
   }, [currentUser]);
 
   useEffect(() => {
-    if (currentUser) {
-      localStorage.setItem(`pinned-chats-${currentUser._id}`, JSON.stringify(pinnedIds));
-    }
+    if (currentUser) localStorage.setItem(`pinned-chats-${currentUser._id}`, JSON.stringify(pinnedIds));
   }, [pinnedIds, currentUser]);
 
   useEffect(() => {
       let timer;
       if (viewingStoryUser && viewingStoryUser.stories) {
-          timer = setTimeout(() => {
-              handleNextStory();
-          }, 5000); 
+          timer = setTimeout(() => handleNextStory(), 5000); 
       }
       return () => clearTimeout(timer);
   }, [viewingStoryUser, currentStoryIndex]);
 
+  // Debounced Search Logic
   useEffect(() => {
       if (!searchTerm || searchTerm.length < 3) {
           setGlobalMessages([]);
           return;
       }
-      
       const delayDebounceFn = setTimeout(async () => {
           setIsSearchingGlobal(true);
           try {
-              const { data } = await axios.post(searchMessageRoute, {
-                  userId: currentUser._id,
-                  query: searchTerm
-              }, {
-                  headers: { "x-auth-token": currentUser.token }
-              });
-              
-              if (data.status) {
-                  setGlobalMessages(data.messages);
-              }
-          } catch (error) {
-              console.error("Error searching messages:", error);
-          } finally {
-              setIsSearchingGlobal(false);
-          }
+              const { data } = await axios.post(searchMessageRoute, { userId: currentUser._id, query: searchTerm }, { headers: { "x-auth-token": currentUser.token } });
+              if (data.status) setGlobalMessages(data.messages);
+          } catch (error) { console.error("Error searching messages:", error); } 
+          finally { setIsSearchingGlobal(false); }
       }, 600);
-
       return () => clearTimeout(delayDebounceFn);
   }, [searchTerm, currentUser]);
 
   useEffect(() => {
       if (!channelSearchQuery) {
-          setDiscoveredChannels([]);
-          return;
+          setDiscoveredChannels([]); return;
       }
       const delayDebounceFn = setTimeout(async () => {
           setIsSearchingChannels(true);
           try {
-              const { data } = await axios.get(`${searchChannelsRoute}?query=${channelSearchQuery}`, {
-                  headers: { "x-auth-token": currentUser.token }
-              });
+              const { data } = await axios.get(`${searchChannelsRoute}?query=${channelSearchQuery}`, { headers: { "x-auth-token": currentUser.token } });
               if (data.status) setDiscoveredChannels(data.channels);
           } catch (error) { console.error(error); } 
           finally { setIsSearchingChannels(false); }
@@ -217,19 +166,14 @@ export default function Contacts({
       return () => clearTimeout(delayDebounceFn);
   }, [channelSearchQuery, currentUser]);
 
+  // Handlers
   const togglePin = useCallback((e, id) => {
     e.stopPropagation(); 
     setPinnedIds((prev) => {
-        if (prev.includes(id)) {
-            toast.info("Chat unpinned");
-            return prev.filter(pid => pid !== id);
-        } else {
-            if (prev.length >= 5) {
-                toast.warning("Maximum 5 pins allowed");
-                return prev;
-            }
-            toast.success("Chat pinned to top");
-            return [...prev, id];
+        if (prev.includes(id)) { toast.info("Chat unpinned"); return prev.filter(pid => pid !== id); } 
+        else {
+            if (prev.length >= 5) { toast.warning("Maximum 5 pins allowed"); return prev; }
+            toast.success("Chat pinned to top"); return [...prev, id];
         }
     });
   }, []);
@@ -240,13 +184,10 @@ export default function Contacts({
   }, [changeChat]);
 
   const handleGlobalMessageClick = (msg) => {
-      let targetChat = null;
-      let isGroupChat = false;
+      let targetChat = groups.find(g => msg.users.includes(g._id));
+      let isGroupChat = !!targetChat;
 
-      targetChat = groups.find(g => msg.users.includes(g._id));
-      if (targetChat) {
-          isGroupChat = true;
-      } else {
+      if (!targetChat) {
           const otherUserId = msg.users.find(id => id !== currentUser._id);
           targetChat = contacts.find(c => c._id === otherUserId);
       }
@@ -254,9 +195,7 @@ export default function Contacts({
       if (targetChat) {
           changeCurrentChat(targetChat, isGroupChat);
           setSearchTerm(""); 
-      } else {
-          toast.error("Chat not found. It may have been deleted.");
-      }
+      } else { toast.error("Chat not found. It may have been deleted."); }
   };
 
   const handleStoryUpload = async (e) => {
@@ -268,33 +207,24 @@ export default function Contacts({
       reader.readAsDataURL(file);
       reader.onload = async () => {
           try {
-              const { data } = await axios.post(addStoryRoute, {
-                  mediaUrl: reader.result,
-                  mediaType: file.type.startsWith("video") ? "video" : "image"
-              }, { headers: { "x-auth-token": currentUser.token } });
-
+              const { data } = await axios.post(addStoryRoute, { mediaUrl: reader.result, mediaType: file.type.startsWith("video") ? "video" : "image" }, { headers: { "x-auth-token": currentUser.token } });
               if (data.status) {
                   toast.success("Status updated!");
                   const storyRes = await axios.get(getStoryFeedRoute, { headers: { "x-auth-token": currentUser.token } });
                   setStoryFeed(storyRes.data.feed);
               }
-          } catch (err) { 
-              toast.error("Failed to upload status."); 
-          } finally { 
-              setIsUploadingStory(false); 
-          }
+          } catch (err) { toast.error("Failed to upload status."); } 
+          finally { setIsUploadingStory(false); }
       };
   };
 
   const openStoryViewer = async (userFeedObj) => {
       setViewingStoryUser(userFeedObj);
       setCurrentStoryIndex(0);
-
       const firstStory = userFeedObj.stories[0];
       if (firstStory.user._id !== currentUser._id) {
-          try {
-              await axios.post(`${viewStoryRoute}/${firstStory._id}`, {}, { headers: { "x-auth-token": currentUser.token } });
-          } catch (error) { console.error("Failed to mark story as viewed"); }
+          try { await axios.post(`${viewStoryRoute}/${firstStory._id}`, {}, { headers: { "x-auth-token": currentUser.token } }); } 
+          catch (error) { console.error("Failed to mark story as viewed"); }
       }
   };
 
@@ -303,28 +233,96 @@ export default function Contacts({
       if (currentStoryIndex < viewingStoryUser.stories.length - 1) {
           const nextIdx = currentStoryIndex + 1;
           setCurrentStoryIndex(nextIdx);
-          
           const nextStory = viewingStoryUser.stories[nextIdx];
           if (nextStory.user._id !== currentUser._id) {
-              try {
-                  await axios.post(`${viewStoryRoute}/${nextStory._id}`, {}, { headers: { "x-auth-token": currentUser.token } });
-              } catch (error) { console.error("Failed to mark story as viewed"); }
+              try { await axios.post(`${viewStoryRoute}/${nextStory._id}`, {}, { headers: { "x-auth-token": currentUser.token } }); } 
+              catch (error) {}
           }
-      } else {
-          setViewingStoryUser(null); 
-      }
+      } else { setViewingStoryUser(null); }
   };
 
+  const toggleMemberSelection = (id) => {
+    setSelectedMembers(prev => prev.includes(id) ? prev.filter(m => m !== id) : [...prev, id]);
+  };
+
+  const handleCreateGroup = async () => {
+    if (groupName.length < 3) return toast.error("Group name must be > 3 characters");
+    if (selectedMembers.length < 1) return toast.error("Select at least 1 member");
+    try {
+        const allMembers = [...selectedMembers, currentUser._id];
+        toast.info("Generating secure keys...", { autoClose: 2000 });
+
+        const aesKeyJwk = await generateGroupAESKey();
+        const aesKeyString = JSON.stringify(aesKeyJwk); 
+        
+        const keyPromises = allMembers.map(async (userId) => {
+            try {
+                const pkResponse = await axios.get(`${host}/api/auth/public-key/${userId}`, { headers: { "x-auth-token": currentUser.token } });
+                const userPublicKey = pkResponse.data.publicKey;
+                if (userPublicKey) return { userId, encryptedKey: await encryptMessage(aesKeyString, userPublicKey) };
+            } catch (err) {}
+            return null; 
+        });
+
+        const resolvedKeys = await Promise.all(keyPromises);
+        const groupKeys = resolvedKeys.filter(k => k !== null);
+
+        const { data } = await axios.post(createGroupRoute, { name: groupName, members: allMembers, admin: currentUser._id, groupKeys }, { headers: { "x-auth-token": currentUser.token } });
+        if (data.status) {
+            setGroups([...groups, data.group]); 
+            setShowGroupModal(false); setGroupName(""); setSelectedMembers([]);
+            toast.success("Group created successfully!");
+        }
+    } catch (error) { toast.error("Failed to create group"); }
+  };
+
+  const handleJoinChannel = async (channelId) => {
+      try {
+          const { data } = await axios.post(joinChannelRoute, { channelId }, { headers: { "x-auth-token": currentUser.token } });
+          if (data.status) {
+              toast.success("Joined channel!");
+              setShowDiscoverModal(false);
+              setGroups(prev => [...prev, data.channel]);
+          }
+      } catch (error) { toast.error(error.response?.data?.msg || "Failed to join."); }
+  };
+
+  const handleUpdateProfile = async () => {
+      try {
+          const interestsArray = profileData.interests ? profileData.interests.split(",").map(i => i.trim()).filter(i => i !== "") : [];
+          const { data } = await axios.post(`${updateProfileRoute}/${currentUser._id}`, { ...profileData, interests: interestsArray }, { headers: { "x-auth-token": currentUser.token } });
+          
+          if(data.status) {
+              sessionStorage.setItem("chat-app-user", JSON.stringify(data.user));
+              toast.success("Profile updated!");
+              setShowProfileModal(false);
+              setTimeout(() => window.location.reload(), 1000); 
+          }
+      } catch (error) { toast.error("Failed to update profile."); }
+  };
+
+  const getAvatarUrl = (user) => {
+      if (user?.avatarImage) {
+          if (!user.avatarImage.startsWith("http") && !user.avatarImage.startsWith("data:")) return `https://avatar.iran.liara.run/public/${user.avatarImage}`;
+          return user.avatarImage; 
+      }
+      const seed = user?.username || 'default';
+      const tops = user?.gender === 'female' ? femaleTops : maleTops;
+      return `https://api.dicebear.com/9.x/avataaars/svg?seed=${seed}&top=${tops}&backgroundColor=${backgroundColors}`;
+  };
+
+  const unreadPersonalChatsCount = contacts.filter(c => c.unreadCount > 0).length;
+  const unreadGroupsCount = groups.filter(g => g.unreadCount > 0).length;
+  const totalUnreadChatsCount = unreadPersonalChatsCount + unreadGroupsCount;
+
+  // Dynamic Filtering
   const displayedItems = useMemo(() => {
     let all = [
       ...contacts.map(c => ({ ...c, isGroup: false })),
       ...groups.map(g => ({ ...g, isGroup: true, username: g.name }))
     ];
 
-    if (searchTerm) {
-      all = all.filter(item => item.username.toLowerCase().includes(searchTerm.toLowerCase()));
-    }
-
+    if (searchTerm) all = all.filter(item => item.username.toLowerCase().includes(searchTerm.toLowerCase()));
     if (activeFolder === "personal") all = all.filter(i => !i.isGroup);
     if (activeFolder === "groups") all = all.filter(i => i.isGroup);
     if (activeFolder === "unread") all = all.filter(i => i.unreadCount > 0); 
@@ -342,191 +340,91 @@ export default function Contacts({
     });
   }, [contacts, groups, searchTerm, activeFolder, pinnedIds, onlineUsers]);
 
-  const toggleMemberSelection = (id) => {
-    if (selectedMembers.includes(id)) setSelectedMembers(selectedMembers.filter(m => m !== id));
-    else setSelectedMembers([...selectedMembers, id]);
-  };
-
-  const handleCreateGroup = async () => {
-    if (groupName.length < 3) return toast.error("Group name must be > 3 characters");
-    if (selectedMembers.length < 1) return toast.error("Select at least 1 member");
-    
-    try {
-        const allMembers = [...selectedMembers, currentUser._id];
-        toast.info("Generating secure E2EE keys...", { autoClose: 2000 });
-
-        const aesKeyJwk = await generateGroupAESKey();
-        const aesKeyString = JSON.stringify(aesKeyJwk); 
-        
-        const keyPromises = allMembers.map(async (userId) => {
-            try {
-                const pkResponse = await axios.get(`${host}/api/auth/public-key/${userId}`, {
-                    headers: { "x-auth-token": currentUser.token }
-                });
-                const userPublicKey = pkResponse.data.publicKey;
-                
-                if (userPublicKey) {
-                    const encryptedKey = await encryptMessage(aesKeyString, userPublicKey);
-                    return { userId, encryptedKey };
-                }
-            } catch (err) {
-                console.error(`Could not fetch public key for user ${userId}`);
-            }
-            return null; 
-        });
-
-        const resolvedKeys = await Promise.all(keyPromises);
-        const groupKeys = resolvedKeys.filter(k => k !== null);
-
-        const { data } = await axios.post(createGroupRoute, {
-            name: groupName, 
-            members: allMembers, 
-            admin: currentUser._id,
-            groupKeys 
-        }, {
-            headers: { "x-auth-token": currentUser.token }
-        });
-        
-        if (data.status) {
-            setGroups([...groups, data.group]); 
-            setShowGroupModal(false); setGroupName(""); setSelectedMembers([]);
-            toast.success("Secure Group created successfully!");
-        }
-    } catch (error) { 
-        toast.error("Failed to create secure group"); 
-        console.error(error);
-    }
-  };
-
-  const handleJoinChannel = async (channelId) => {
-      try {
-          const { data } = await axios.post(joinChannelRoute, { channelId }, {
-              headers: { "x-auth-token": currentUser.token }
-          });
-          if (data.status) {
-              toast.success("Joined channel successfully!");
-              setShowDiscoverModal(false);
-              setGroups(prev => [...prev, data.channel]);
-          }
-      } catch (error) {
-          toast.error(error.response?.data?.msg || "Failed to join channel.");
-      }
-  };
-
-  const handleUpdateProfile = async () => {
-      try {
-          const interestsArray = profileData.interests 
-            ? profileData.interests.split(",").map(i => i.trim()).filter(i => i !== "") 
-            : [];
-            
-          const { data } = await axios.post(`${updateProfileRoute}/${currentUser._id}`, {
-              ...profileData, 
-              interests: interestsArray
-          }, {
-              headers: { "x-auth-token": currentUser.token }
-          });
-          
-          if(data.status) {
-              sessionStorage.setItem("chat-app-user", JSON.stringify(data.user));
-              toast.success("Profile and Settings updated!");
-              setShowProfileModal(false);
-              setTimeout(() => window.location.reload(), 1000); 
-          }
-      } catch (error) { 
-          toast.error("Failed to update profile. Your session may have expired."); 
-      }
-  };
-
-  const getAvatarUrl = (user) => {
-      if (user?.avatarImage) {
-          if (!user.avatarImage.startsWith("http") && !user.avatarImage.startsWith("data:")) {
-              return `https://avatar.iran.liara.run/public/${user.avatarImage}`;
-          }
-          return user.avatarImage; 
-      }
-      const seed = user?.username || 'default';
-      const isFemale = user?.gender === 'female';
-      const tops = isFemale ? femaleTops : maleTops;
-      return `https://api.dicebear.com/9.x/avataaars/svg?seed=${seed}&top=${tops}&backgroundColor=${backgroundColors}`;
-  };
-
-  // --- THEME TOGGLE HANDLER ---
-  const toggleTheme = () => {
-      if (theme === 'light') {
-          setTheme('glass');
-      } else {
-          setTheme('light');
-      }
-  };
-
-  const unreadPersonalChatsCount = contacts.filter(c => c.unreadCount > 0).length;
-  const unreadGroupsCount = groups.filter(g => g.unreadCount > 0).length;
-  const totalUnreadChatsCount = unreadPersonalChatsCount + unreadGroupsCount;
+  // Segmented Control Data
+  const folders = [
+      { id: 'all', icon: <MdOutlineAllInclusive />, title: 'All', badge: totalUnreadChatsCount },
+      { id: 'personal', icon: <BsChatDotsFill size={14} />, title: 'Personal', badge: unreadPersonalChatsCount },
+      { id: 'groups', icon: <BsPeopleFill />, title: 'Groups', badge: unreadGroupsCount },
+      { id: 'unread', icon: <FaRegEnvelope size={14} />, title: 'Unread', badge: totalUnreadChatsCount, danger: true }
+  ];
 
   return (
     <>
       {currentUserName && (
         <Container $isCompact={isCompact} $themeType={theme}>
-          <div className="brand glass-shine-effect">
+          
+          <div className="brand">
             <h3>Snappy</h3>
           </div>
 
-          <StoryTray className="story-tray">
-              <div className="story-item my-status" onClick={() => fileInputRef.current.click()}>
+          <StoryTray>
+              <motion.div className="story-item my-status" onClick={() => fileInputRef.current.click()} whileHover={{scale: 1.05}} whileTap={{scale: 0.95}}>
                   <div className="story-ring empty">
                       <img src={getAvatarUrl(currentUser)} alt="my-status" />
                       <div className="add-icon">{isUploadingStory ? <FaSpinner className="fa-spin" /> : <FaPlus />}</div>
                   </div>
                   <p>My Status</p>
                   <input type="file" hidden ref={fileInputRef} accept="image/*,video/*" onChange={handleStoryUpload} />
-              </div>
+              </motion.div>
               
               {storyFeed.map((feedItem, index) => {
                   const hasUnread = feedItem.stories.some(s => !s.viewers.some(v => v.userId === currentUser._id));
                   return (
-                      <div key={index} className="story-item" onClick={() => openStoryViewer(feedItem)}>
-                          <div className={`story-ring ${hasUnread ? 'unread' : 'read'}`}>
+                      <motion.div key={index} className="story-item" onClick={() => openStoryViewer(feedItem)} whileHover={{scale: 1.05}} whileTap={{scale: 0.95}}>
+                          <motion.div layoutId={`story-avatar-${feedItem.user._id}`} className={`story-ring ${hasUnread ? 'unread' : 'read'}`}>
                               <img src={getAvatarUrl(feedItem.user)} alt="status" />
-                          </div>
+                          </motion.div>
                           <p>{feedItem.user.username}</p>
-                      </div>
+                      </motion.div>
                   );
               })}
           </StoryTray>
           
-          <div className="folders-bar">
-            <FolderBtn className={activeFolder === "all" ? "active" : ""} onClick={() => setActiveFolder("all")} title="All Conversations">
-                <MdOutlineAllInclusive />
-                {totalUnreadChatsCount > 0 && <span className="badge theme-badge">{totalUnreadChatsCount}</span>}
-            </FolderBtn>
-            <FolderBtn className={activeFolder === "personal" ? "active" : ""} onClick={() => setActiveFolder("personal")} title="Personal">
-                <BsChatDotsFill />
-                {unreadPersonalChatsCount > 0 && <span className="badge theme-badge">{unreadPersonalChatsCount}</span>}
-            </FolderBtn>
-            <FolderBtn className={activeFolder === "groups" ? "active" : ""} onClick={() => setActiveFolder("groups")} title="Groups">
-                <BsPeopleFill />
-                {unreadGroupsCount > 0 && <span className="badge theme-badge">{unreadGroupsCount}</span>}
-            </FolderBtn>
-            <FolderBtn className={activeFolder === "unread" ? "active" : ""} onClick={() => setActiveFolder("unread")} title="Unread">
-                <FaRegEnvelope />
-                {totalUnreadChatsCount > 0 && <span className="badge danger-badge">{totalUnreadChatsCount}</span>}
-            </FolderBtn>
+          <div className="folders-wrapper">
+              <div className="segmented-control">
+                  {folders.map(f => (
+                      <button 
+                          key={f.id} 
+                          className={`segment-btn ${activeFolder === f.id ? 'active' : ''}`}
+                          onClick={() => setActiveFolder(f.id)}
+                          title={f.title}
+                      >
+                          {activeFolder === f.id && <motion.div layoutId="active-pill" className="active-pill" transition={{ type: "spring", stiffness: 400, damping: 30 }} />}
+                          <span className="content">
+                              {f.icon}
+                              {f.badge > 0 && <span className={`badge ${f.danger ? 'danger' : ''}`}>{f.badge}</span>}
+                          </span>
+                      </button>
+                  ))}
+              </div>
           </div>
 
-          <div className="search-bar">
-             <FaSearch className="search-icon"/>
-             <input type="text" placeholder={`Search ${activeFolder}...`} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-             {searchTerm && (
-                 <FaTimes className="clear-icon" onClick={() => setSearchTerm("")} title="Clear search" />
-             )}
+          <div className={`search-container ${isSearchFocused ? 'focused' : ''}`}>
+             <motion.div className="search-box" animate={{ borderColor: isSearchFocused ? 'var(--msg-sent)' : 'var(--glass-border)' }}>
+                 <FaSearch className="icon search-icon"/>
+                 <input 
+                    type="text" placeholder={`Search ${activeFolder}...`} 
+                    value={searchTerm} 
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    onFocus={() => setIsSearchFocused(true)}
+                    onBlur={() => setIsSearchFocused(false)}
+                 />
+                 <AnimatePresence>
+                     {searchTerm && (
+                         <motion.div initial={{scale:0, rotate:-90}} animate={{scale:1, rotate:0}} exit={{scale:0, rotate:90}} className="icon clear-icon" onClick={() => setSearchTerm("")}>
+                             <FaTimes />
+                         </motion.div>
+                     )}
+                 </AnimatePresence>
+             </motion.div>
           </div>
 
-          <div className="contacts">
+          <div className="contacts-list">
             {isLoading ? (
                 Array.from({ length: 6 }).map((_, i) => (
-                    <div key={i} className="contact skeleton-box">
+                    <div key={i} className="contact-item skeleton">
                         {!isCompact && <div className="avatar skeleton-anim" />}
-                        <div className="username">
+                        <div className="details">
                             <div className="skeleton-line skeleton-anim" />
                             <div className="skeleton-line short skeleton-anim" />
                         </div>
@@ -535,13 +433,13 @@ export default function Contacts({
             ) : (
               <>
                 {activeFolder === "groups" && !searchTerm && (
-                    <div style={{display:'flex', gap:'10px', width: '92%', marginBottom: '10px'}}>
-                        <div className="create-group-btn" style={{flex: 1, width: 'auto'}} onClick={() => setShowGroupModal(true)}><FaPlus /> Create</div>
-                        <div className="create-group-btn" style={{flex: 1, width: 'auto', background: 'linear-gradient(90deg, #34B7F1, #00ff88)'}} onClick={() => setShowDiscoverModal(true)}><FaGlobe /> Discover</div>
+                    <div className="group-actions">
+                        <button className="primary" onClick={() => setShowGroupModal(true)}><FaPlus /> Create</button>
+                        <button className="secondary" onClick={() => setShowDiscoverModal(true)}><FaGlobe /> Discover</button>
                     </div>
                 )}
                 
-                {searchTerm.length >= 3 && <div className="search-section-title">Chats & Groups</div>}
+                {searchTerm.length >= 3 && <div className="section-title">Chats & Groups</div>}
 
                 {displayedItems.length === 0 && !searchTerm ? (
                     <div className="empty-state">No chats found.</div>
@@ -550,51 +448,48 @@ export default function Contacts({
                         const isOnline = !item.isGroup && onlineUsers.includes(item._id);
                         const isPinned = pinnedIds.includes(item._id);
                         const isTyping = !item.isGroup && globalTypingUsers.includes(item._id);
+                        const isSelected = item._id === currentSelected;
 
                         return (
                             <ContactItem 
                               key={item._id} 
-                              className={`contact ${item._id === currentSelected ? "selected" : ""}`} 
+                              className={`${isSelected ? "selected" : ""} ${isPinned ? "pinned" : ""}`} 
                               onClick={() => changeCurrentChat(item, item.isGroup)}
                               $isCompact={isCompact}
                               $themeType={theme}
-                              $selected={item._id === currentSelected}
-                              $isPinned={isPinned}
                             >
                                 {!isCompact && (
                                     <div className="avatar">
                                         {item.isGroup ? <div className="group-avatar">#</div> : <img src={getAvatarUrl(item)} alt="avatar" />}
+                                        {isOnline && <div className="online-badge" />}
                                     </div>
                                 )}
                                 
-                                <div className="username">
+                                <div className="details">
                                     <h3>{item.username}</h3>
                                     {item.isGroup ? (
-                                        <p className="status-text group-text">Group Chat</p>
+                                        <p className="status group">Group Chat</p>
                                     ) : (
-                                        <div className="presence-container">
+                                        <div className="presence">
                                             {isTyping ? (
-                                                <p className="status-text typing-text">typing...</p>
+                                                <div className="typing-indicator">
+                                                    <motion.span animate={{y:[0,-3,0]}} transition={{repeat:Infinity, duration:0.6, delay:0}} />
+                                                    <motion.span animate={{y:[0,-3,0]}} transition={{repeat:Infinity, duration:0.6, delay:0.2}} />
+                                                    <motion.span animate={{y:[0,-3,0]}} transition={{repeat:Infinity, duration:0.6, delay:0.4}} />
+                                                    <span className="text">typing</span>
+                                                </div>
                                             ) : (
-                                                <p className="status-text">
-                                                    {isOnline ? (
-                                                        <span className="online-text">Online</span>
-                                                    ) : (
-                                                        <span className="offline-text">{formatLastSeen(item.lastSeen)}</span>
-                                                    )}
-                                                </p>
+                                                <p className={`status ${isOnline ? 'online' : ''}`}>{isOnline ? "Online" : formatLastSeen(item.lastSeen)}</p>
                                             )}
                                         </div>
                                     )}
                                 </div>
                                 
-                                <div className="contact-meta">
-                                  {isOnline && <div className="online-indicator" />}
-                                  {item.unreadCount > 0 && <span style={{backgroundColor: '#00ff88', color: '#000', fontSize: '0.65rem', padding: '2px 6px', borderRadius: '10px', fontWeight: 'bold'}}>{item.unreadCount}</span>}
-                                  
-                                  <button className={`pin-btn ${isPinned ? "pinned" : ""}`} onClick={(e) => togglePin(e, item._id)}>
+                                <div className="meta">
+                                  <button className="pin-btn" onClick={(e) => togglePin(e, item._id)}>
                                     <FaThumbtack />
                                   </button>
+                                  {item.unreadCount > 0 && <span className="unread-count">{item.unreadCount}</span>}
                                 </div>
                             </ContactItem>
                         );
@@ -603,21 +498,20 @@ export default function Contacts({
 
                 {searchTerm.length >= 3 && (
                     <>
-                        <div className="search-section-title">Message History</div>
+                        <div className="section-title">Message History</div>
                         {isSearchingGlobal ? (
-                            <div className="empty-state"><FaSpinner className="fa-spin" /> Searching DB...</div>
+                            <div className="empty-state"><FaSpinner className="fa-spin" /> Searching...</div>
                         ) : globalMessages.length === 0 ? (
                             <div className="empty-state">No matching messages.</div>
                         ) : (
                             globalMessages.map(msg => {
                                 const msgText = msg.message?.text || msg.message;
-                                const isEncryptedBlob = typeof msgText === 'string' && msgText.length > 50 && !msgText.includes(" ");
-                                if (isEncryptedBlob) return null;
+                                if (typeof msgText === 'string' && msgText.length > 50 && !msgText.includes(" ")) return null;
 
                                 return (
-                                    <div key={msg._id} className="global-msg-item" onClick={() => handleGlobalMessageClick(msg)}>
-                                        <p className="msg-text">"{msgText}"</p>
-                                        <span className="msg-date">{new Date(msg.createdAt).toLocaleDateString()}</span>
+                                    <div key={msg._id} className="global-msg" onClick={() => handleGlobalMessageClick(msg)}>
+                                        <p>"{msgText}"</p>
+                                        <span>{new Date(msg.createdAt).toLocaleDateString()}</span>
                                     </div>
                                 );
                             })
@@ -628,249 +522,181 @@ export default function Contacts({
             )}
           </div>
 
-          <div className="current-user">
-             <div className="user-info">
+          <div className="user-footer">
+             <div className="user-profile">
                  {!isCompact && (
-                     <div className="current-user-avatar">
+                     <div className="avatar">
                          <img src={getAvatarUrl(currentUser)} alt="avatar" />
                      </div>
                  )}
-                 <div className="details">
+                 <div className="info">
                      <h2>{currentUserName}</h2>
-                     <p className="status-text">{currentUser?.statusIcon || "✨"} {currentUser?.statusMessage || "Available"}</p>
+                     <p>{currentUser?.statusIcon || "✨"} {currentUser?.statusMessage || "Available"}</p>
                  </div>
                  <div className="actions">
-                     {/* --- THEME BUTTON --- */}
-                     <button className="theme-btn" onClick={toggleTheme} title="Toggle Light/Dark Mode">
-                         {theme === 'light' ? <FaMoon size={16}/> : <FaSun size={16}/>}
+                     <button onClick={() => setTheme(theme === 'light' ? 'glass' : 'light')} title="Toggle Theme">
+                         {theme === 'light' ? <FaMoon /> : <FaSun />}
                      </button>
-                     <button className="profile-btn" onClick={() => setShowProfileModal(true)} title="Settings & Profile"><FaCog size={16}/></button>
-                     <button className="logout-btn" onClick={handleLogout} title="Logout"><FaTimes size={16}/></button>
+                     <button onClick={() => setShowProfileModal(true)} title="Settings"><FaCog /></button>
+                     <button className="logout" onClick={handleLogout} title="Logout"><FaSignOutAlt /></button>
                  </div>
              </div>
           </div>
 
-          {showGroupModal && (
-              <Modal>
-                  <div className="modal-content">
-                      <h3>Create Group</h3>
-                      <input type="text" placeholder="Group Name" value={groupName} onChange={(e) => setGroupName(e.target.value)} />
-                      <div className="member-select">
-                          <h4>Select Members:</h4>
-                          {contacts.map(contact => (
-                              <div key={contact._id} className={`select-item ${selectedMembers.includes(contact._id) ? "selected" : ""}`} onClick={() => toggleMemberSelection(contact._id)}>{contact.username}</div>
-                          ))}
-                      </div>
-                      <div className="modal-actions">
-                          <button onClick={handleCreateGroup}>Create</button>
-                          <button className="cancel" onClick={() => setShowGroupModal(false)}>Cancel</button>
-                      </div>
-                  </div>
-              </Modal>
-          )}
-
-          {showDiscoverModal && (
-            <Modal>
-                <div className="modal-content profile-modal">
-                    <h3>Discover Channels</h3>
-                    <div className="input-group">
-                        <input 
-                            type="text" 
-                            placeholder="Search for public channels..." 
-                            value={channelSearchQuery} 
-                            onChange={(e) => setChannelSearchQuery(e.target.value)} 
-                            autoFocus
-                        />
-                    </div>
-                    
-                    <div className="member-select" style={{ minHeight: '200px' }}>
-                        {isSearchingChannels ? (
-                            <div style={{textAlign: 'center', marginTop: '20px'}}><FaSpinner className="fa-spin" color="var(--msg-sent)"/></div>
-                        ) : discoveredChannels.length > 0 ? (
-                            discoveredChannels.map(channel => (
-                                <div key={channel._id} style={{
-                                    display:'flex', justifyContent:'space-between', alignItems:'center', 
-                                    background:'var(--input-bg)', padding:'10px', borderRadius:'10px', marginBottom:'10px'
-                                }}>
-                                    <div style={{flex: 1}}>
-                                        <h4 style={{margin:0, color:'var(--msg-sent)', fontSize:'1rem'}}>{channel.name}</h4>
-                                        <p style={{margin:'4px 0 0 0', fontSize:'0.75rem', color:'var(--text-dim)'}}>{channel.members?.length} subscribers</p>
-                                    </div>
-                                    <button onClick={() => handleJoinChannel(channel._id)} style={{
-                                        background:'var(--msg-sent)', color:'white', border:'none', padding:'6px 12px', 
-                                        borderRadius:'20px', cursor:'pointer', fontWeight:'bold'
-                                    }}>Join</button>
-                                </div>
-                            ))
-                        ) : (
-                            channelSearchQuery.length > 0 && <p style={{textAlign:'center', color:'var(--text-dim)'}}>No channels found.</p>
-                        )}
-                    </div>
-                    
-                    <div className="modal-actions">
-                        <button className="cancel" style={{width: '100%'}} onClick={() => {setShowDiscoverModal(false); setChannelSearchQuery("");}}>Close</button>
-                    </div>
-                </div>
-            </Modal>
-          )}
-
-          {showProfileModal && (
-              <Modal>
-                  <div className="modal-content profile-modal">
-                      <h3>Settings & Profile</h3>
-                      <div className="settings-row">
-                          <div className="input-group">
-                              <label>Theme Engine</label>
-                              <select value={theme} onChange={(e) => setTheme(e.target.value)}>
-                                  <option value="glass">Glassmorphism</option>
-                                  <option value="midnight">Midnight (OLED)</option>
-                                  <option value="cyberpunk">Cyberpunk</option>
-                                  <option value="light">Light Mode</option>
-                              </select>
+          {/* --- PREMIUM MODALS --- */}
+          <AnimatePresence>
+              {showGroupModal && (
+                  <ModalOverlay as={motion.div} initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}>
+                      <motion.div className="modal-content" initial={{scale:0.9, y:20}} animate={{scale:1, y:0}} exit={{scale:0.9, y:20}}>
+                          <h3>Create Secure Group</h3>
+                          <div className="input-field">
+                              <label>Group Name</label>
+                              <input type="text" placeholder="e.g. Project Alpha" value={groupName} onChange={(e) => setGroupName(e.target.value)} autoFocus />
                           </div>
-                          <div className="input-group">
-                              <label>Compact Mode</label>
-                              <button className={`toggle-btn ${isCompact ? 'active' : ''}`} onClick={() => setIsCompact(!isCompact)}>
-                                  {isCompact ? "Enabled" : "Disabled"}
-                              </button>
-                          </div>
-                      </div>
-
-                      <hr className="divider" />
-                      <h4 style={{ color: 'var(--msg-sent)', marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <FaShieldAlt /> Privacy & Security
-                      </h4>
-                      <div className="settings-row">
-                          <div className="input-group">
-                              <label>Last Seen</label>
-                              <select 
-                                  value={profileData.privacySettings.lastSeen} 
-                                  onChange={(e) => setProfileData({...profileData, privacySettings: {...profileData.privacySettings, lastSeen: e.target.value}})}
-                              >
-                                  <option value="everyone">Everyone</option>
-                                  <option value="nobody">Nobody</option>
-                              </select>
-                          </div>
-                          <div className="input-group">
-                              <label>Profile Photo</label>
-                              <select 
-                                  value={profileData.privacySettings.profilePhoto} 
-                                  onChange={(e) => setProfileData({...profileData, privacySettings: {...profileData.privacySettings, profilePhoto: e.target.value}})}
-                              >
-                                  <option value="everyone">Everyone</option>
-                                  <option value="nobody">Nobody</option>
-                              </select>
-                          </div>
-                      </div>
-                      <div className="input-group" style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px' }}>
-                          <div>
-                              <label style={{ margin: 0, color: 'var(--text-main)', fontSize: '0.85rem', fontWeight: 'bold' }}>Read Receipts</label>
-                              <p style={{ margin: 0, fontSize: '0.7rem', color: 'var(--text-dim)', marginTop: '4px' }}>If turned off, you won't send or receive blue ticks.</p>
-                          </div>
-                          <button 
-                              className={`toggle-btn ${profileData.privacySettings.readReceipts ? 'active' : ''}`} 
-                              style={{ width: 'auto', padding: '0.5rem 1rem' }}
-                              onClick={() => setProfileData({...profileData, privacySettings: {...profileData.privacySettings, readReceipts: !profileData.privacySettings.readReceipts}})}
-                          >
-                              {profileData.privacySettings.readReceipts ? "Enabled" : "Disabled"}
-                          </button>
-                      </div>
-                      <div className="input-group" style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px' }}>
-                          <div>
-                              <label style={{ margin: 0, color: 'var(--text-main)', fontSize: '0.85rem', fontWeight: 'bold' }}>App Lock (PIN)</label>
-                              <p style={{ margin: 0, fontSize: '0.7rem', color: 'var(--text-dim)', marginTop: '4px' }}>Require a 4-digit PIN to open the app.</p>
-                          </div>
-                          <button 
-                              className={`toggle-btn ${hasPin ? 'active' : ''}`} 
-                              style={{ width: 'auto', padding: '0.5rem 1rem' }}
-                              onClick={() => {
-                                  if (hasPin) {
-                                      localStorage.removeItem("app-pin-code");
-                                      setHasPin(false);
-                                      toast.info("App Lock Disabled");
-                                  } else {
-                                      const newPin = prompt("Enter a 4-digit PIN to lock your app:");
-                                      if (newPin && newPin.length === 4 && !isNaN(newPin)) {
-                                          localStorage.setItem("app-pin-code", newPin);
-                                          setHasPin(true);
-                                          toast.success("App Lock Enabled! It will activate next time you open the app.");
-                                      } else if (newPin) {
-                                          toast.error("Invalid PIN. Must be exactly 4 numbers.");
-                                      }
-                                  }
-                              }}
-                          >
-                              {hasPin ? "Disable" : "Setup PIN"}
-                          </button>
-                      </div>
-
-                      <hr className="divider" />
-                      <h4 style={{ color: 'var(--msg-sent)', marginBottom: '15px' }}>Public Profile</h4>
-                      <div className="input-group">
-                          <label>Status Icon & Message</label>
-                          <div style={{display:'flex', gap:'10px'}}>
-                            <input type="text" maxLength="2" value={profileData.statusIcon} onChange={(e) => setProfileData({...profileData, statusIcon: e.target.value})} style={{width: '60px'}}/>
-                            <input type="text" placeholder="Status..." maxLength="50" value={profileData.statusMessage} onChange={(e) => setProfileData({...profileData, statusMessage: e.target.value})} />
-                          </div>
-                      </div>
-                      <div className="input-group">
-                          <label>Short Bio</label>
-                          <textarea placeholder="Tell people about yourself..." maxLength="150" value={profileData.bio} onChange={(e) => setProfileData({...profileData, bio: e.target.value})} />
-                      </div>
-                      <div className="input-group">
-                          <label>Interests (Comma separated)</label>
-                          <input type="text" placeholder="Coding, Music, Gaming..." value={profileData.interests} onChange={(e) => setProfileData({...profileData, interests: e.target.value})} />
-                      </div>
-
-                      <hr className="divider" />
-                      <div className="modal-actions">
-                          <button onClick={handleUpdateProfile}>Save Changes</button>
-                          <button className="cancel" onClick={() => setShowProfileModal(false)}>Cancel</button>
-                      </div>
-                  </div>
-              </Modal>
-          )}
-
-          {viewingStoryUser && (
-              <StoryViewerOverlay onClick={(e) => { if(e.target === e.currentTarget) setViewingStoryUser(null); }}>
-                  <div className="viewer-content">
-                      <div className="progress-bars">
-                          {viewingStoryUser.stories.map((s, i) => (
-                              <div key={i} className="bar-bg">
-                                  <div className="bar-fill" style={{ 
-                                      width: i < currentStoryIndex ? '100%' : i === currentStoryIndex ? '100%' : '0%',
-                                      transition: i === currentStoryIndex ? 'width 5s linear' : 'none'
-                                  }} />
+                          <div className="member-selection">
+                              <label>Select Members</label>
+                              <div className="scroll-list">
+                                  {contacts.map(c => (
+                                      <div key={c._id} className={`select-item ${selectedMembers.includes(c._id) ? "selected" : ""}`} onClick={() => toggleMemberSelection(c._id)}>
+                                          <img src={getAvatarUrl(c)} alt=""/>
+                                          <span>{c.username}</span>
+                                          {selectedMembers.includes(c._id) && <FaCheck className="check"/>}
+                                      </div>
+                                  ))}
                               </div>
-                          ))}
-                      </div>
-                      
-                      <div className="viewer-header">
-                          <img src={getAvatarUrl(viewingStoryUser.user)} alt="avatar" />
-                          <div>
-                              <h4>{viewingStoryUser.user.username}</h4>
-                              <p>{formatLastSeen(viewingStoryUser.stories[currentStoryIndex].createdAt)}</p>
                           </div>
-                          <button onClick={() => setViewingStoryUser(null)}><FaTimes /></button>
-                      </div>
-
-                      <div className="media-container" onClick={handleNextStory}>
-                          {viewingStoryUser.stories[currentStoryIndex].mediaType === "video" ? (
-                              <video src={viewingStoryUser.stories[currentStoryIndex].mediaUrl} autoPlay muted />
-                          ) : (
-                              <img src={viewingStoryUser.stories[currentStoryIndex].mediaUrl} alt="story" />
-                          )}
-                      </div>
-
-                      {viewingStoryUser.user._id === currentUser._id && (
-                          <div className="viewers-count">
-                              <FaEye /> {viewingStoryUser.stories[currentStoryIndex].viewers.length} Views
+                          <div className="button-group">
+                              <button className="btn-secondary" onClick={() => setShowGroupModal(false)}>Cancel</button>
+                              <button className="btn-primary" onClick={handleCreateGroup}>Create Group</button>
                           </div>
-                      )}
-                  </div>
-              </StoryViewerOverlay>
-          )}
+                      </motion.div>
+                  </ModalOverlay>
+              )}
 
+              {showDiscoverModal && (
+                <ModalOverlay as={motion.div} initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}>
+                    <motion.div className="modal-content" initial={{scale:0.9, y:20}} animate={{scale:1, y:0}} exit={{scale:0.9, y:20}}>
+                        <h3>Discover Channels</h3>
+                        <div className="input-field">
+                            <FaSearch className="inner-icon"/>
+                            <input type="text" placeholder="Search public channels..." value={channelSearchQuery} onChange={(e) => setChannelSearchQuery(e.target.value)} autoFocus style={{paddingLeft: '40px'}}/>
+                        </div>
+                        
+                        <div className="member-selection" style={{minHeight: '200px'}}>
+                            {isSearchingChannels ? (
+                                <div className="center-loading"><FaSpinner className="fa-spin"/></div>
+                            ) : discoveredChannels.length > 0 ? (
+                                <div className="scroll-list">
+                                    {discoveredChannels.map(channel => (
+                                        <div key={channel._id} className="channel-item">
+                                            <div className="info">
+                                                <h4>{channel.name}</h4>
+                                                <p>{channel.members?.length} subscribers</p>
+                                            </div>
+                                            <button className="btn-primary small" onClick={() => handleJoinChannel(channel._id)}>Join</button>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                channelSearchQuery.length > 0 && <p className="empty-text">No channels found.</p>
+                            )}
+                        </div>
+                        <div className="button-group">
+                            <button className="btn-secondary full-width" onClick={() => {setShowDiscoverModal(false); setChannelSearchQuery("");}}>Close</button>
+                        </div>
+                    </motion.div>
+                </ModalOverlay>
+              )}
+
+              {showProfileModal && (
+                  <ModalOverlay as={motion.div} initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}>
+                      <motion.div className="modal-content profile" initial={{scale:0.9, y:20}} animate={{scale:1, y:0}} exit={{scale:0.9, y:20}}>
+                          <h3>Profile & Settings</h3>
+                          
+                          <div className="grid-2">
+                              <div className="input-field">
+                                  <label>Theme</label>
+                                  <select value={theme} onChange={(e) => setTheme(e.target.value)}>
+                                      <option value="glass">Glassmorphism</option>
+                                      <option value="midnight">Midnight (OLED)</option>
+                                      <option value="cyberpunk">Cyberpunk</option>
+                                      <option value="light">Light Mode</option>
+                                  </select>
+                              </div>
+                              <div className="input-field">
+                                  <label>Compact Mode</label>
+                                  <button className={`toggle-btn ${isCompact ? 'on' : ''}`} onClick={() => setIsCompact(!isCompact)}>
+                                      {isCompact ? "Enabled" : "Disabled"}
+                                  </button>
+                              </div>
+                          </div>
+
+                          <div className="section-divider"><FaShieldAlt /> Privacy & Security</div>
+                          
+                          <div className="grid-2">
+                              <div className="input-field">
+                                  <label>Last Seen</label>
+                                  <select value={profileData.privacySettings.lastSeen} onChange={(e) => setProfileData({...profileData, privacySettings: {...profileData.privacySettings, lastSeen: e.target.value}})}>
+                                      <option value="everyone">Everyone</option><option value="nobody">Nobody</option>
+                                  </select>
+                              </div>
+                              <div className="input-field">
+                                  <label>Profile Photo</label>
+                                  <select value={profileData.privacySettings.profilePhoto} onChange={(e) => setProfileData({...profileData, privacySettings: {...profileData.privacySettings, profilePhoto: e.target.value}})}>
+                                      <option value="everyone">Everyone</option><option value="nobody">Nobody</option>
+                                  </select>
+                              </div>
+                          </div>
+
+                          <div className="setting-row">
+                              <div className="text">
+                                  <label>Read Receipts</label>
+                                  <p>Show blue ticks when you read messages.</p>
+                              </div>
+                              <div className={`ios-switch ${profileData.privacySettings.readReceipts ? 'on' : 'off'}`} onClick={() => setProfileData({...profileData, privacySettings: {...profileData.privacySettings, readReceipts: !profileData.privacySettings.readReceipts}})}>
+                                  <div className="knob" />
+                              </div>
+                          </div>
+
+                          <div className="setting-row">
+                              <div className="text">
+                                  <label>App Lock (PIN)</label>
+                                  <p>Require a 4-digit PIN to open the app.</p>
+                              </div>
+                              <div className={`ios-switch ${hasPin ? 'on' : 'off'}`} onClick={() => {
+                                  if (hasPin) { localStorage.removeItem("app-pin-code"); setHasPin(false); toast.info("App Lock Disabled"); } 
+                                  else {
+                                      const newPin = prompt("Enter a 4-digit PIN:");
+                                      if (newPin && newPin.length === 4 && !isNaN(newPin)) { localStorage.setItem("app-pin-code", newPin); setHasPin(true); toast.success("App Lock Enabled!"); } 
+                                      else if (newPin) toast.error("Invalid PIN. Must be 4 numbers.");
+                                  }
+                              }}>
+                                  <div className="knob" />
+                              </div>
+                          </div>
+
+                          <div className="section-divider">Public Profile</div>
+                          
+                          <div className="input-field multi">
+                              <label>Status Icon & Message</label>
+                              <div className="flex-row">
+                                <input type="text" maxLength="2" value={profileData.statusIcon} onChange={(e) => setProfileData({...profileData, statusIcon: e.target.value})} style={{width: '60px', textAlign: 'center'}}/>
+                                <input type="text" placeholder="What's on your mind?" maxLength="50" value={profileData.statusMessage} onChange={(e) => setProfileData({...profileData, statusMessage: e.target.value})} style={{flex: 1}}/>
+                              </div>
+                          </div>
+                          <div className="input-field">
+                              <label>Bio</label>
+                              <textarea placeholder="Tell people about yourself..." value={profileData.bio} onChange={(e) => setProfileData({...profileData, bio: e.target.value})} />
+                          </div>
+                          
+                          <div className="button-group" style={{marginTop: '20px'}}>
+                              <button className="btn-secondary" onClick={() => setShowProfileModal(false)}>Cancel</button>
+                              <button className="btn-primary" onClick={handleUpdateProfile}>Save Changes</button>
+                          </div>
+                      </motion.div>
+                  </ModalOverlay>
+              )}
+          </AnimatePresence>
           <ToastContainer position="bottom-left" theme={theme === 'light' ? 'light' : 'dark'} />
         </Container>
       )}
@@ -878,10 +704,10 @@ export default function Contacts({
   );
 }
 
-// --- STYLES & ANIMATIONS ---
+// --- MASSIVE PREMIUM STYLING ARCHITECTURE ---
 const shimmer = keyframes`
-  0% { background-position: -468px 0; }
-  100% { background-position: 468px 0; }
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 `;
 
 const glassShine = keyframes`
@@ -891,268 +717,243 @@ const glassShine = keyframes`
 `;
 
 const Container = styled.div`
-  display: grid; 
-  grid-template-rows: 8% 13% 7.5% 8% 48.5% 15%; 
-  height: 100%; 
-  width: 100%; 
-  overflow: hidden; 
-  background: transparent; 
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  background: transparent;
   border-right: 1px solid var(--glass-border);
+  overflow: hidden;
   
-  /* Retain specific theme overwrites if needed, otherwise CSS variables handle it */
-  ${({ $themeType }) => $themeType === 'cyberpunk' && css` border-right: 1px solid #00ff88; `}
+  ${({ $themeType }) => $themeType === 'cyberpunk' && css`border-color: #00ff88;`}
 
-  .brand { 
-    display: flex; align-items: center; justify-content: center; position: relative;
-    h3 { 
-        color: var(--text-main); 
-        text-transform: uppercase; letter-spacing: 0.3rem; font-weight: 700; 
-        ${({ $isCompact }) => $isCompact && css`font-size: 1rem;`} 
-    } 
+  /* Typography Baseline */
+  h2, h3, h4, p, span, label { font-family: 'Inter', sans-serif; margin: 0; }
+
+  /* 1. Header */
+  .brand {
+    flex-shrink: 0; padding: 24px 24px 16px;
+    h3 { color: var(--text-main); font-size: 1.4rem; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; }
   }
 
-  .glass-shine-effect {
-    overflow: hidden;
-    &::after {
-      content: ""; position: absolute; top: 0; left: -100%; width: 50%; height: 100%;
-      background: linear-gradient(90deg, transparent, var(--glass-border), transparent);
-      transform: skewX(-25deg); animation: ${glassShine} 4s infinite linear;
-    }
-  }
-
-  .folders-bar {
-      display: flex; justify-content: space-around; align-items: center;
-      padding: 0 1rem; border-bottom: 1px solid var(--glass-border);
-  }
-
-  .search-bar { 
-      display: flex; align-items: center; justify-content: center; padding: 0 1.2rem; position: relative; 
-      .search-icon { position: absolute; left: 2.2rem; color: var(--text-dim); font-size: 0.9rem; } 
-      .clear-icon { position: absolute; right: 2.2rem; color: var(--text-dim); font-size: 0.9rem; cursor: pointer; transition: 0.2s; &:hover { color: var(--text-main); transform: scale(1.1); } }
-      input { 
-          width: 100%; background: var(--input-bg); border: 1px solid var(--glass-border); padding: 0.6rem 2.8rem; border-radius: 1.2rem; color: var(--text-main); outline: none; transition: 0.3s; font-size: 0.9rem; 
-          &:focus { border-color: var(--msg-sent); box-shadow: 0 0 10px rgba(78, 14, 255, 0.1); } 
-      } 
-  }
-  
-  .contacts {
-    display: flex; flex-direction: column; align-items: center; 
-    height: 100%; width: 100%; overflow-y: auto; overflow-x: hidden; 
-    gap: 0.8rem; padding: 1.2rem 0.6rem;
-    
-    &::-webkit-scrollbar { width: 4px; } 
-    &::-webkit-scrollbar-track { background: transparent; }
-    &::-webkit-scrollbar-thumb { background-color: var(--glass-border); border-radius: 10px; }
-    
-    .empty-state { color: var(--text-dim); font-style: italic; margin-top: 2rem; font-size: 0.9rem; }
-    
-    .create-group-btn { width: 92%; background: linear-gradient(90deg, var(--msg-sent), #9a86f3); padding: 0.9rem; text-align: center; border-radius: 0.8rem; cursor: pointer; color: white; display: flex; align-items: center; justify-content: center; gap: 0.6rem; font-weight: bold; font-size: 0.9rem; flex-shrink: 0; box-shadow: 0 4px 15px rgba(0,0,0,0.3); transition: 0.3s; &:hover { transform: translateY(-3px); box-shadow: 0 8px 20px rgba(78, 14, 255, 0.3); filter: brightness(1.1); } }
-    
-    .skeleton-box { background: var(--glass-bg) !important; border: none !important; cursor: default; flex-shrink: 0; &:hover { transform: none; } }
-    .skeleton-anim { background: var(--bg-panel); background-image: linear-gradient(to right, var(--bg-panel) 0%, var(--glass-border) 20%, var(--bg-panel) 40%, var(--bg-panel) 100%); background-repeat: no-repeat; background-size: 800px 100%; animation: ${shimmer} 1.5s infinite linear forwards; }
-    .skeleton-line { height: 12px; width: 100px; border-radius: 4px; margin-bottom: 6px; }
-    .skeleton-line.short { width: 60px; height: 10px; }
-
-    .search-section-title {
-        width: 90%; text-transform: uppercase; color: var(--text-dim); font-size: 0.75rem; 
-        font-weight: 700; margin: 15px 0 5px 0; letter-spacing: 1px; flex-shrink: 0;
-    }
-    
-    .global-msg-item {
-        background: var(--glass-bg); width: 90%; padding: 0.8rem; 
-        border-radius: 0.8rem; cursor: pointer; transition: 0.3s;
-        border: 1px solid var(--glass-border); flex-shrink: 0;
-        
-        &:hover { background: var(--input-bg); border-color: var(--msg-sent); transform: translateY(-2px); }
-        .msg-text { color: var(--text-main); font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-style: italic;}
-        .msg-date { color: var(--text-dim); font-size: 0.65rem; display: block; margin-top: 6px; text-align: right;}
-    }
-  }
-
-  .current-user {
-      background: var(--glass-bg); padding: 1.2rem; display: flex; justify-content: center; align-items: center;
-      border-top: 1px solid var(--glass-border); height: 100%; 
-
-      .user-info {
-          display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 12px;
-          .current-user-avatar { height: 2.8rem; min-width: 2.8rem; width: 2.8rem; border-radius: 50%; overflow: hidden; border: 2px solid var(--msg-sent); img { width: 100%; height: 100%; object-fit: cover; } }
-          
-          .details { 
-              display: flex; flex-direction: column; flex-grow: 1; 
-              h2 { color: var(--text-main); font-size: 1.1rem; font-weight: 600; margin: 0;} 
-              .status-text { margin: 0; color: #00ff88; font-size: 0.75rem; font-weight: 500; } 
+  /* 2. Folders (Segmented Control) */
+  .folders-wrapper {
+      flex-shrink: 0; padding: 0 16px 16px;
+      .segmented-control {
+          display: flex; background: var(--input-bg); padding: 4px; border-radius: 16px; border: 1px solid var(--glass-border);
+          .segment-btn {
+              flex: 1; position: relative; background: transparent; border: none; padding: 8px 0; border-radius: 12px; cursor: pointer; color: var(--text-dim); transition: color 0.3s;
+              &.active { color: var(--text-main); }
+              .active-pill { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--bg-panel); border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); z-index: 0; border: 1px solid var(--glass-border); }
+              .content { position: relative; z-index: 1; display: flex; justify-content: center; align-items: center; font-size: 1.2rem; }
+              .badge { position: absolute; top: -6px; right: 10px; background: var(--msg-sent); color: white; font-size: 0.6rem; font-weight: bold; padding: 2px 6px; border-radius: 10px; border: 2px solid var(--input-bg);
+                  &.danger { background: #ff4e4e; }
+              }
           }
-          
-          .actions { 
-              display: flex; gap: 0.6rem; align-items: center; 
-              button { border: none; border-radius: 0.6rem; cursor: pointer; font-size: 0.8rem; font-weight: bold; padding: 0.5rem 0.9rem; display: flex; align-items: center; justify-content: center; transition: 0.3s; } 
-              .theme-btn { background: var(--input-bg); color: var(--text-main); &:hover { background: var(--msg-sent); color: white; transform: rotate(15deg); } }
-              .profile-btn { background: var(--input-bg); color: var(--msg-sent); &:hover { background: var(--msg-sent); color: white; transform: rotate(90deg); } } 
-              .logout-btn { background: rgba(255, 78, 78, 0.1); color: #ff4e4e; &:hover { background: #ff4e4e; color: white; } } 
+      }
+  }
+
+  /* 3. Search Bar */
+  .search-container {
+      flex-shrink: 0; padding: 0 16px 16px; transition: padding 0.3s;
+      &.focused { padding-bottom: 24px; }
+      .search-box {
+          display: flex; align-items: center; background: var(--input-bg); border-radius: 16px; padding: 0 16px; border: 1px solid var(--glass-border); transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+          .icon { color: var(--text-dim); font-size: 0.9rem; }
+          .clear-icon { cursor: pointer; transition: 0.2s; &:hover { color: var(--text-main); } }
+          input { flex: 1; background: transparent; border: none; padding: 12px 12px; color: var(--text-main); font-size: 0.9rem; outline: none; }
+      }
+  }
+
+  /* 4. Contact List */
+  .contacts-list {
+      flex: 1; overflow-y: auto; overflow-x: hidden; padding: 0 12px; display: flex; flex-direction: column; gap: 4px;
+      &::-webkit-scrollbar { width: 4px; }
+      &::-webkit-scrollbar-thumb { background: var(--glass-border); border-radius: 4px; }
+
+      .section-title { font-size: 0.75rem; text-transform: uppercase; color: var(--text-dim); font-weight: 700; margin: 16px 8px 8px; letter-spacing: 0.5px; }
+      .empty-state { text-align: center; color: var(--text-dim); padding: 32px 0; font-style: italic; font-size: 0.9rem; }
+
+      .group-actions {
+          display: flex; gap: 8px; padding: 0 4px 8px;
+          button { flex: 1; display: flex; justify-content: center; align-items: center; gap: 8px; padding: 12px; border-radius: 12px; border: none; font-weight: 600; font-size: 0.9rem; cursor: pointer; transition: 0.2s; }
+          .primary { background: linear-gradient(135deg, var(--msg-sent), #9a41fe); color: white; box-shadow: 0 4px 15px rgba(78, 14, 255, 0.3); &:hover { filter: brightness(1.1); transform: translateY(-2px); } }
+          .secondary { background: var(--input-bg); color: var(--text-main); border: 1px solid var(--glass-border); &:hover { background: var(--bg-panel); transform: translateY(-2px); } }
+      }
+
+      .contact-item.skeleton {
+          display: flex; gap: 12px; padding: 12px; pointer-events: none;
+          .avatar { width: 48px; height: 48px; border-radius: 50%; }
+          .details { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 8px; }
+          .skeleton-line { height: 12px; border-radius: 6px; width: 60%; }
+          .short { width: 40%; }
+          .skeleton-anim { background: linear-gradient(90deg, var(--input-bg) 25%, var(--bg-panel) 50%, var(--input-bg) 75%); background-size: 200% 100%; animation: ${shimmer} 1.5s infinite linear; }
+      }
+
+      .global-msg {
+          background: var(--input-bg); padding: 12px; border-radius: 12px; cursor: pointer; border: 1px solid var(--glass-border); transition: 0.2s;
+          &:hover { border-color: var(--msg-sent); transform: translateY(-2px); }
+          p { color: var(--text-main); font-size: 0.85rem; font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+          span { font-size: 0.7rem; color: var(--text-dim); display: block; margin-top: 4px; text-align: right; }
+      }
+  }
+
+  /* 5. User Footer */
+  .user-footer {
+      flex-shrink: 0; padding: 16px; border-top: 1px solid var(--glass-border); background: var(--bg-panel);
+      .user-profile {
+          display: flex; align-items: center; gap: 12px;
+          .avatar { width: 44px; height: 44px; border-radius: 50%; border: 2px solid var(--msg-sent); img { width:100%; height:100%; object-fit:cover; border-radius: 50%; } }
+          .info { flex: 1; overflow: hidden; h2 { font-size: 0.95rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } p { font-size: 0.75rem; color: #00ff88; margin-top: 2px; font-weight: 500;} }
+          .actions {
+              display: flex; gap: 4px;
+              button { background: var(--input-bg); color: var(--text-dim); width: 36px; height: 36px; border-radius: 10px; border: none; display: flex; justify-content: center; align-items: center; cursor: pointer; transition: 0.2s;
+                  &:hover { background: var(--msg-sent); color: white; transform: translateY(-2px); }
+                  &.logout:hover { background: #ff4e4e; }
+              }
           }
       }
   }
 `;
 
 const ContactItem = styled.div`
-  background: var(--glass-bg); 
-  padding: ${({ $isCompact }) => $isCompact ? '0.5rem' : '0.8rem'}; 
-  width: 90%; flex-shrink: 0; 
-  border-radius: 1rem; display: flex; align-items: center; gap: 1rem; 
-  cursor: pointer; border: 1px solid transparent; position: relative;
-  transition: all 0.25s cubic-bezier(0.25, 0.8, 0.25, 1);
-  overflow: hidden; 
+  display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 16px; cursor: pointer;
+  background: transparent; border: 1px solid transparent; transition: all 0.2s ease; position: relative;
 
-  ${({ $isPinned }) => $isPinned && css`
-    background: var(--input-bg); border-left: 3.5px solid var(--msg-sent);
-  `}
+  &:hover { background: linear-gradient(90deg, var(--input-bg) 0%, transparent 100%); }
+  &.selected { background: var(--input-bg); border-color: var(--glass-border); box-shadow: 0 4px 20px rgba(0,0,0,0.05); }
+  &.pinned { border-left: 3px solid var(--msg-sent); }
 
-  &:hover { 
-    background: var(--input-bg); 
-    transform: scale(1.03) translateY(-2px); 
-    box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-    .pin-btn { opacity: 1; }
+  .avatar {
+      position: relative; width: 48px; height: 48px; flex-shrink: 0;
+      img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; background: var(--bg-panel); }
+      .group-avatar { width: 100%; height: 100%; border-radius: 50%; background: var(--input-bg); display: flex; justify-content: center; align-items: center; color: var(--msg-sent); font-size: 1.2rem; font-weight: 800; }
+      .online-badge { position: absolute; bottom: 2px; right: 2px; width: 12px; height: 12px; background: #00ff88; border-radius: 50%; border: 2px solid var(--bg-panel); box-shadow: 0 0 8px rgba(0, 255, 136, 0.4); }
   }
 
-  ${({ $selected }) => $selected && css`
-      background: var(--input-bg); 
-      border-color: var(--msg-sent);
-      transform: scale(1.02);
-  `}
-
-  .avatar { 
-    height: 3rem; width: 3rem; min-width: 3rem; border-radius: 50%; overflow: hidden; 
-    display: flex; align-items: center; justify-content: center; 
-    background: var(--bg-panel); transition: box-shadow 0.3s ease;
-    img { width: 100%; height: 100%; object-fit: cover; } 
-    .group-avatar { font-weight: bold; color: var(--msg-sent); font-size: 1.3rem; }
-    ${({ $selected }) => $selected && css`box-shadow: 0 0 15px var(--glass-border);`}
+  .details {
+      flex: 1; overflow: hidden; display: flex; flex-direction: column; justify-content: center;
+      h3 { font-size: 0.95rem; font-weight: 600; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px; }
+      .presence {
+          .status { font-size: 0.8rem; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; 
+              &.online { color: #00ff88; }
+              &.group { color: var(--msg-sent); font-weight: 500; }
+          }
+          .typing-indicator {
+              display: flex; align-items: center; gap: 3px;
+              span { width: 4px; height: 4px; background: #00ff88; border-radius: 50%; display: inline-block; }
+              .text { font-size: 0.75rem; color: #00ff88; font-style: italic; background: none; width: auto; height: auto; margin-left: 4px; font-weight: 600;}
+          }
+      }
   }
 
-  .username { 
-    flex-grow: 1; display: flex; flex-direction: column; justify-content: center; overflow: hidden; 
-    h3 { color: var(--text-main); font-size: 0.95rem; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } 
-    .presence-container { display: flex; align-items: center; gap: 5px; }
-    .status-text { color: var(--text-dim); font-size: 0.75rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px; } 
-    .typing-text { color: #00ff88; font-style: italic; font-weight: 600; letter-spacing: 0.5px; animation: ${glassShine} 2s infinite linear; }
-    .online-text { color: #00ff88; font-weight: 500; }
-    .offline-text { color: var(--text-dim); font-style: italic; }
+  .meta {
+      display: flex; flex-direction: column; align-items: flex-end; gap: 8px; flex-shrink: 0;
+      .pin-btn { background: none; border: none; color: var(--text-dim); cursor: pointer; transition: 0.2s; opacity: 0; font-size: 0.9rem; &:hover { color: var(--text-main); transform: scale(1.2); } }
+      .unread-count { background: var(--msg-sent); color: white; font-size: 0.7rem; font-weight: bold; padding: 2px 8px; border-radius: 12px; box-shadow: 0 2px 8px rgba(78, 14, 255, 0.4); }
   }
   
-  .contact-meta {
-    display: flex; flex-direction: column; align-items: flex-end; gap: 8px; min-width: 20px; 
-    .online-indicator { height: 8px; width: 8px; background: #00ff88; border-radius: 50%; box-shadow: 0 0 10px #00ff88; }
-    .pin-btn {
-      background: none; border: none; color: var(--text-dim); cursor: pointer; transition: 0.2s; font-size: 0.85rem;
-      opacity: ${({ $isPinned }) => $isPinned ? 1 : 0};
-      &:hover { color: var(--text-main); transform: scale(1.2); }
-      &.pinned { color: var(--msg-sent); }
-    }
-  }
-`;
-
-const FolderBtn = styled.button`
-    background: transparent; border: none; color: var(--text-dim); cursor: pointer;
-    font-size: 1.2rem; display: flex; align-items: center; justify-content: center;
-    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); 
-    width: 42px; height: 42px; border-radius: 12px; position: relative;
-    
-    &:hover { color: var(--text-main); background: var(--input-bg); transform: translateY(-2px); }
-    &.active { color: var(--msg-sent); background: var(--input-bg); box-shadow: 0 4px 10px rgba(0,0,0,0.1); transform: translateY(-2px); }
-
-    .badge {
-        position: absolute; top: -2px; right: -2px;
-        color: white; font-size: 0.6rem; font-weight: bold;
-        padding: 2px 5px; border-radius: 10px; border: 2px solid var(--bg-panel);
-        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-    }
-    .theme-badge { background: var(--msg-sent); }
-    .danger-badge { background: #ff4e4e; }
-`;
-
-const Modal = styled.div`
-    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-    background: rgba(0,0,0,0.6); display: flex; justify-content: center; align-items: center; 
-    z-index: 100; backdrop-filter: blur(12px);
-    .modal-content {
-        background: var(--bg-panel); padding: 2.2rem; border-radius: 1.5rem; width: 440px;
-        border: 1px solid var(--glass-border); box-shadow: 0 15px 40px rgba(0,0,0,0.2);
-        max-height: 90vh; overflow-y: auto;
-        
-        &::-webkit-scrollbar { width: 4px; } 
-        &::-webkit-scrollbar-track { background: transparent; }
-        &::-webkit-scrollbar-thumb { background-color: var(--glass-border); border-radius: 10px; }
-
-        h3 { color: var(--text-main); margin-bottom: 1.5rem; text-align: center; font-weight: 600; font-size: 1.3rem; }
-        .divider { border-color: var(--glass-border); margin: 1.5rem 0; }
-        .settings-row { display: flex; gap: 1rem; }
-        select, input, textarea { width: 100%; padding: 0.9rem; margin-bottom: 0.8rem; background: var(--input-bg); border: 1px solid var(--glass-border); color: var(--text-main); border-radius: 0.8rem; font-family: inherit; transition: 0.3s; &:focus { outline: none; border-color: var(--msg-sent); } }
-        .toggle-btn { padding: 0.9rem; background: var(--input-bg); color: var(--text-main); border: 1px solid var(--glass-border); border-radius: 0.8rem; cursor: pointer; width: 100%; transition: 0.3s; font-weight: 500;}
-        .toggle-btn.active { background: var(--msg-sent); border-color: var(--msg-sent); color: white; box-shadow: 0 4px 15px rgba(78, 14, 255, 0.3); }
-        textarea { resize: none; height: 95px; }
-        .input-group { display: flex; flex-direction: column; flex: 1; label { color: var(--text-dim); font-size: 0.75rem; margin-bottom: 0.4rem; text-transform: uppercase; letter-spacing: 0.05rem; } }
-        .member-select { max-height: 180px; overflow-y: auto; margin-bottom: 1.5rem; h4 { color: var(--text-dim); margin-bottom: 0.6rem; font-size: 0.8rem; text-transform: uppercase; } .select-item { padding: 0.75rem; color: var(--text-main); cursor: pointer; border-radius: 0.6rem; margin: 4px 0; transition: 0.2s; &:hover { background: var(--input-bg); } &.selected { background: var(--msg-sent); color: white; font-weight: 600; } } }
-        .modal-actions { display: flex; gap: 1rem; justify-content: center; margin-top: 1rem; button { padding: 0.8rem 2.4rem; border: none; border-radius: 0.8rem; cursor: pointer; background: var(--msg-sent); color: white; font-weight: bold; transition: 0.3s; &:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.2); } } .cancel { background: #ff4e4e; } }
-    }
+  &:hover .pin-btn { opacity: 1; }
+  &.pinned .pin-btn { opacity: 1; color: var(--msg-sent); }
 `;
 
 const StoryTray = styled.div`
-    display: flex; gap: 12px; padding: 0.8rem; overflow-x: auto; border-bottom: 1px solid var(--glass-border);
-    &::-webkit-scrollbar { display: none; }
-    
-    .story-item {
-        display: flex; flex-direction: column; align-items: center; gap: 5px; cursor: pointer; min-width: 60px;
-        p { color: var(--text-dim); font-size: 0.65rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60px; text-align: center; }
-        
-        .story-ring {
-            width: 52px; height: 52px; border-radius: 50%; padding: 2px; position: relative;
-            background: linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%);
-            
-            img { width: 100%; height: 100%; border-radius: 50%; border: 2px solid var(--bg-panel); object-fit: cover; }
-            
-            &.read { background: var(--glass-bg); }
-            &.empty { background: none; border: 1px dashed var(--glass-border); padding: 0; }
-            
-            .add-icon {
-                position: absolute; bottom: 0; right: -2px; background: var(--msg-sent); color: white;
-                border-radius: 50%; width: 18px; height: 18px; display: flex; align-items: center; justify-content: center;
-                font-size: 0.6rem; border: 2px solid var(--bg-panel);
-            }
-        }
-    }
+  flex-shrink: 0; display: flex; gap: 16px; padding: 0 20px 16px; overflow-x: auto; -webkit-overflow-scrolling: touch; border-bottom: 1px solid var(--glass-border);
+  &::-webkit-scrollbar { display: none; }
+
+  .story-item {
+      display: flex; flex-direction: column; align-items: center; gap: 8px; cursor: pointer; min-width: 64px;
+      p { font-size: 0.7rem; color: var(--text-main); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 64px; text-align: center; }
+      
+      .story-ring {
+          width: 60px; height: 60px; border-radius: 50%; padding: 3px; position: relative;
+          background: var(--glass-border);
+          
+          img { width: 100%; height: 100%; border-radius: 50%; border: 3px solid var(--bg-panel); object-fit: cover; }
+          
+          &.unread { background: linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888); box-shadow: 0 4px 15px rgba(220, 39, 67, 0.3); }
+          &.empty { background: none; border: 2px dashed var(--glass-border); padding: 2px; }
+          
+          .add-icon { position: absolute; bottom: -2px; right: -2px; background: var(--msg-sent); color: white; border-radius: 50%; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; border: 3px solid var(--bg-panel); }
+      }
+  }
+`;
+
+const ModalOverlay = styled.div`
+  position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.5); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); z-index: 1000; display: flex; justify-content: center; align-items: center;
+
+  .modal-content {
+      background: var(--bg-panel); border: 1px solid var(--glass-border); border-radius: 24px; padding: 32px; width: 440px; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+      &::-webkit-scrollbar { width: 4px; } &::-webkit-scrollbar-thumb { background: var(--glass-border); border-radius: 10px; }
+      
+      &.profile { width: 500px; }
+
+      h3 { font-size: 1.4rem; color: var(--text-main); font-weight: 700; margin-bottom: 24px; text-align: center; }
+      .section-divider { margin: 24px 0 16px; font-size: 0.85rem; text-transform: uppercase; color: var(--msg-sent); font-weight: 700; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--glass-border); padding-bottom: 8px; }
+
+      .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+      .input-field {
+          margin-bottom: 16px; display: flex; flex-direction: column; gap: 8px; position: relative;
+          label { font-size: 0.75rem; text-transform: uppercase; font-weight: 600; color: var(--text-dim); letter-spacing: 0.5px; }
+          .inner-icon { position: absolute; bottom: 14px; left: 14px; color: var(--text-dim); font-size: 1rem; }
+          input, select, textarea { width: 100%; background: var(--input-bg); border: 1px solid var(--glass-border); color: var(--text-main); padding: 12px 16px; border-radius: 12px; font-family: inherit; font-size: 0.95rem; transition: 0.2s; outline: none; &:focus { border-color: var(--msg-sent); background: var(--bg-panel); box-shadow: 0 0 0 3px rgba(78,14,255,0.1); } }
+          textarea { resize: none; height: 100px; }
+          .flex-row { display: flex; gap: 12px; }
+      }
+
+      .setting-row {
+          display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; background: var(--input-bg); padding: 16px; border-radius: 16px; border: 1px solid var(--glass-border);
+          .text { label { color: var(--text-main); font-weight: 600; font-size: 0.95rem; } p { color: var(--text-dim); font-size: 0.8rem; margin-top: 4px; } }
+      }
+
+      /* iOS Style Switch */
+      .ios-switch { width: 50px; height: 30px; border-radius: 30px; background: var(--glass-border); position: relative; cursor: pointer; transition: 0.3s; 
+          .knob { position: absolute; top: 2px; left: 2px; width: 26px; height: 26px; background: white; border-radius: 50%; transition: 0.3s; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
+          &.on { background: #00ff88; .knob { left: 22px; } }
+      }
+
+      .toggle-btn { width: 100%; padding: 12px; border-radius: 12px; border: 1px solid var(--glass-border); background: var(--input-bg); color: var(--text-main); font-weight: 600; cursor: pointer; transition: 0.2s; &.on { background: var(--msg-sent); border-color: var(--msg-sent); color: white; box-shadow: 0 4px 15px rgba(78,14,255,0.3); } }
+
+      .member-selection {
+          background: var(--input-bg); border-radius: 16px; border: 1px solid var(--glass-border); overflow: hidden; margin-bottom: 24px;
+          label { display: block; padding: 12px 16px; background: var(--bg-panel); font-size: 0.8rem; font-weight: 600; color: var(--text-dim); border-bottom: 1px solid var(--glass-border); text-transform: uppercase; }
+          .scroll-list { max-height: 200px; overflow-y: auto; &::-webkit-scrollbar { width: 4px; } &::-webkit-scrollbar-thumb { background: var(--glass-border); } }
+          .select-item { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--glass-border); cursor: pointer; transition: 0.2s; img { width: 32px; height: 32px; border-radius: 50%; } span { flex: 1; font-weight: 500; color: var(--text-main); } .check { color: #00ff88; } &:hover { background: var(--bg-panel); } &.selected { background: rgba(0,255,136,0.1); } }
+          
+          .channel-item { display: flex; justify-content: space-between; align-items: center; padding: 16px; border-bottom: 1px solid var(--glass-border); .info { h4 { color: var(--text-main); font-size: 1rem; } p { color: var(--text-dim); font-size: 0.8rem; margin-top: 4px; } } }
+          .center-loading { display: flex; justify-content: center; align-items: center; height: 100px; font-size: 1.5rem; color: var(--msg-sent); }
+          .empty-text { text-align: center; color: var(--text-dim); padding: 32px; font-style: italic; }
+      }
+
+      .button-group {
+          display: flex; gap: 12px;
+          button { flex: 1; padding: 14px; border-radius: 12px; font-weight: 700; font-size: 0.95rem; cursor: pointer; transition: 0.2s; border: none; display: flex; justify-content: center; align-items: center; }
+          .btn-primary { background: linear-gradient(135deg, var(--msg-sent), #9a41fe); color: white; box-shadow: 0 6px 20px rgba(78, 14, 255, 0.3); &:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(78, 14, 255, 0.4); filter: brightness(1.1); } }
+          .btn-secondary { background: transparent; border: 1px solid var(--glass-border); color: var(--text-main); &:hover { background: var(--input-bg); } }
+          .small { padding: 8px 16px; flex: none; border-radius: 20px; font-size: 0.85rem;}
+          .full-width { flex: 1; width: 100%; }
+      }
+  }
 `;
 
 const StoryViewerOverlay = styled.div`
-    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.95);
-    z-index: 999; display: flex; justify-content: center; align-items: center;
-    
-    .viewer-content {
-        width: 100%; max-width: 450px; height: 90vh; background: #000; border-radius: 12px;
-        position: relative; overflow: hidden; display: flex; flex-direction: column;
-        
-        .progress-bars {
-            display: flex; gap: 5px; padding: 10px; position: absolute; top: 0; left: 0; width: 100%; z-index: 10;
-            .bar-bg { flex: 1; height: 3px; background: rgba(255,255,255,0.3); border-radius: 3px; overflow: hidden; }
-            .bar-fill { height: 100%; background: #fff; width: 0%; }
-        }
+  position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.95); backdrop-filter: blur(20px); z-index: 2000; display: flex; justify-content: center; align-items: center;
+  
+  .viewer-content {
+      width: 100%; max-width: 420px; height: 85vh; background: #000; border-radius: 24px; position: relative; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.1);
+      
+      .progress-bars { display: flex; gap: 6px; padding: 16px 12px 0; position: absolute; top: 0; left: 0; width: 100%; z-index: 10; .bar-bg { flex: 1; height: 3px; background: rgba(255,255,255,0.3); border-radius: 4px; overflow: hidden; } .bar-fill { height: 100%; background: #fff; width: 0%; } }
 
-        .viewer-header {
-            position: absolute; top: 20px; left: 0; width: 100%; padding: 10px 15px; z-index: 10;
-            display: flex; align-items: center; gap: 10px; background: linear-gradient(to bottom, rgba(0,0,0,0.8), transparent);
-            img { width: 35px; height: 35px; border-radius: 50%; border: 1px solid #fff; }
-            div { flex: 1; h4 { color: #fff; font-size: 0.9rem; } p { color: #ccc; font-size: 0.7rem; } }
-            button { background: none; border: none; color: #fff; font-size: 1.2rem; cursor: pointer; }
-        }
+      .viewer-header {
+          position: absolute; top: 24px; left: 0; width: 100%; padding: 16px 20px; z-index: 10; display: flex; align-items: center; gap: 12px; background: linear-gradient(to bottom, rgba(0,0,0,0.6), transparent);
+          img { width: 40px; height: 40px; border-radius: 50%; border: 2px solid #fff; }
+          div { flex: 1; h4 { color: #fff; font-size: 1rem; font-weight: 600; } p { color: rgba(255,255,255,0.7); font-size: 0.75rem; margin-top: 2px; } }
+          button { background: rgba(255,255,255,0.2); border-radius: 50%; width: 36px; height: 36px; border: none; color: #fff; font-size: 1.1rem; cursor: pointer; transition: 0.2s; backdrop-filter: blur(4px); &:hover { background: rgba(255,255,255,0.4); transform: scale(1.1); } }
+      }
 
-        .media-container {
-            flex: 1; display: flex; align-items: center; justify-content: center; cursor: pointer;
-            img, video { max-width: 100%; max-height: 100%; object-fit: contain; }
-        }
-        
-        .viewers-count {
-            position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
-            background: rgba(0,0,0,0.6); padding: 5px 15px; border-radius: 20px;
-            color: white; font-size: 0.8rem; display: flex; align-items: center; gap: 8px;
-        }
-    }
+      .media-container { flex: 1; display: flex; align-items: center; justify-content: center; cursor: pointer; background: #111; img, video { max-width: 100%; max-height: 100%; object-fit: contain; } }
+      
+      .viewers-count { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.5); backdrop-filter: blur(8px); padding: 8px 20px; border-radius: 20px; color: white; font-size: 0.85rem; font-weight: 600; display: flex; align-items: center; gap: 8px; border: 1px solid rgba(255,255,255,0.1); }
+  }
 `;

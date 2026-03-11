@@ -1,4 +1,5 @@
 import React from "react";
+import { motion, AnimatePresence } from "framer-motion"; // <-- Added for fluid search bar
 import { FaUserPlus, FaShieldAlt, FaInfoCircle, FaSearch, FaUserSlash, FaMicrophoneAlt } from "react-icons/fa";
 import { formatLastSeen } from "./chatHelpers";
 
@@ -12,7 +13,11 @@ export default function ChatHeader({
         <div className="chat-header">
             <div className="user-details">
                 <div className="header-info" onClick={() => { setShowSidePanel(true); setActiveSideTab('about'); }} style={{ cursor: 'pointer' }}>
-                    <h3>{currentChat.name || currentChat.username} {isBlocked && <span style={{ color: 'red', fontSize: '10px' }}>(Blocked)</span>}</h3>
+                    <h3>
+                        {currentChat.name || currentChat.username} 
+                        {isBlocked && <span style={{ color: '#ff4e4e', fontSize: '10px', marginLeft: '6px', letterSpacing: '0.5px', textTransform: 'uppercase' }}>(Blocked)</span>}
+                    </h3>
+                    
                     {!currentChat.admin && (
                         <div className="presence-info">
                             <div className={`status-dot ${isOnline ? 'online' : ''}`}></div>
@@ -21,6 +26,7 @@ export default function ChatHeader({
                             </span>
                         </div>
                     )}
+                    
                     {!currentChat.admin && currentChat.bio && (
                         <p className="chat-bio" title={currentChat.interests?.join(", ")}>
                             <FaInfoCircle /> {currentChat.bio}
@@ -29,11 +35,35 @@ export default function ChatHeader({
                 </div>
 
                 <div className="admin-controls">
-                    {showSearch && (
-                        <input type="text" placeholder="Search chat..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="chat-search-input" />
-                    )}
-                    <FaSearch className="action-icon" title="Search messages" onClick={() => setShowSearch(!showSearch)} />
-                    <FaInfoCircle className="action-icon" title="Contact Info & Media" onClick={() => { setShowSidePanel(!showSidePanel); setActiveSideTab('about'); }} />
+                    {/* --- ANIMATED SEARCH BAR --- */}
+                    <AnimatePresence>
+                        {showSearch && (
+                            <motion.input 
+                                initial={{ width: 0, opacity: 0, padding: "0" }}
+                                animate={{ width: "200px", opacity: 1, padding: "0.5rem 1rem" }}
+                                exit={{ width: 0, opacity: 0, padding: "0" }}
+                                transition={{ type: "spring", stiffness: 300, damping: 25 }}
+                                type="text" 
+                                placeholder="Search chat..." 
+                                value={searchQuery} 
+                                onChange={(e) => setSearchQuery(e.target.value)} 
+                                className="chat-search-input" 
+                                autoFocus
+                            />
+                        )}
+                    </AnimatePresence>
+                    
+                    <FaSearch 
+                        className="action-icon" 
+                        title="Search messages" 
+                        onClick={() => setShowSearch(!showSearch)} 
+                    />
+                    
+                    <FaInfoCircle 
+                        className="action-icon" 
+                        title="Contact Info & Media" 
+                        onClick={() => { setShowSidePanel(!showSidePanel); setActiveSideTab('about'); }} 
+                    />
 
                     <button
                         className="huddle-btn"
@@ -46,8 +76,13 @@ export default function ChatHeader({
                     </button>
 
                     {!currentChat.admin && (
-                        <FaUserSlash className={`action-icon ${isBlocked ? 'blocked' : ''}`} title={isBlocked ? "Unblock User" : "Block User"} onClick={handleToggleBlock} />
+                        <FaUserSlash 
+                            className={`action-icon ${isBlocked ? 'blocked' : ''}`} 
+                            title={isBlocked ? "Unblock User" : "Block User"} 
+                            onClick={handleToggleBlock} 
+                        />
                     )}
+                    
                     {currentChat.admin === currentUser._id && (
                         <>
                             <span className="admin-badge"><FaShieldAlt /> Admin</span>
