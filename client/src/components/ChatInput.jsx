@@ -17,7 +17,11 @@ import useChatStore from "../store/chatStore";
 const CLOUDINARY_CLOUD_NAME = "dz6weueae"; 
 const CLOUDINARY_UPLOAD_PRESET = "chat_app_preset"; // MUST be an "Unsigned" preset in Cloudinary settings
 
-export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, setReplyingTo, editingMessage, setEditingMessage, handleEditMsgSubmit }) {
+export default function ChatInput({ 
+    handleSendMsg, handleTyping, replyingTo, setReplyingTo, 
+    editingMessage, setEditingMessage, handleEditMsgSubmit,
+    droppedFile, onClearDrop // <-- NEW: Props for Drag-and-Drop handling
+}) {
   
   // --- MERGE UPDATE: GET THEME & CURRENT CHAT ---
   const { currentChat, currentUser, theme } = useChatStore();
@@ -39,7 +43,7 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
   const [detectedUrl, setDetectedUrl] = useState(null);
   
   const fileInputRef = useRef(null);
-  const textareaRef = useRef(null); // <-- NEW: Ref for auto-expanding textarea
+  const textareaRef = useRef(null); 
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
 
@@ -50,6 +54,14 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
 
   // Has content check for styling the Send button
   const hasContent = msg.trim().length > 0 || mediaPreview !== null;
+
+  // --- NEW: Process file dropped from ChatContainer ---
+  useEffect(() => {
+      if (droppedFile && canPost) {
+          processFile(droppedFile);
+          if (onClearDrop) onClearDrop();
+      }
+  }, [droppedFile, canPost, onClearDrop]);
 
   useEffect(() => {
       if (editingMessage) {
@@ -120,7 +132,6 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
     }
   };
 
-  // --- NEW: Auto-expanding textarea logic ---
   const handleInput = (e) => {
       setMsg(e.target.value);
       handleTyping(e.target.value.length > 0);
@@ -300,7 +311,6 @@ export default function ChatInput({ handleSendMsg, handleTyping, replyingTo, set
       );
   }
 
-  // Set Emoji Theme dynamically
   const emojiTheme = theme === 'light' ? Theme.LIGHT : Theme.DARK;
 
   return (
@@ -641,7 +651,6 @@ const Container = styled.div`
       padding: 0.8rem; border-radius: 50%; display: flex; justify-content: center; align-items: center;
       border: none; transition: 0.3s; 
       
-      /* --- NEW: Dynamic Send Button State --- */
       &.empty { background: var(--bg-panel); color: var(--text-dim); cursor: default; }
       &.ready { background: var(--primary-gradient); color: white; cursor: pointer; box-shadow: 0 4px 15px rgba(78, 14, 255, 0.3); }
       &.ready:hover { transform: scale(1.08); box-shadow: 0 6px 20px rgba(78, 14, 255, 0.5); }

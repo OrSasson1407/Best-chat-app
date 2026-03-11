@@ -3,19 +3,21 @@ import ChatInput from "./ChatInput";
 import axios from "axios";
 import { Virtuoso } from "react-virtuoso"; 
 import ColorThief from "color-thief-react"; 
+import { motion, AnimatePresence } from "framer-motion";
 import { 
     host, sendMessageRoute, receiveMessageRoute, getGroupMessagesRoute, 
     addGroupMemberRoute, reactMessageRoute, deleteMessageRoute, 
     deleteMessageForMeRoute, editMessageRoute, blockUserRoute, getChatMediaRoute,
     updateChatCustomizationRoute,
-    getQuickRepliesRoute
+    getQuickRepliesRoute,
+    publicKeyRoute
 } from "../utils/APIRoutes";
 import { encryptMessage, decryptMessage, encryptGroupMessage, decryptGroupMessage } from "../utils/crypto"; 
 import { v4 as uuidv4 } from "uuid";
 import { toast } from "react-toastify";
 import { 
     FaThumbtack, FaSpinner, FaCloudUploadAlt, FaTimes, FaCheckDouble, FaArrowDown, FaMagic 
-} from "react-icons/fa"; // --- POLISHED: Replaced FaRobot with FaMagic for a premium AI feel ---
+} from "react-icons/fa";
 
 import { Container, DropOverlay, ScrollButton, Lightbox } from "./ChatContainer.styles"; 
 import CallModal from "./CallModal"; 
@@ -27,7 +29,8 @@ import MessageItem from "./MessageItem";
 import { getSmallAvatar, formatTime } from "./chatHelpers";
 
 export default function ChatContainer({ socket, isTyping }) {
-  const { currentChat, currentUser, theme, isCompact } = useChatStore();
+  // --- MERGE UPDATE: Pull offline caching functions from store ---
+  const { currentChat, currentUser, theme, isCompact, offlineMessages, cacheMessages } = useChatStore();
 
   // --- STATE MANAGEMENT ---
   const [messages, setMessages] = useState([]);
@@ -51,6 +54,7 @@ export default function ChatContainer({ socket, isTyping }) {
   const [activeSideTab, setActiveSideTab] = useState("about");
   const [isFetchingMedia, setIsFetchingMedia] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [droppedFile, setDroppedFile] = useState(null); 
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [unreadScrollCount, setUnreadScrollCount] = useState(0);
   const [lightboxImage, setLightboxImage] = useState(null);
@@ -71,13 +75,19 @@ export default function ChatContainer({ socket, isTyping }) {
   const virtuosoRef = useRef(null);
   const isScrolledUpRef = useRef(false);
   const [highlightedMsgId, setHighlightedMsgId] = useState(null);
+  const myPrivateKeyRef = useRef(null); 
 
-  // --- POLISHED: Memoized skeleton widths to prevent hydration/render jumping ---
   const skeletonWidths = useMemo(() => ['45%', '65%', '35%', '80%', '50%'], []);
-
   const getAuthHeader = useCallback(() => ({ headers: { "x-auth-token": currentUser.token } }), [currentUser.token]);
 
   // --- EFFECTS ---
+  useEffect(() => {
+      if (currentUser) {
+          const rawKey = localStorage.getItem(`privateKey_${currentUser._id}`);
+          myPrivateKeyRef.current = rawKey ? JSON.parse(rawKey) : null;
+      }
+  }, [currentUser]);
+
   useEffect(() => {
     if (currentUser && currentChat) {
       const custom = currentUser.chatCustomizations?.find(c => c.chatId === currentChat._id);
@@ -101,12 +111,26 @@ export default function ChatContainer({ socket, isTyping }) {
       if (currentChat && currentUser) {
         setIsFetchingHistory(true);
         setActiveGroupAesKey(null); 
+
+        // --- MERGE UPDATE: OFFLINE CHECK ---
+        if (!navigator.onLine) {
+            const cached = offlineMessages[currentChat._id];
+            if (cached && cached.length > 0) {
+                setMessages(cached);
+                toast.info("Offline mode: Showing cached messages.");
+            } else {
+                setMessages([]);
+                toast.warning("Offline mode: No cached messages available.");
+            }
+            setIsFetchingHistory(false);
+            return;
+        }
+
         let response;
         let decryptedAesKey = null;
 
         try {
-            const myPrivateKeyRaw = localStorage.getItem(`privateKey_${currentUser._id}`);
-            const myPrivateKey = myPrivateKeyRaw ? JSON.parse(myPrivateKeyRaw) : null;
+            const myPrivateKey = myPrivateKeyRef.current;
 
             if (currentChat.admin) { 
                 response = await axios.post(getGroupMessagesRoute, {
@@ -184,7 +208,15 @@ export default function ChatContainer({ socket, isTyping }) {
       }
     }
     fetchHistory();
-  }, [currentChat, currentUser, getAuthHeader, socket]);
+  }, [currentChat, currentUser, getAuthHeader, socket, offlineMessages]);
+
+  // --- MERGE UPDATE: AUTO-CACHE MESSAGES ---
+  useEffect(() => {
+      // Whenever messages update, silently save them to IndexedDB so they are ready for offline use
+      if (currentChat && messages.length > 0) {
+          cacheMessages(currentChat._id, messages);
+      }
+  }, [messages, currentChat, cacheMessages]);
 
   useEffect(() => {
       if (showSidePanel && currentChat && (activeSideTab === 'media' || activeSideTab === 'links' || activeSideTab === 'files')) {
@@ -229,13 +261,11 @@ export default function ChatContainer({ socket, isTyping }) {
 
       const handleMsgRecieve = async (data) => {
         let decryptedText = data.msg;
+        const myPrivateKey = myPrivateKeyRef.current;
+
         if (data.type === "text") {
-            if (!data.isGroup) {
-                const myPrivateKeyRaw = localStorage.getItem(`privateKey_${currentUser._id}`);
-                const myPrivateKey = myPrivateKeyRaw ? JSON.parse(myPrivateKeyRaw) : null;
-                if (myPrivateKey) {
-                    decryptedText = await decryptMessage(data.msg, myPrivateKey);
-                }
+            if (!data.isGroup && myPrivateKey) {
+                decryptedText = await decryptMessage(data.msg, myPrivateKey);
             } else if (data.isGroup && activeGroupAesKey) {
                 decryptedText = await decryptGroupMessage(data.msg, activeGroupAesKey);
             }
@@ -314,9 +344,15 @@ export default function ChatContainer({ socket, isTyping }) {
       s.on("incoming-call", handleIncomingCall);
 
       return () => {
-          s.off("presence-response"); s.off("user-status-change"); s.off("msg-recieve");
-          s.off("receive-reaction"); s.off("msg-read-update"); s.off("group-msg-read-update");
-          s.off("msg-deleted"); s.off("msg-edited"); s.off("incoming-call"); 
+          s.off("presence-response", handlePresenceResponse); 
+          s.off("user-status-change", handlePresenceResponse); 
+          s.off("msg-recieve", handleMsgRecieve);
+          s.off("receive-reaction", handleReactionReceive); 
+          s.off("msg-read-update", handleMsgReadUpdate); 
+          s.off("group-msg-read-update", handleGroupMsgReadUpdate);
+          s.off("msg-deleted", handleMsgDeleted); 
+          s.off("msg-edited", handleMsgEdited); 
+          s.off("incoming-call", handleIncomingCall); 
       };
     }
   }, [socket, currentUser, currentChat, activeGroupAesKey]);
@@ -343,8 +379,7 @@ export default function ChatContainer({ socket, isTyping }) {
           }
 
           const newMessages = response.data.messages ? response.data.messages : response.data;
-          const myPrivateKeyRaw = localStorage.getItem(`privateKey_${currentUser._id}`);
-          const myPrivateKey = myPrivateKeyRaw ? JSON.parse(myPrivateKeyRaw) : null;
+          const myPrivateKey = myPrivateKeyRef.current;
           
           const decryptedNewMessages = await Promise.all(newMessages.map(async (msg) => {
               if (msg.type === "text" && !msg.isDeleted) {
@@ -382,10 +417,15 @@ export default function ChatContainer({ socket, isTyping }) {
 
   const handleDragOver = (e) => { e.preventDefault(); setIsDragging(true); };
   const handleDragLeave = (e) => { e.preventDefault(); setIsDragging(false); };
+  
   const handleDrop = (e) => {
-    e.preventDefault(); setIsDragging(false);
+    e.preventDefault(); 
+    setIsDragging(false);
     const files = e.dataTransfer.files;
-    if (files.length > 0) toast.info(`Preparing to upload ${files[0].name}...`);
+    if (files.length > 0) {
+        toast.info(`Preparing to upload ${files[0].name}...`);
+        setDroppedFile(files[0]);
+    }
   };
 
   const handleWallpaperChange = async (colorOrUrl) => {
@@ -539,7 +579,6 @@ export default function ChatContainer({ socket, isTyping }) {
       } catch (e) { toast.error("Failed to update block status"); }
   };
 
-  // --- POLISHED: Memoized Filter ---
   const filteredMessages = useMemo(() => {
     return messages.filter(msg => {
       if (!searchQuery) return true;
@@ -556,7 +595,6 @@ export default function ChatContainer({ socket, isTyping }) {
           setTimeout(() => setHighlightedMsgId(null), 1500);
       }
   }, [filteredMessages]);
-
 
   return (
     <ColorThief src={currentChat?.avatarImage || "default"} crossOrigin="anonymous" format="hex">
@@ -576,56 +614,89 @@ export default function ChatContainer({ socket, isTyping }) {
                   : "transparent"
             }}
           >
-            {isDragging && (
-              <DropOverlay onDragLeave={handleDragLeave} onDrop={handleDrop}>
-                <div className="overlay-content">
-                  <FaCloudUploadAlt size={80} color={adaptiveAccent} />
-                  <h2>Drop files to share</h2>
-                  <p>Images, Videos, and Documents</p>
-                </div>
-              </DropOverlay>
-            )}
+            <AnimatePresence>
+                {isDragging && (
+                  <DropOverlay 
+                      as={motion.div}
+                      initial={{ opacity: 0, backdropFilter: "blur(0px)" }}
+                      animate={{ opacity: 1, backdropFilter: "blur(10px)" }}
+                      exit={{ opacity: 0, backdropFilter: "blur(0px)" }}
+                      transition={{ duration: 0.2 }}
+                      onDragLeave={handleDragLeave} 
+                      onDrop={handleDrop}
+                  >
+                    <motion.div 
+                        className="overlay-content"
+                        initial={{ scale: 0.8 }}
+                        animate={{ scale: 1 }}
+                        exit={{ scale: 0.8 }}
+                    >
+                      <FaCloudUploadAlt size={80} color={adaptiveAccent} />
+                      <h2>Drop files to share</h2>
+                      <p>Images, Videos, and Documents</p>
+                    </motion.div>
+                  </DropOverlay>
+                )}
+            </AnimatePresence>
 
-            {showCallModal && (
-                <CallModal socket={socket} currentUser={currentUser} currentChat={currentChat} incomingCallData={incomingCallData} closeModal={() => { setShowCallModal(false); setIncomingCallData(null); }} />
-            )}
+            <AnimatePresence>
+                {showCallModal && (
+                    <CallModal socket={socket} currentUser={currentUser} currentChat={currentChat} incomingCallData={incomingCallData} closeModal={() => { setShowCallModal(false); setIncomingCallData(null); }} />
+                )}
 
-            {lightboxImage && (
-              <Lightbox onClick={() => setLightboxImage(null)}>
-                <button className="close-btn"><FaTimes /></button>
-                <img src={lightboxImage} alt="Fullscreen" onClick={(e) => e.stopPropagation()} />
-              </Lightbox>
-            )}
+                {lightboxImage && (
+                  <Lightbox 
+                      as={motion.div}
+                      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                      onClick={() => setLightboxImage(null)}
+                  >
+                    <button className="close-btn"><FaTimes /></button>
+                    <motion.img 
+                        initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.8, opacity: 0 }}
+                        transition={{ type: "spring", stiffness: 300, damping: 25 }}
+                        src={lightboxImage} alt="Fullscreen" onClick={(e) => e.stopPropagation()} 
+                    />
+                  </Lightbox>
+                )}
 
-            {readReceiptsMsg && (
-              <Lightbox onClick={() => setReadReceiptsMsg(null)}>
-                  <div className="receipt-modal" onClick={(e) => e.stopPropagation()}>
-                      <button className="close-btn-small" onClick={() => setReadReceiptsMsg(null)}><FaTimes /></button>
-                      <h3>Message Info</h3>
-                      <div className="msg-preview">
-                          {readReceiptsMsg.message?.substring(0, 40)}
-                          {readReceiptsMsg.message?.length > 40 ? "..." : ""}
-                      </div>
-                      <div className="readers-list">
-                          <h4><FaCheckDouble color="#34B7F1"/> Read by ({readReceiptsMsg.readBy?.length || 0})</h4>
-                          
-                          {(!readReceiptsMsg.readBy || readReceiptsMsg.readBy.length === 0) ? (
-                              <p style={{color: 'rgba(255,255,255,0.4)', fontStyle: 'italic', fontSize: '0.9rem', marginTop: '10px'}}>No one has read this yet.</p>
-                          ) : (
-                              readReceiptsMsg.readBy.map((reader, index) => (
-                                  <div key={index} className="reader-item">
-                                      <div className="reader-info">
-                                          <img src={getSmallAvatar(reader.username)} alt="avatar" className="reader-avatar-img" />
-                                          <span className="reader-name">{reader.username}</span>
+                {readReceiptsMsg && (
+                  <Lightbox 
+                      as={motion.div}
+                      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                      onClick={() => setReadReceiptsMsg(null)}
+                  >
+                      <motion.div 
+                          className="receipt-modal" 
+                          initial={{ y: 50, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 50, opacity: 0 }}
+                          onClick={(e) => e.stopPropagation()}
+                      >
+                          <button className="close-btn-small" onClick={() => setReadReceiptsMsg(null)}><FaTimes /></button>
+                          <h3>Message Info</h3>
+                          <div className="msg-preview">
+                              {readReceiptsMsg.message?.substring(0, 40)}
+                              {readReceiptsMsg.message?.length > 40 ? "..." : ""}
+                          </div>
+                          <div className="readers-list">
+                              <h4><FaCheckDouble color="#34B7F1"/> Read by ({readReceiptsMsg.readBy?.length || 0})</h4>
+                              
+                              {(!readReceiptsMsg.readBy || readReceiptsMsg.readBy.length === 0) ? (
+                                  <p style={{color: 'rgba(255,255,255,0.4)', fontStyle: 'italic', fontSize: '0.9rem', marginTop: '10px'}}>No one has read this yet.</p>
+                              ) : (
+                                  readReceiptsMsg.readBy.map((reader, index) => (
+                                      <div key={index} className="reader-item">
+                                          <div className="reader-info">
+                                              <img src={getSmallAvatar(reader.username)} alt="avatar" className="reader-avatar-img" />
+                                              <span className="reader-name">{reader.username}</span>
+                                          </div>
+                                          <span className="reader-time">{formatTime(reader.readAt)}</span>
                                       </div>
-                                      <span className="reader-time">{formatTime(reader.readAt)}</span>
-                                  </div>
-                              ))
-                          )}
-                      </div>
-                  </div>
-              </Lightbox>
-            )}
+                                  ))
+                              )}
+                          </div>
+                      </motion.div>
+                  </Lightbox>
+                )}
+            </AnimatePresence>
 
             {showSidePanel && (
               <ChatSidePanel 
@@ -647,22 +718,30 @@ export default function ChatContainer({ socket, isTyping }) {
                 setIncomingCallData={setIncomingCallData} setShowCallModal={setShowCallModal}
             />
             
-            {pinnedMessage && (
-                <div className="pinned-banner" onClick={() => scrollToMessage(pinnedMessage.id)}>
-                    <FaThumbtack /> 
-                    <div className="pin-content">
-                        <span className="pin-title">Pinned Message</span>
-                        <span className="pin-text">{pinnedMessage.message.substring(0, 80)}...</span>
-                    </div>
-                </div>
-            )}
+            <AnimatePresence>
+                {pinnedMessage && (
+                    <motion.div 
+                        className="pinned-banner" 
+                        onClick={() => scrollToMessage(pinnedMessage.id)}
+                        initial={{ y: -50, opacity: 0 }} 
+                        animate={{ y: 0, opacity: 1 }} 
+                        exit={{ y: -50, opacity: 0 }}
+                        transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                    >
+                        <FaThumbtack /> 
+                        <div className="pin-content">
+                            <span className="pin-title">Pinned Message</span>
+                            <span className="pin-text">{pinnedMessage.message.substring(0, 80)}...</span>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
             <div className="chat-messages-container" style={{ background: "var(--chat-wallpaper)", backgroundSize: 'cover', backgroundPosition: 'center' }}>
               {isFetchingHistory ? (
                   <div className="skeleton-container">
                       {Array.from({ length: 5 }).map((_, i) => (
                           <div key={i} className={`message skeleton-msg ${i % 2 === 0 ? 'sended' : 'recieved'}`}>
-                              {/* --- POLISHED: Memoized realistic skeleton widths --- */}
                               <div className="content skeleton-anim" style={{width: skeletonWidths[i], height: '45px'}}/>
                           </div>
                       ))}
@@ -708,57 +787,71 @@ export default function ChatContainer({ socket, isTyping }) {
               )}
             </div>
 
-            {showScrollBtn && (
-              <ScrollButton onClick={scrollToBottom}>
-                  <FaArrowDown />
-                  {unreadScrollCount > 0 && (
-                      <span className="unread-badge">
-                          {unreadScrollCount > 99 ? '99+' : unreadScrollCount}
-                      </span>
-                  )}
-              </ScrollButton>
-            )}
+            <AnimatePresence>
+                {showScrollBtn && (
+                  <ScrollButton 
+                      as={motion.button}
+                      onClick={scrollToBottom}
+                      initial={{ scale: 0, opacity: 0, y: 20 }}
+                      animate={{ scale: 1, opacity: 1, y: 0 }}
+                      exit={{ scale: 0, opacity: 0, y: 20 }}
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.9 }}
+                  >
+                      <FaArrowDown />
+                      {unreadScrollCount > 0 && (
+                          <span className="unread-badge">
+                              {unreadScrollCount > 99 ? '99+' : unreadScrollCount}
+                          </span>
+                      )}
+                  </ScrollButton>
+                )}
+            </AnimatePresence>
 
-            {/* --- POLISHED: AI Quick Replies Smart Chips UI --- */}
             {(!currentChat?.isChannel || currentChat?.admins?.includes(currentUser._id) || currentChat?.moderators?.includes(currentUser._id)) && (
                 <div style={{ position: 'relative', width: '100%', padding: '0 2rem' }}>
-                    {isGeneratingReplies && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'rgba(255,255,255,0.6)', fontSize: '0.85rem', fontStyle: 'italic', marginBottom: '8px' }}>
-                            <FaMagic className="fa-spin" color={adaptiveAccent} /> AI is thinking...
-                        </div>
-                    )}
-                    {!isGeneratingReplies && quickReplies.length > 0 && (
-                        <div style={{ display: 'flex', gap: '12px', overflowX: 'auto', marginBottom: '12px', paddingBottom: '6px' }}>
-                            <FaMagic color={adaptiveAccent} style={{ marginTop: '10px', flexShrink: 0, fontSize: '1.2rem' }} title="AI Suggestions" />
-                            {quickReplies.map((reply, i) => (
-                                <button 
-                                    key={i} 
-                                    onClick={() => handleSendMsg(reply, "text")}
-                                    style={{
-                                        background: 'rgba(255, 255, 255, 0.08)', 
-                                        border: '1px solid rgba(255, 255, 255, 0.15)',
-                                        color: '#fff', padding: '8px 16px', borderRadius: '20px',
-                                        fontSize: '0.9rem', cursor: 'pointer', whiteSpace: 'nowrap',
-                                        transition: 'all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
-                                        backdropFilter: 'blur(10px)',
-                                        boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
-                                    }}
-                                    onMouseOver={(e) => {
-                                        e.target.style.background = 'rgba(255, 255, 255, 0.15)';
-                                        e.target.style.transform = 'translateY(-2px)';
-                                        e.target.style.borderColor = adaptiveAccent;
-                                    }}
-                                    onMouseOut={(e) => {
-                                        e.target.style.background = 'rgba(255, 255, 255, 0.08)';
-                                        e.target.style.transform = 'translateY(0)';
-                                        e.target.style.borderColor = 'rgba(255, 255, 255, 0.15)';
-                                    }}
-                                >
-                                    {reply}
-                                </button>
-                            ))}
-                        </div>
-                    )}
+                    <AnimatePresence mode="wait">
+                        {isGeneratingReplies ? (
+                            <motion.div 
+                                key="thinking"
+                                initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
+                                style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'rgba(255,255,255,0.6)', fontSize: '0.85rem', fontStyle: 'italic', marginBottom: '8px' }}
+                            >
+                                <FaMagic className="fa-spin" color={adaptiveAccent} /> AI is thinking...
+                            </motion.div>
+                        ) : quickReplies.length > 0 ? (
+                            <motion.div 
+                                key="replies"
+                                initial="hidden" animate="visible" exit="hidden"
+                                variants={{
+                                    visible: { transition: { staggerChildren: 0.1 } },
+                                    hidden: {}
+                                }}
+                                style={{ display: 'flex', gap: '12px', overflowX: 'auto', marginBottom: '12px', paddingBottom: '6px' }}
+                            >
+                                <FaMagic color={adaptiveAccent} style={{ marginTop: '10px', flexShrink: 0, fontSize: '1.2rem' }} title="AI Suggestions" />
+                                {quickReplies.map((reply, i) => (
+                                    <motion.button 
+                                        key={i} 
+                                        onClick={() => handleSendMsg(reply, "text")}
+                                        variants={{
+                                            hidden: { opacity: 0, scale: 0.8, y: 10 },
+                                            visible: { opacity: 1, scale: 1, y: 0, transition: { type: "spring" } }
+                                        }}
+                                        whileHover={{ y: -3, backgroundColor: 'rgba(255, 255, 255, 0.15)', borderColor: adaptiveAccent }}
+                                        whileTap={{ scale: 0.95 }}
+                                        style={{
+                                            background: 'rgba(255, 255, 255, 0.08)', border: '1px solid rgba(255, 255, 255, 0.15)',
+                                            color: '#fff', padding: '8px 16px', borderRadius: '20px', fontSize: '0.9rem', cursor: 'pointer', whiteSpace: 'nowrap',
+                                            backdropFilter: 'blur(10px)', boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+                                        }}
+                                    >
+                                        {reply}
+                                    </motion.button>
+                                ))}
+                            </motion.div>
+                        ) : null}
+                    </AnimatePresence>
                 </div>
             )}
             
@@ -767,6 +860,8 @@ export default function ChatContainer({ socket, isTyping }) {
                 replyingTo={replyingTo} setReplyingTo={setReplyingTo} 
                 editingMessage={editingMessage} setEditingMessage={setEditingMessage}
                 handleEditMsgSubmit={handleEditMsgSubmit}
+                droppedFile={droppedFile}
+                onClearDrop={() => setDroppedFile(null)}
             />
           </Container>
         );

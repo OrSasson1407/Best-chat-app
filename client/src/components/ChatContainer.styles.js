@@ -409,11 +409,11 @@ export const ScrollButton = styled.button`
     position: absolute; bottom: 90px; right: 30px; width: 48px; height: 48px;
     border-radius: 50%; background: var(--msg-sent); color: white; border: none;
     cursor: pointer; box-shadow: 0 6px 20px rgba(0,0,0,0.2); 
-    animation: ${springyPop} 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
     display: flex; justify-content: center; align-items: center; z-index: 10;
     transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
     font-size: 1.1rem;
-    &:hover { filter: brightness(1.15); transform: translateY(-4px) scale(1.08); box-shadow: 0 10px 25px rgba(0,0,0,0.3); }
+    /* Framer Motion will handle the initial scaling/opacity, but we keep hover styles for fallback */
+    &:hover { filter: brightness(1.15); box-shadow: 0 10px 25px rgba(0,0,0,0.3); }
 
     .unread-badge {
         position: absolute; top: -6px; right: -6px; background: #ff3366; color: white;
@@ -434,13 +434,15 @@ export const Lightbox = styled.div`
     position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
     background: rgba(0,0,0,0.85); z-index: 1000; display: flex; justify-content: center; align-items: center;
     backdrop-filter: blur(8px);
-    img { max-width: 90%; max-height: 90%; border-radius: 12px; box-shadow: 0 15px 50px rgba(0,0,0,0.6); animation: ${springyPop} 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+    
+    img { max-width: 90%; max-height: 90%; border-radius: 12px; box-shadow: 0 15px 50px rgba(0,0,0,0.6); }
+    
     .close-btn { position: absolute; top: 30px; right: 30px; background: rgba(255,255,255,0.1); border-radius: 50%; width: 50px; height: 50px; display: flex; justify-content: center; align-items: center; border: none; color: white; font-size: 1.5rem; cursor: pointer; transition: 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275); backdrop-filter: blur(4px); &:hover { transform: scale(1.1); background: rgba(255,78,78,0.8); } }
     
     .receipt-modal {
         background: var(--bg-panel); padding: 2.5rem; border-radius: 24px; width: 420px;
         border: 1px solid var(--glass-border); box-shadow: 0 25px 60px rgba(0,0,0,0.5); position: relative;
-        color: var(--text-main); animation: ${slideUpFade} 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        color: var(--text-main); 
         
         .close-btn-small { position: absolute; top: 20px; right: 20px; background: var(--input-bg); border-radius: 50%; width: 32px; height: 32px; display: flex; justify-content: center; align-items: center; border: none; color: var(--text-dim); cursor: pointer; font-size: 1rem; transition: 0.2s; &:hover { color: #ff4e4e; transform: scale(1.1); } }
         

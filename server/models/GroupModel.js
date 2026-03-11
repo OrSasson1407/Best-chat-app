@@ -41,9 +41,15 @@ const GroupSchema = new mongoose.Schema(
       sparse: true 
     },
     
-    // --- MERGE UPDATE: ADVANCED ROLES & CHANNELS ---
+    // --- ADVANCED ROLES & PERMISSIONS ---
     moderators: [
       { 
+        type: mongoose.Schema.Types.ObjectId, 
+        ref: "User" 
+      }
+    ],
+    bannedUsers: [ // <-- NEW: Prevent kicked users from re-joining
+      {
         type: mongoose.Schema.Types.ObjectId, 
         ref: "User" 
       }

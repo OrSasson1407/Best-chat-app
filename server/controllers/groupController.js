@@ -1,6 +1,6 @@
 const Group = require("../models/GroupModel");
 const Message = require("../models/Message");
-const { v4: uuidv4 } = require("uuid"); // For generating invite links
+const { v4: uuidv4 } = require("uuid"); 
 
 module.exports.createGroup = async (req, res, next) => {
   try {
@@ -102,6 +102,8 @@ module.exports.getGroupMessages = async (req, res, next) => {
   }
 };
 
+// --- CORE MEMBER MANAGEMENT ---
+
 module.exports.addMember = async (req, res, next) => {
     try {
         const { groupId, userId, encryptedKey } = req.body;
@@ -110,8 +112,12 @@ module.exports.addMember = async (req, res, next) => {
         const group = await Group.findById(groupId);
         if (!group) return res.status(404).json({ msg: "Group not found" });
 
-        if (!group.admins.includes(currentUserId)) {
-            return res.status(403).json({ msg: "Only admins can add members." });
+        if (!group.admins.includes(currentUserId) && !group.moderators.includes(currentUserId)) {
+            return res.status(403).json({ msg: "Only admins and moderators can add members." });
+        }
+
+        if (group.bannedUsers.includes(userId)) {
+             return res.status(403).json({ msg: "This user is banned from the group." });
         }
 
         if (!group.members.includes(userId)) {
@@ -136,8 +142,15 @@ module.exports.removeMember = async (req, res, next) => {
         const group = await Group.findById(groupId);
         if (!group) return res.status(404).json({ msg: "Group not found" });
 
-        if (!group.admins.includes(currentUserId)) {
-            return res.status(403).json({ msg: "Only admins can remove members." });
+        // Admins can remove anyone. Mods can only remove regular members.
+        const isModTryingToRemoveAdminOrMod = group.moderators.includes(currentUserId) && (group.admins.includes(userId) || group.moderators.includes(userId));
+
+        if (!group.admins.includes(currentUserId) && !group.moderators.includes(currentUserId)) {
+            return res.status(403).json({ msg: "You do not have permission to remove members." });
+        }
+
+        if (isModTryingToRemoveAdminOrMod) {
+             return res.status(403).json({ msg: "Moderators cannot remove admins or other moderators." });
         }
 
         if (group.admins.includes(userId) && group.admins.length === 1) {
@@ -146,7 +159,7 @@ module.exports.removeMember = async (req, res, next) => {
 
         group.members.pull(userId);
         group.admins.pull(userId); 
-        group.moderators.pull(userId); // MERGE UPDATE: Revoke mod status too
+        group.moderators.pull(userId); 
         
         group.groupKeys = group.groupKeys.filter(k => k.userId.toString() !== userId);
 
@@ -172,7 +185,7 @@ module.exports.leaveGroup = async (req, res, next) => {
 
         group.members.pull(currentUserId);
         group.admins.pull(currentUserId);
-        group.moderators.pull(currentUserId); // MERGE UPDATE: Revoke mod status
+        group.moderators.pull(currentUserId); 
         
         group.groupKeys = group.groupKeys.filter(k => k.userId.toString() !== currentUserId);
 
@@ -209,7 +222,115 @@ module.exports.deleteGroup = async (req, res, next) => {
     }
 };
 
-// --- MERGE UPDATE: PUBLIC CHANNELS & ROLES ---
+// --- ADVANCED ROLE MANAGEMENT & MODERATION ---
+
+module.exports.promoteToModerator = async (req, res, next) => {
+  try {
+    const { groupId, targetUserId } = req.body;
+    const adminId = req.user.id;
+    
+    const group = await Group.findById(groupId);
+    if (!group) return res.status(404).json({ status: false, msg: "Group not found" });
+
+    if (!group.admins.includes(adminId)) {
+      return res.status(403).json({ status: false, msg: "Only admins can promote members." });
+    }
+
+    if (!group.moderators.includes(targetUserId)) {
+      group.moderators.push(targetUserId);
+      await group.save();
+    }
+
+    return res.status(200).json({ status: true, moderators: group.moderators });
+  } catch (ex) {
+    next(ex);
+  }
+};
+
+module.exports.demoteModerator = async (req, res, next) => {
+  try {
+    const { groupId, targetUserId } = req.body;
+    const adminId = req.user.id;
+    
+    const group = await Group.findById(groupId);
+    if (!group) return res.status(404).json({ status: false, msg: "Group not found" });
+
+    if (!group.admins.includes(adminId)) {
+      return res.status(403).json({ status: false, msg: "Only admins can demote members." });
+    }
+
+    group.moderators.pull(targetUserId);
+    await group.save();
+
+    return res.status(200).json({ status: true, moderators: group.moderators });
+  } catch (ex) {
+    next(ex);
+  }
+};
+
+module.exports.promoteToAdmin = async (req, res, next) => {
+  try {
+    const { groupId, targetUserId } = req.body;
+    const adminId = req.user.id;
+    
+    const group = await Group.findById(groupId);
+    if (!group) return res.status(404).json({ status: false, msg: "Group not found" });
+
+    if (!group.admins.includes(adminId)) {
+      return res.status(403).json({ status: false, msg: "Only current admins can promote to admin." });
+    }
+
+    if (!group.admins.includes(targetUserId)) {
+      group.admins.push(targetUserId);
+      // Optional: Remove them from moderators if they are becoming an admin
+      group.moderators.pull(targetUserId); 
+      await group.save();
+    }
+
+    return res.status(200).json({ status: true, admins: group.admins });
+  } catch (ex) {
+    next(ex);
+  }
+};
+
+module.exports.kickMember = async (req, res, next) => {
+    try {
+        const { groupId, userId } = req.body;
+        const currentUserId = req.user.id;
+
+        const group = await Group.findById(groupId);
+        if (!group) return res.status(404).json({ msg: "Group not found" });
+
+        const isAdmin = group.admins.includes(currentUserId);
+        const isMod = group.moderators.includes(currentUserId);
+
+        if (!isAdmin && !isMod) {
+            return res.status(403).json({ msg: "You do not have permission to kick members." });
+        }
+
+        if (isMod && (group.admins.includes(userId) || group.moderators.includes(userId))) {
+             return res.status(403).json({ msg: "Moderators cannot kick admins or other moderators." });
+        }
+
+        group.members.pull(userId);
+        group.admins.pull(userId); 
+        group.moderators.pull(userId); 
+        group.groupKeys = group.groupKeys.filter(k => k.userId.toString() !== userId);
+        
+        // Add to banned list to prevent immediate re-entry via invite link
+        if (!group.bannedUsers.includes(userId)) {
+            group.bannedUsers.push(userId);
+        }
+
+        await group.save();
+
+        return res.json({ status: true, msg: "User kicked and banned from joining." });
+    } catch (ex) {
+        next(ex);
+    }
+};
+
+// --- PUBLIC CHANNELS ---
 
 module.exports.createChannel = async (req, res, next) => {
   try {
@@ -259,6 +380,10 @@ module.exports.joinChannel = async (req, res, next) => {
       return res.status(404).json({ status: false, msg: "Public channel not found" });
     }
 
+    if (channel.bannedUsers.includes(userId)) {
+      return res.status(403).json({ status: false, msg: "You have been banned from this channel." });
+    }
+
     if (channel.members.includes(userId)) {
       return res.status(400).json({ status: false, msg: "Already a member" });
     }
@@ -267,29 +392,6 @@ module.exports.joinChannel = async (req, res, next) => {
     await channel.save();
 
     return res.status(200).json({ status: true, channel });
-  } catch (ex) {
-    next(ex);
-  }
-};
-
-module.exports.promoteToModerator = async (req, res, next) => {
-  try {
-    const { groupId, targetUserId } = req.body;
-    const adminId = req.user.id;
-    
-    const group = await Group.findById(groupId);
-    if (!group) return res.status(404).json({ status: false, msg: "Group not found" });
-
-    if (!group.admins.includes(adminId)) {
-      return res.status(403).json({ status: false, msg: "Only admins can promote members" });
-    }
-
-    if (!group.moderators.includes(targetUserId)) {
-      group.moderators.push(targetUserId);
-      await group.save();
-    }
-
-    return res.status(200).json({ status: true, moderators: group.moderators });
   } catch (ex) {
     next(ex);
   }

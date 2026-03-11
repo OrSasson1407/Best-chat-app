@@ -70,9 +70,9 @@ module.exports.getChatMedia = async (req, res, next) => {
         isViewOnce: msg.isViewOnce,
         viewed: hasViewed,
         linkMetadata: msg.linkMetadata,
-        fileMetadata: msg.fileMetadata // --- MERGE UPDATE: Expose to Gallery
+        fileMetadata: msg.fileMetadata // Expose to Gallery
       };
-    }).filter(msg => msg.message !== "💣 Media Expired"); // Completely hide expired view-once media from the gallery
+    }).filter(msg => msg.message !== "💣 Media Expired"); // Completely hide expired view-once media
 
     res.json({
         status: true,
@@ -110,8 +110,8 @@ module.exports.getMessages = async (req, res, next) => {
     messages.reverse();
 
     const projectedMessages = messages.map((msg) => {
-      // Phase 2: Check if view-once media was already viewed by the current user
-      const hasViewed = msg.viewed || msg.viewedBy.includes(from);
+      // Phase 2: Check if view-once media was already viewed
+      const hasViewed = msg.viewed || (msg.viewedBy && msg.viewedBy.includes(from));
       const isHiddenViewOnce = msg.isViewOnce && hasViewed && msg.sender.toString() !== from;
 
       return {
@@ -128,16 +128,15 @@ module.exports.getMessages = async (req, res, next) => {
         isViewOnce: msg.isViewOnce,
         viewed: hasViewed,
         isPinned: msg.isPinned,
-        isStarred: msg.starredBy.includes(from),
+        isStarred: msg.starredBy && msg.starredBy.includes(from),
         pollData: msg.pollData,
         linkMetadata: msg.linkMetadata,
-        fileMetadata: msg.fileMetadata, // --- MERGE UPDATE: Expose to UI
+        fileMetadata: msg.fileMetadata, // Expose to UI
 
         // Phase 2: Expose timer and schedule state to UI
         timer: msg.timer,
         scheduledAt: msg.scheduledAt,
         isSent: msg.isSent,
-        
         readBy: msg.readBy,
 
         replyTo: msg.replyTo ? {
@@ -163,17 +162,16 @@ module.exports.getMessages = async (req, res, next) => {
 // --- Add Message (Updated with Phase 2 Expiration & Scheduling Logic) ---
 module.exports.addMessage = async (req, res, next) => {
   try {
-    // --- MERGE UPDATE: Destructure fileName and fileSize from frontend request ---
     const { from, to, message, type, replyTo, isForwarded, isViewOnce, pollData, timer, scheduledAt, fileName, fileSize } = req.body;
 
     const receiver = await User.findById(to);
-    if (receiver && receiver.blockedUsers.includes(from)) {
+    if (receiver && receiver.blockedUsers && receiver.blockedUsers.includes(from)) {
       return res.status(403).json({ msg: "Cannot send message. You are blocked by this user." });
     }
 
     let finalContent = message;
     let linkMetadata = null;
-    let fileMetadata = null; // Prepare metadata object
+    let fileMetadata = null;
     let finalType = type || "text";
 
     if (["image", "video", "audio", "file"].includes(type) && message.startsWith("data:")) {
@@ -183,7 +181,7 @@ module.exports.addMessage = async (req, res, next) => {
       });
       finalContent = uploadRes.secure_url; 
       
-      // --- MERGE UPDATE: Save metadata so the UI knows the file's original name and size ---
+      // Save metadata so the UI knows the file's original name and size
       if (type === "file") {
         fileMetadata = {
             fileName: fileName || "Attachment",
@@ -232,7 +230,7 @@ module.exports.addMessage = async (req, res, next) => {
       isViewOnce: isViewOnce || false,
       pollData: pollData || null,
       linkMetadata: linkMetadata,
-      fileMetadata: fileMetadata, // --- MERGE UPDATE: Save metadata to DB
+      fileMetadata: fileMetadata, // Save metadata to DB
       
       timer: timer || null,
       expireAt,
@@ -259,7 +257,7 @@ module.exports.addMessage = async (req, res, next) => {
     }
 
     if (data) return res.json({ msg: "Message added successfully.", data });
-    else return res.json({ msg: "Failed to add message" });
+    else return res.status(400).json({ msg: "Failed to add message" });
   } catch (ex) {
     next(ex);
   }
@@ -301,7 +299,7 @@ module.exports.deleteMessage = async (req, res, next) => {
     message.message.text = "🚫 This message was deleted";
     message.reactions = []; 
     message.linkMetadata = null;
-    message.fileMetadata = null; // --- MERGE UPDATE: clear on delete
+    message.fileMetadata = null; // clear on delete
     message.pollData = null;
     await message.save();
 
@@ -356,9 +354,13 @@ module.exports.editMessage = async (req, res, next) => {
                 const metadata = await urlMetadata(urls[0]);
                 message.linkMetadata = { title: metadata.title, description: metadata.description, image: metadata.image, url: urls[0] };
                 message.type = "link";
-            } catch (err) { message.linkMetadata = null; message.type = "text"; }
+            } catch (err) { 
+                message.linkMetadata = null; 
+                message.type = "text"; 
+            }
         } else {
-            message.linkMetadata = null; message.type = "text";
+            message.linkMetadata = null; 
+            message.type = "text";
         }
     }
 
@@ -424,11 +426,12 @@ module.exports.toggleStarMessage = async (req, res, next) => {
         
         if(!message) return res.status(404).json({ msg: "Message not found" });
 
-        const isStarred = message.starredBy.includes(userId);
+        const isStarred = message.starredBy && message.starredBy.includes(userId);
         
         if (isStarred) {
             message.starredBy = message.starredBy.filter(id => id.toString() !== userId);
         } else {
+            if(!message.starredBy) message.starredBy = [];
             message.starredBy.push(userId);
         }
 

@@ -1,30 +1,38 @@
+const express = require("express");
 const { 
   addMessage, 
   getMessages, 
   reactToMessage,
   deleteMessage,
-  deleteMessageForMe, // <-- MERGE UPDATE: Imported new controller function
+  deleteMessageForMe,
   editMessage,
   searchMessages,
-  getChatMedia 
+  getChatMedia,
+  votePoll,
+  triggerViewOnce,
+  toggleStarMessage
 } = require("../controllers/messageController");
 const auth = require("../middleware/authMiddleware"); // Security Middleware
-const router = require("express").Router();
 
-// Protected Routes
-router.post("/addmsg/", auth, addMessage);
+const router = express.Router();
+
+// Protected Message Fetching Routes
 router.post("/getmsg/", auth, getMessages);
+router.post("/search", auth, searchMessages);
+router.post("/getmedia", auth, getChatMedia);
 
-// Feature Routes
+// Message Action Routes
+router.post("/addmsg/", auth, addMessage);
 router.post("/react", auth, reactToMessage);
-router.post("/deletemsg", auth, deleteMessage);
-router.post("/deletemsgforme", auth, deleteMessageForMe); // <-- MERGE UPDATE: New route for local deletion
 router.post("/editmsg", auth, editMessage);
 
-// NEW: Search Route
-router.post("/search", auth, searchMessages);
+// Message Deletion Routes
+router.post("/deletemsg", auth, deleteMessage);
+router.post("/deletemsgforme", auth, deleteMessageForMe);
 
-// NEW: Media Gallery Route
-router.post("/getmedia", auth, getChatMedia);
+// Specialized Interaction Routes
+router.post("/vote", auth, votePoll);
+router.post("/viewonce", auth, triggerViewOnce);
+router.post("/star", auth, toggleStarMessage);
 
 module.exports = router;

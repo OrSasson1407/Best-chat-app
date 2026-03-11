@@ -1,12 +1,12 @@
 import React, { useMemo, useState } from "react";
+import { motion } from "framer-motion"; // <-- NEW: Imported Framer Motion
 import { 
     FaReply, FaSmile, FaTrash, FaPen, FaShare, FaStar, 
     FaClock, FaCheckDouble, FaFire, FaFileDownload, FaPoll, 
-    FaRegClock, FaLanguage // <-- NEW: Added Translation Icon
+    FaRegClock, FaLanguage 
 } from "react-icons/fa";
 import { getSmallAvatar, formatTime, isNewDay, formatDateBadge, isSameSender, isWithinTimeFrame } from "./chatHelpers";
 
-// --- MERGE UPDATE: IMPORT AXIOS AND ROUTES FOR AI TRANSLATION ---
 import axios from "axios";
 import { translateMessageRoute } from "../utils/APIRoutes";
 import { toast } from "react-toastify";
@@ -30,7 +30,7 @@ const MessageItem = React.memo(({
     setLightboxImage, setReadReceiptsMsg, scrollToMessage, setReplyingTo,
     setEditingMessage, handleDeleteMsg, handleReaction, handleOpenViewOnce
 }) => {
-    // --- MERGE UPDATE: AI TRANSLATION STATE ---
+    
     const [translatedText, setTranslatedText] = useState(null);
     const [isTranslating, setIsTranslating] = useState(false);
 
@@ -52,18 +52,14 @@ const MessageItem = React.memo(({
         return Object.entries(grouped);
     }, [message.reactions]);
 
-    // --- MERGE UPDATE: AI TRANSLATE FUNCTION ---
     const handleTranslate = async () => {
         if (translatedText) {
-            // Toggle back to original text
             setTranslatedText(null);
             return;
         }
 
         setIsTranslating(true);
         try {
-            // Using 'English' as the default target, but in a real app, 
-            // this could be dynamic based on user profile settings
             const { data } = await axios.post(translateMessageRoute, {
                 message: message.message,
                 targetLanguage: "English" 
@@ -116,7 +112,6 @@ const MessageItem = React.memo(({
         if (msg.isViewOnce && !msg.fromSelf && !msg.viewed) return <button className="view-once-btn" onClick={() => handleOpenViewOnce(msg.id)}><FaFire /> View Once Media</button>;
         if (msg.isViewOnce && (msg.viewed || msg.message === "💣 Media Expired")) return <p className="deleted-text">💣 Media Expired</p>;
 
-        // --- MERGE UPDATE: RENDER TRANSLATED TEXT ---
         if (msg.type === "text") {
             return (
                 <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -192,6 +187,28 @@ const MessageItem = React.memo(({
         return <p>{msg.message}</p>;
     };
 
+    // --- NEW: Framer Motion Animation Variants ---
+    const messageVariants = {
+        hidden: { 
+            opacity: 0, 
+            x: message.fromSelf ? 50 : -50, // Slide in from right if sent, left if received
+            y: 10,
+            scale: 0.95
+        },
+        visible: { 
+            opacity: 1, 
+            x: 0, 
+            y: 0, 
+            scale: 1,
+            transition: { 
+                type: "spring", 
+                stiffness: 400, 
+                damping: 30, 
+                mass: 1 
+            } 
+        }
+    };
+
     return (
         <div key={message.id}>
             {showDateSeparator && (
@@ -204,7 +221,14 @@ const MessageItem = React.memo(({
                 id={`msg-${message.id}`}
                 className={`message-wrapper ${highlightedMsgId === message.id ? 'highlight-flash' : ''} ${isGroupedWithNext ? 'grouped-next' : ''} ${isGroupedWithPrev ? 'grouped-prev' : ''}`}
             >
-                <div className={`message ${message.fromSelf ? "sended" : "recieved"} ${message.isDeleted ? "deleted-msg" : ""}`}>
+                {/* --- APPLIED FRAMER MOTION TO THE MESSAGE BUBBLE --- */}
+                <motion.div 
+                    className={`message ${message.fromSelf ? "sended" : "recieved"} ${message.isDeleted ? "deleted-msg" : ""}`}
+                    initial="hidden"
+                    animate="visible"
+                    variants={messageVariants}
+                    layout="position" // This ensures smooth re-ordering when earlier messages are deleted
+                >
                     <div className="content tail-physics">
                         {message.isForwarded && <div className="forwarded-tag"><FaShare /> Forwarded</div>}
 
@@ -243,7 +267,6 @@ const MessageItem = React.memo(({
                             <div className="message-actions">
                                 <button onClick={() => setReplyingTo({ id: message.id, text: message.message, type: message.type, isSelfQuote: message.fromSelf })} title="Reply"><FaReply /></button>
                                 
-                                {/* --- MERGE UPDATE: AI TRANSLATE BUTTON --- */}
                                 {message.type === "text" && (
                                     <button onClick={handleTranslate} title={translatedText ? "Show Original" : "Translate with AI"}>
                                         <FaLanguage color={translatedText ? "var(--msg-sent)" : "inherit"} />
@@ -286,7 +309,7 @@ const MessageItem = React.memo(({
                             </div>
                         )}
                     </div>
-                </div>
+                </motion.div>
             </div>
         </div>
     );

@@ -1,5 +1,16 @@
 // client/src/utils/crypto.js
 
+// --- NEW HELPER: Safely parse keys to prevent crashing on legacy users ---
+const parseJwk = (key, keyType = "Public") => {
+    if (!key) throw new Error(`${keyType} key is missing. User might be using an older version of the app.`);
+    if (typeof key === 'string') {
+        if (key === "[object Object]") throw new Error(`${keyType} key was corrupted in DB. Please re-register this user.`);
+        try { return JSON.parse(key); } 
+        catch (e) { throw new Error(`Invalid JSON format for ${keyType} key.`); }
+    }
+    return key;
+};
+
 // ====================================================
 // 1-ON-1 CHAT ENCRYPTION (ASYMMETRIC RSA)
 // ====================================================
@@ -27,9 +38,11 @@ export const generateKeyPair = async () => {
 // 2. Encrypt a message using the RECEIVER'S public key
 export const encryptMessage = async (messageText, receiverPublicKeyJwk) => {
     try {
+        const jwk = parseJwk(receiverPublicKeyJwk, "Receiver Public");
+        
         const publicKey = await window.crypto.subtle.importKey(
             "jwk", 
-            receiverPublicKeyJwk, 
+            jwk, 
             { name: "RSA-OAEP", hash: "SHA-256" }, 
             true, 
             ["encrypt"]
@@ -45,20 +58,21 @@ export const encryptMessage = async (messageText, receiverPublicKeyJwk) => {
         // Convert ArrayBuffer to Base64 string for easy storage in MongoDB
         return btoa(String.fromCharCode(...new Uint8Array(ciphertextBuffer)));
     } catch (err) {
-        console.error("Encryption failed:", err);
-        // --- MERGE UPDATE: Strict Security ---
+        console.error("Encryption failed:", err.message);
         // NEVER fallback to plaintext. If encryption fails, throw an error 
         // so the frontend can catch it and alert the user instead of leaking data.
-        throw new Error("Encryption failed. Cannot send message securely.");
+        throw new Error(err.message || "Encryption failed. Cannot send message securely.");
     }
 };
 
 // 3. Decrypt a message using YOUR private key
 export const decryptMessage = async (base64Ciphertext, myPrivateKeyJwk) => {
     try {
+        const jwk = parseJwk(myPrivateKeyJwk, "My Private");
+
         const privateKey = await window.crypto.subtle.importKey(
             "jwk", 
-            myPrivateKeyJwk, 
+            jwk, 
             { name: "RSA-OAEP", hash: "SHA-256" }, 
             true, 
             ["decrypt"]
@@ -79,8 +93,8 @@ export const decryptMessage = async (base64Ciphertext, myPrivateKeyJwk) => {
 
         return new TextDecoder().decode(decryptedBuffer);
     } catch (err) {
-        console.error("Decryption failed (might be a plaintext message or wrong key):", err);
-        // --- MERGE UPDATE: Graceful degradation for legacy messages ---
+        console.warn("Decryption skipped (Legacy plaintext message or bad key):", err.message);
+        // Graceful degradation for legacy messages
         // It's acceptable to return the original string ONLY on decryption, 
         // as it might be an older message sent before E2EE was implemented.
         return base64Ciphertext; 
@@ -88,7 +102,7 @@ export const decryptMessage = async (base64Ciphertext, myPrivateKeyJwk) => {
 };
 
 // ====================================================
-// GROUP CHAT ENCRYPTION (HYMMETRIC AES-GCM + RSA)
+// GROUP CHAT ENCRYPTION (SYMMETRIC AES-GCM + RSA)
 // ====================================================
 
 // 4. Generate a highly secure, random AES Key for a new Group
@@ -105,9 +119,11 @@ export const generateGroupAESKey = async () => {
 // 5. Encrypt a group message using the shared AES Group Key
 export const encryptGroupMessage = async (messageText, aesKeyJwk) => {
     try {
+        const jwk = parseJwk(aesKeyJwk, "Group AES");
+
         const key = await window.crypto.subtle.importKey(
             "jwk",
-            aesKeyJwk,
+            jwk,
             { name: "AES-GCM" },
             false,
             ["encrypt"]
@@ -132,17 +148,19 @@ export const encryptGroupMessage = async (messageText, aesKeyJwk) => {
 
         return btoa(String.fromCharCode(...combinedBuffer));
     } catch (err) {
-        console.error("Group AES Encryption failed:", err);
-        throw new Error("Group encryption failed. Cannot send message securely.");
+        console.error("Group AES Encryption failed:", err.message);
+        throw new Error(err.message || "Group encryption failed. Cannot send message securely.");
     }
 };
 
 // 6. Decrypt a group message using the shared AES Group Key
 export const decryptGroupMessage = async (base64Ciphertext, aesKeyJwk) => {
     try {
+        const jwk = parseJwk(aesKeyJwk, "Group AES");
+
         const key = await window.crypto.subtle.importKey(
             "jwk",
-            aesKeyJwk,
+            jwk,
             { name: "AES-GCM" },
             false,
             ["decrypt"]
@@ -166,7 +184,7 @@ export const decryptGroupMessage = async (base64Ciphertext, aesKeyJwk) => {
 
         return new TextDecoder().decode(decryptedBuffer);
     } catch (err) {
-        console.error("Group AES Decryption failed:", err);
+        console.warn("Group AES Decryption skipped (Legacy message):", err.message);
         return base64Ciphertext; // Fallback for unencrypted legacy group messages
     }
 };

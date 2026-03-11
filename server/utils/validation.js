@@ -93,10 +93,13 @@ const registerSchema = Joi.object({
 
   /**
    * Avatar image validation
+   * * FIXED: Made optional and allowed to be empty/null so the 
+   * backend controller can successfully generate a Dicebear fallback.
    */
   avatarImage: Joi.string()
     .uri()
-    .required(),
+    .allow("", null)
+    .optional(),
 
   /**
    * Public encryption key
@@ -104,7 +107,7 @@ const registerSchema = Joi.object({
   publicKey: Joi.string()
     .required(),
 
-}).unknown(false); // ADDED: Strict Mode. Fails if attacker tries to inject unknown fields (e.g. isAdmin: true)
+}).options({ stripUnknown: true }); // FIXED: Automatically removes fields like 'confirmPassword' instead of crashing
 
 
 /* =====================================================
@@ -129,7 +132,7 @@ const loginSchema = Joi.object({
   password: Joi.string()
     .required(),
 
-}).unknown(false); // ADDED: Strict Mode
+}).options({ stripUnknown: true }); // FIXED: Strip extra fields instead of failing
 
 
 /**
