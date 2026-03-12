@@ -322,8 +322,9 @@ Promise.all([pubClient.connect(), subClient.connect()])
   /**
    * Start scheduled message worker
    * Responsible for sending delayed messages
+   * CHANGED: Injecting `io` and `pubClient` to support scalable architecture
    */
-  startMessageScheduler();
+  startMessageScheduler(io, pubClient);
 
 })
 .catch((err) => {

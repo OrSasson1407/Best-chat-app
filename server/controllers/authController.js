@@ -96,8 +96,23 @@ module.exports.login = async (req, res, next) => {
   }
 };
 
-module.exports.logout = (req, res, next) => {
+module.exports.logout = async (req, res, next) => {
   try {
+    const refreshToken = req.cookies.refreshToken;
+    
+    // --- SECURITY ENHANCEMENT: REDIS BLACKLISTING ---
+    // If a refresh token exists, add it to a Redis blacklist so it cannot be used again
+    if (refreshToken && cacheClient.isReady) {
+        const decoded = jwt.decode(refreshToken);
+        if (decoded && decoded.exp) {
+            const timeToLive = decoded.exp - Math.floor(Date.now() / 1000);
+            if (timeToLive > 0) {
+                // Key format: bl_<token>, value: "revoked", expires automatically when the token would have expired
+                await cacheClient.setEx(`bl_${refreshToken}`, timeToLive, "revoked");
+            }
+        }
+    }
+
     res.clearCookie("refreshToken", {
       httpOnly: true,
       secure: true, 
@@ -112,6 +127,12 @@ module.exports.logout = (req, res, next) => {
 module.exports.refreshToken = async (req, res) => {
   const refreshToken = req.cookies.refreshToken;
   if (!refreshToken) return res.sendStatus(401);
+
+  // --- SECURITY ENHANCEMENT: CHECK REDIS BLACKLIST ---
+  if (cacheClient.isReady) {
+      const isBlacklisted = await cacheClient.get(`bl_${refreshToken}`);
+      if (isBlacklisted) return res.sendStatus(403); // Token was revoked during a previous logout
+  }
 
   jwt.verify(refreshToken, process.env.REFRESH_SECRET, (err, decoded) => {
     if (err) return res.sendStatus(403);

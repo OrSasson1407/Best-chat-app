@@ -1,17 +1,6 @@
 const Message = require("../models/Message"); 
-const User = require("../models/User");
-const cloudinary = require("cloudinary").v2;
-const urlMetadata = require('url-metadata'); // For Rich Link Previews
-
-// --- LEVEL 4: ENTERPRISE BACKGROUND QUEUE ---
-const { notificationQueue } = require("../workers/notificationWorker"); 
-
-// Configure Cloudinary using environment variables
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_NAME,
-  api_key: process.env.CLOUDINARY_KEY,
-  api_secret: process.env.CLOUDINARY_SECRET,
-});
+const messageService = require("../services/messageService");
+const urlMetadata = require('url-metadata'); // Needed for editMessage rich link previews
 
 // Helper to detect URLs in text for link previews
 const extractUrls = (text) => {
@@ -19,7 +8,7 @@ const extractUrls = (text) => {
     return text.match(urlRegex);
 };
 
-// --- NEW FEATURE: Search Messages ---
+// --- FEATURE: Search Messages ---
 module.exports.searchMessages = async (req, res, next) => {
   try {
     const { userId, query } = req.body;
@@ -54,7 +43,8 @@ module.exports.getChatMedia = async (req, res, next) => {
         deletedFor: { $ne: from } // Hide media if user deleted it for themselves
     };
 
-    const messages = await Message.find(query).sort({ createdAt: -1 });
+    // Use _id for sorting instead of createdAt for better performance and consistency
+    const messages = await Message.find(query).sort({ _id: -1 });
 
     const mediaList = messages.map((msg) => {
       // Check if view-once media was already viewed by the current user
@@ -83,182 +73,31 @@ module.exports.getChatMedia = async (req, res, next) => {
   }
 };
 
-// --- NEW FEATURE: Infinite Scrolling & Phase 2 Scheduled Message Filter ---
+// --- FEATURE: Infinite Scrolling & Phase 2 Scheduled Message Filter ---
 module.exports.getMessages = async (req, res, next) => {
   try {
     const { from, to, cursor, limit = 50 } = req.body; 
-
-    // PHASE 2 & 3: Filter for sent status AND deletedFor
-    let query = { 
-        users: { $all: [from, to] },
-        deletedFor: { $ne: from }, 
-        $or: [
-            { isSent: true },
-            { sender: from, isSent: false }
-        ]
-    };
-
-    if (cursor) {
-      query.createdAt = { $lt: new Date(cursor) }; 
-    }
-
-    const messages = await Message.find(query)
-      .sort({ createdAt: -1 })
-      .limit(limit)
-      .populate("replyTo", "message.text sender type isDeleted");
-
-    messages.reverse();
-
-    const projectedMessages = messages.map((msg) => {
-      // Phase 2: Check if view-once media was already viewed
-      const hasViewed = msg.viewed || (msg.viewedBy && msg.viewedBy.includes(from));
-      const isHiddenViewOnce = msg.isViewOnce && hasViewed && msg.sender.toString() !== from;
-
-      return {
-        id: msg._id,
-        fromSelf: msg.sender.toString() === from,
-        message: msg.isDeleted ? "🚫 This message was deleted" : isHiddenViewOnce ? "💣 Media Expired" : msg.message.text,
-        type: msg.type,
-        createdAt: msg.createdAt, 
-        status: msg.status || "sent", 
-        isDeleted: msg.isDeleted,
-        isEdited: msg.isEdited,
-        
-        isForwarded: msg.isForwarded,
-        isViewOnce: msg.isViewOnce,
-        viewed: hasViewed,
-        isPinned: msg.isPinned,
-        isStarred: msg.starredBy && msg.starredBy.includes(from),
-        pollData: msg.pollData,
-        linkMetadata: msg.linkMetadata,
-        fileMetadata: msg.fileMetadata, // Expose to UI
-
-        // Phase 2: Expose timer and schedule state to UI
-        timer: msg.timer,
-        scheduledAt: msg.scheduledAt,
-        isSent: msg.isSent,
-        readBy: msg.readBy,
-
-        replyTo: msg.replyTo ? {
-            id: msg.replyTo._id,
-            text: msg.replyTo.isDeleted ? "🚫 This message was deleted" : msg.replyTo.message.text,
-            type: msg.replyTo.type,
-            isSelfQuote: msg.replyTo.sender.toString() === from
-        } : null,
-        reactions: msg.reactions || [],
-      };
-    });
-
-    res.json({
-        messages: projectedMessages,
-        hasMore: messages.length === limit, 
-        nextCursor: messages.length > 0 ? messages[0].createdAt : null 
-    });
+    
+    // Delegate the complex querying and formatting to the Service Layer
+    const result = await messageService.fetchMessages(from, to, cursor, limit);
+    res.json(result);
   } catch (ex) {
     next(ex);
   }
 };
 
-// --- Add Message (Updated with Phase 2 Expiration & Scheduling Logic) ---
+// --- Add Message (Delegated to Service Layer) ---
 module.exports.addMessage = async (req, res, next) => {
   try {
-    const { from, to, message, type, replyTo, isForwarded, isViewOnce, pollData, timer, scheduledAt, fileName, fileSize } = req.body;
-
-    const receiver = await User.findById(to);
-    if (receiver && receiver.blockedUsers && receiver.blockedUsers.includes(from)) {
-      return res.status(403).json({ msg: "Cannot send message. You are blocked by this user." });
-    }
-
-    let finalContent = message;
-    let linkMetadata = null;
-    let fileMetadata = null;
-    let finalType = type || "text";
-
-    if (["image", "video", "audio", "file"].includes(type) && message.startsWith("data:")) {
-      const uploadRes = await cloudinary.uploader.upload(message, {
-        resource_type: "auto", 
-        folder: "best_chat_app_media", 
-      });
-      finalContent = uploadRes.secure_url; 
-      
-      // Save metadata so the UI knows the file's original name and size
-      if (type === "file") {
-        fileMetadata = {
-            fileName: fileName || "Attachment",
-            fileSize: fileSize || "Unknown size",
-            publicId: uploadRes.public_id
-        };
-      }
-    }
-
-    if (finalType === "text" || finalType === "link") {
-        const urls = extractUrls(message);
-        if (urls && urls.length > 0) {
-            try {
-                const metadata = await urlMetadata(urls[0]);
-                linkMetadata = {
-                    title: metadata.title,
-                    description: metadata.description,
-                    image: metadata.image,
-                    url: urls[0]
-                };
-                finalType = "link";
-            } catch (err) { 
-                console.log("Failed to fetch metadata for link:", err.message); 
-            }
-        }
-    }
-
-    // Phase 2: Compute Self-Destruct Timer
-    let expireAt = null;
-    if (timer) {
-        expireAt = new Date(Date.now() + timer * 1000); 
-    }
-
-    // Phase 2: Compute Scheduling
-    const isSent = scheduledAt ? new Date(scheduledAt) <= new Date() : true;
-
-    const data = await Message.create({
-      message: { text: finalContent },
-      users: [from, to],
-      sender: from,
-      type: finalType,
-      replyTo: replyTo || null,
-      status: isSent ? "sent" : "pending",
-      
-      isForwarded: isForwarded || false,
-      isViewOnce: isViewOnce || false,
-      pollData: pollData || null,
-      linkMetadata: linkMetadata,
-      fileMetadata: fileMetadata, // Save metadata to DB
-      
-      timer: timer || null,
-      expireAt,
-      scheduledAt: scheduledAt ? new Date(scheduledAt) : null,
-      isSent,
-      deletedFor: [] // Initialize empty array for deletes
-    });
-
-    if (isSent && !global.onlineUsers.has(to) && receiver && receiver.fcmToken) {
-       try {
-         const senderUser = await User.findById(from);
-         await notificationQueue.add("send_fcm_message", {
-           userId: receiver._id,
-           fcmToken: receiver.fcmToken,
-           title: `New message from ${senderUser.username}`,
-           body: finalType === "text" ? "Sent a message" : `Sent a ${finalType}`,
-         }, {
-           attempts: 3,
-           backoff: { type: 'exponential', delay: 1000 }
-         });
-       } catch (err) {
-         console.error("Failed to queue FCM Notification:", err.message);
-       }
-    }
-
+    // Delegate Cloudinary uploads, URL metadata, saving, and Notifications to the Service Layer
+    const data = await messageService.processAndSaveMessage(req.body);
+    
     if (data) return res.json({ msg: "Message added successfully.", data });
     else return res.status(400).json({ msg: "Failed to add message" });
   } catch (ex) {
+    if (ex.message === "Cannot send message. You are blocked by this user.") {
+        return res.status(403).json({ msg: ex.message });
+    }
     next(ex);
   }
 };
@@ -309,7 +148,7 @@ module.exports.deleteMessage = async (req, res, next) => {
   }
 };
 
-// --- NEW Delete for Me Controller ---
+// --- Delete for Me Controller ---
 module.exports.deleteMessageForMe = async (req, res, next) => {
   try {
     const { messageId, userId } = req.body;

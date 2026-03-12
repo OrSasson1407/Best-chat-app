@@ -7,7 +7,7 @@
  * Responsibilities:
  * - Track online users via Redis (Scalable)
  * - Handle real-time messaging (direct + group)
- * - Throttled typing indicators
+ * - Throttled typing indicators (Redis-backed)
  * - Emoji reactions
  * - Message read receipts
  * - Message editing & deletion
@@ -25,25 +25,16 @@ const Group = require("../models/GroupModel"); // Group chat model
 const { notificationQueue } = require("../workers/notificationWorker"); // BullMQ Push Notifications
 
 /**
- * In-memory map to track rate limits for specific events
- * to prevent socket abuse (e.g. typing spam).
+ * DISTRIBUTED RATE LIMITER (Redis-Backed)
+ * Uses Redis SET command with NX (Not eXists) and PX (expiration in ms)
+ * to atomically ensure a user cannot spam events across multiple servers.
  */
-const rateLimits = new Map();
-
-/**
- * Rate Limiter Helper function
- */
-const isRateLimited = (socketId, action, limitMs) => {
-  const key = `${socketId}:${action}`;
-  const now = Date.now();
-  const lastTime = rateLimits.get(key) || 0;
-  
-  if (now - lastTime < limitMs) return true; // Block action
-  
-  rateLimits.set(key, now); // Allow action & record time
-  return false;
+const isRateLimited = async (redisClient, socketId, action, limitMs) => {
+  const key = `rate_limit:${socketId}:${action}`;
+  // Returns true if the key was set (meaning they are allowed), null if it already existed (rate limited)
+  const allowed = await redisClient.set(key, "1", { NX: true, PX: limitMs });
+  return !allowed; 
 };
-
 
 /**
  * Initialize Socket Event Handlers
@@ -61,7 +52,6 @@ module.exports = (io, redisClient) => {
    * Value → timestamp of last DB update
    */
   const heartbeatThrottles = new Map();
-
 
   /**
    * Triggered whenever a client connects to the socket server
@@ -119,7 +109,6 @@ module.exports = (io, redisClient) => {
 
     });
 
-
     /* =====================================================
        2. PRESENCE CHECK
        ===================================================== */
@@ -173,7 +162,6 @@ module.exports = (io, redisClient) => {
 
     });
 
-
     /* =====================================================
        3. HEARTBEAT SYSTEM
        ===================================================== */
@@ -212,7 +200,6 @@ module.exports = (io, redisClient) => {
 
     });
 
-
     /* =====================================================
        4. GROUP ROOM JOIN
        ===================================================== */
@@ -235,15 +222,14 @@ module.exports = (io, redisClient) => {
       }
     });
 
-
     /* =====================================================
        5. SEND MESSAGE (DIRECT & GROUP)
        ===================================================== */
 
     socket.on("send-msg", async (data, callback) => {
 
-      // Rate limit sending messages to max 5 per second per socket
-      if (isRateLimited(socket.id, "send-msg", 200)) {
+      // Rate limit sending messages to max 5 per second per socket using Redis
+      if (await isRateLimited(redisClient, socket.id, "send-msg", 200)) {
         if (callback) callback({ status: "error", msg: "Sending too fast." });
         return;
       }
@@ -391,15 +377,14 @@ module.exports = (io, redisClient) => {
 
     });
 
-
     /* =====================================================
        6. TYPING INDICATOR
        ===================================================== */
 
     socket.on("typing", async (data) => {
       
-      // Throttle typing indicators to save bandwidth (max 1 event per 800ms)
-      if (isRateLimited(socket.id, "typing", 800)) return;
+      // Throttle typing indicators to save bandwidth (max 1 event per 800ms) using Redis
+      if (await isRateLimited(redisClient, socket.id, "typing", 800)) return;
 
       if (data.isGroup) {
 
@@ -425,7 +410,6 @@ module.exports = (io, redisClient) => {
 
     });
 
-
     /* =====================================================
        7. EMOJI REACTIONS
        ===================================================== */
@@ -442,7 +426,6 @@ module.exports = (io, redisClient) => {
       }
 
     });
-
 
     /* =====================================================
        8. MESSAGE READ RECEIPTS
@@ -519,7 +502,6 @@ module.exports = (io, redisClient) => {
 
     });
 
-
     /* =====================================================
        9. DELETE MESSAGE
        ===================================================== */
@@ -542,7 +524,6 @@ module.exports = (io, redisClient) => {
       if (callback) callback({ success: true, id: data.messageId });
 
     });
-
 
     /* =====================================================
        10. EDIT MESSAGE
@@ -568,7 +549,6 @@ module.exports = (io, redisClient) => {
       if (callback) callback({ success: true, id: data.messageId });
 
     });
-
 
     /* =====================================================
        11. WEBRTC SIGNALING & CALL STATE MANAGEMENT
@@ -612,7 +592,6 @@ module.exports = (io, redisClient) => {
 
     });
 
-
     /**
      * Answer call
      */
@@ -623,7 +602,6 @@ module.exports = (io, redisClient) => {
       }
     });
 
-
     /**
      * ICE Candidate exchange
      */
@@ -633,7 +611,6 @@ module.exports = (io, redisClient) => {
         io.to(targetSocket).emit("ice-candidate-received", data.candidate);
       }
     });
-
 
     /**
      * End call
@@ -653,7 +630,6 @@ module.exports = (io, redisClient) => {
       }
 
     });
-
 
     /* =====================================================
        12. DISCONNECT HANDLING

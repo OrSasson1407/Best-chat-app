@@ -9,8 +9,8 @@
  * - Cron-like background job using setInterval
  * - Fetches pending scheduled messages from MongoDB
  * - Marks messages as sent
- * - Emits real-time events via Socket.io
- * - Enqueues push notifications for offline users (NEW)
+ * - Emits real-time events via Socket.io using Redis state (NEW)
+ * - Enqueues push notifications for offline users
  * - Supports:
  * • private chats
  * • group chats
@@ -23,25 +23,17 @@
  */
 
 const Message = require("../models/Message"); // MongoDB message model
-const User = require("../models/User"); // ADDED: Required to get FCM tokens for offline users
+const User = require("../models/User"); // Required to get FCM tokens for offline users
 const logger = require("../utils/logger"); // Central logging utility
-const { notificationQueue } = require("./notificationWorker"); // ADDED: Notification queue
-
+const { notificationQueue } = require("./notificationWorker"); // Notification queue
 
 /**
  * Initializes the scheduled message worker.
  *
- * The worker periodically scans the database for messages
- * where:
- * - isSent = false
- * - scheduledAt <= current time
- *
- * Once found, the message is:
- * 1. Marked as sent
- * 2. Saved to database
- * 3. Delivered to recipients via Socket.io (or Push Notification if offline)
+ * @param {SocketIO.Server} io - Socket.io server instance to emit events
+ * @param {RedisClient} redisClient - Connected Redis client to find online sockets
  */
-const startMessageScheduler = () => {
+const startMessageScheduler = (io, redisClient) => {
 
   /**
    * Scheduler interval (how often the worker runs)
@@ -49,7 +41,6 @@ const startMessageScheduler = () => {
    * Configurable via environment variable.
    */
   const intervalMs = process.env.SCHEDULER_INTERVAL_MS || 30000;
-
 
   /**
    * Main worker loop
@@ -69,7 +60,6 @@ const startMessageScheduler = () => {
         scheduledAt: { $lte: now }
       });
 
-
       /**
        * Process messages if any are found
        */
@@ -85,11 +75,10 @@ const startMessageScheduler = () => {
 
           await msg.save();
 
-
           /**
            * Emit real-time event if socket system is available
            */
-          if (global.chatSocket && global.onlineUsers) {
+          if (io && redisClient) {
 
             /**
              * Determine target recipients
@@ -99,26 +88,22 @@ const startMessageScheduler = () => {
               id => id.toString() !== msg.sender.toString()
             );
 
-
             /**
              * Deliver message to each recipient
              */
-            // CHANGED: Using a regular for...of loop so we can use async/await inside it for database calls
             for (let targetId of targetUsers) {
 
               /**
-               * Retrieve the recipient's socket ID
+               * Retrieve the recipient's socket ID from Redis
                */
-              const receiverSocket =
-                global.onlineUsers.get(targetId.toString());
-
+              const receiverSocket = await redisClient.hGet("online_users", targetId.toString());
 
               /**
                * If recipient is online, emit the message
                */
               if (receiverSocket) {
 
-                global.chatSocket
+                io
                   .to(receiverSocket)
                   .emit("msg-recieve", {
 
@@ -147,7 +132,7 @@ const startMessageScheduler = () => {
               } else {
                 
                 /**
-                 * ADDED: If recipient is offline, send a push notification instead
+                 * If recipient is offline, send a push notification instead
                  */
                 const offlineUser = await User.findById(targetId.toString());
                 
@@ -164,7 +149,6 @@ const startMessageScheduler = () => {
             }
           }
         }
-
 
         /**
          * Log scheduler activity
@@ -185,7 +169,6 @@ const startMessageScheduler = () => {
 
   }, intervalMs);
 };
-
 
 /**
  * Export worker initializer
