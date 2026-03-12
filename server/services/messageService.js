@@ -1,15 +1,16 @@
 const Message = require("../models/Message"); 
 const User = require("../models/User");
-const cloudinary = require("cloudinary").v2;
 const urlMetadata = require('url-metadata');
 const { notificationQueue } = require("../workers/notificationWorker"); 
 
-// Configure Cloudinary
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_NAME,
-  api_key: process.env.CLOUDINARY_KEY,
-  api_secret: process.env.CLOUDINARY_SECRET,
-});
+// STEP 6 FIX: Import the new async media worker queue
+const { mediaQueue } = require("../workers/mediaWorker"); 
+
+const { createClient } = require("redis");
+
+// Initialize Redis for Hot Cache
+const cacheClient = createClient({ url: process.env.REDIS_URI || "redis://localhost:6379" });
+cacheClient.connect().catch(err => console.error("Message Cache Client Error:", err));
 
 const extractUrls = (text) => {
   const urlRegex = /(https?:\/\/[^\s]+)/g;
@@ -17,6 +18,13 @@ const extractUrls = (text) => {
 };
 
 class MessageService {
+
+  // Helper to generate a unique cache key for a conversation
+  getChatCacheKey(user1, user2) {
+    const sortedIds = [user1.toString(), user2.toString()].sort();
+    return `chat_history:${sortedIds[0]}:${sortedIds[1]}`;
+  }
+
   async processAndSaveMessage(payload) {
     const { from, to, message, type, replyTo, isForwarded, isViewOnce, pollData, timer, scheduledAt, fileName, fileSize } = payload;
 
@@ -25,29 +33,11 @@ class MessageService {
       throw new Error("Cannot send message. You are blocked by this user.");
     }
 
-    let finalContent = message;
     let linkMetadata = null;
     let fileMetadata = null;
     let finalType = type || "text";
 
-    // Handle Media Upload
-    if (["image", "video", "audio", "file"].includes(type) && message.startsWith("data:")) {
-      const uploadRes = await cloudinary.uploader.upload(message, {
-        resource_type: "auto", 
-        folder: "best_chat_app_media", 
-      });
-      finalContent = uploadRes.secure_url; 
-      
-      if (type === "file") {
-        fileMetadata = {
-            fileName: fileName || "Attachment",
-            fileSize: fileSize || "Unknown size",
-            publicId: uploadRes.public_id
-        };
-      }
-    }
-
-    // Handle Link Metadata
+    // Handle Link Metadata immediately (it is fast enough to do synchronously)
     if (finalType === "text" || finalType === "link") {
         const urls = extractUrls(message);
         if (urls && urls.length > 0) {
@@ -70,25 +60,90 @@ class MessageService {
     if (timer) expireAt = new Date(Date.now() + timer * 1000); 
 
     const isSent = scheduledAt ? new Date(scheduledAt) <= new Date() : true;
+    
+    // STEP 6 FIX: Determine if the message is a media upload
+    const isMedia = ["image", "video", "audio", "file"].includes(finalType) && message.startsWith("data:");
+
+    // STEP 6 FIX: Determine Status. Media bypasses "sent" initially to become "processing"
+    let initialStatus = isMedia ? "processing" : (isSent ? "sent" : "pending");
 
     const data = await Message.create({
-      message: { text: finalContent },
+      message: { text: message }, // For media, this temporarily stores the base64 string
       users: [from, to],
       sender: from,
       type: finalType,
       replyTo: replyTo || null,
-      status: isSent ? "sent" : "pending",
+      status: initialStatus,
       isForwarded: isForwarded || false,
       isViewOnce: isViewOnce || false,
       pollData: pollData || null,
       linkMetadata: linkMetadata,
-      fileMetadata: fileMetadata, 
+      fileMetadata: isMedia && finalType === "file" ? { fileName, fileSize } : null, 
       timer: timer || null,
       expireAt,
       scheduledAt: scheduledAt ? new Date(scheduledAt) : null,
       isSent,
       deletedFor: [] 
     });
+
+    // --- STEP 6 FIX: ASYNC MEDIA PIPELINE TRIGGER ---
+    if (isMedia) {
+      await mediaQueue.add("process_media", {
+        messageId: data._id,
+        from, to, type: finalType, fileName, fileSize
+      });
+      // Return immediately so the sender's UI is not blocked. 
+      // The background worker handles the Cloudinary upload and updates Redis later.
+      return data; 
+    }
+
+    // --- HOT CACHE & NOTIFICATIONS (Only executes synchronously for standard text/links) ---
+    if (cacheClient.isReady && isSent) {
+      const cacheKey = this.getChatCacheKey(from, to);
+      
+      // Fetch populated replyTo data if it exists so the cache matches the frontend's expected structure
+      let populatedReplyTo = null;
+      if (replyTo) {
+        const replyMsg = await Message.findById(replyTo).select("message.text sender type isDeleted");
+        if (replyMsg) {
+          populatedReplyTo = {
+            id: replyMsg._id,
+            text: replyMsg.isDeleted ? "🚫 This message was deleted" : replyMsg.message.text,
+            type: replyMsg.type,
+            isSelfQuote: replyMsg.sender.toString() === from.toString()
+          };
+        }
+      }
+
+      const messageToCache = JSON.stringify({
+        id: data._id,
+        sender: from,
+        message: data.message.text,
+        type: data.type,
+        createdAt: data.createdAt,
+        status: data.status,
+        isDeleted: data.isDeleted || false,
+        isEdited: data.isEdited || false,
+        isForwarded: data.isForwarded || false,
+        isViewOnce: data.isViewOnce || false,
+        viewed: false,
+        isPinned: false,
+        isStarred: false,
+        pollData: data.pollData || null,
+        linkMetadata: data.linkMetadata || null,
+        fileMetadata: data.fileMetadata || null,
+        timer: data.timer || null,
+        scheduledAt: data.scheduledAt || null,
+        isSent: data.isSent,
+        readBy: [],
+        replyTo: populatedReplyTo,
+        reactions: []
+      });
+
+      await cacheClient.lPush(cacheKey, messageToCache);
+      await cacheClient.lTrim(cacheKey, 0, 49); // Keep latest 50
+      await cacheClient.expire(cacheKey, 86400); // Expire idle chats after 24h
+    }
 
     // Handle FCM Notifications
     if (isSent && receiver && receiver.fcmToken && !global.onlineUsers?.has(to)) {
@@ -99,10 +154,7 @@ class MessageService {
            fcmToken: receiver.fcmToken,
            title: `New message from ${senderUser.username}`,
            body: finalType === "text" ? "Sent a message" : `Sent a ${finalType}`,
-         }, {
-           attempts: 3,
-           backoff: { type: 'exponential', delay: 1000 }
-         });
+         }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });
        } catch (err) {
          console.error("Failed to queue FCM Notification:", err.message);
        }
@@ -112,6 +164,40 @@ class MessageService {
   }
 
   async fetchMessages(from, to, cursor, limit) {
+    const cacheKey = this.getChatCacheKey(from, to);
+
+    // STEP 2 FIX: REDIS CACHE STRATEGY
+    if (!cursor && cacheClient.isReady) {
+      const cachedData = await cacheClient.lRange(cacheKey, 0, limit - 1);
+      
+      // ONLY use the cache if it can fulfill the entire requested limit.
+      // If the cache only has 3 messages but the limit is 20, we fallback to MongoDB
+      // to guarantee the user sees a full screen of history.
+      if (cachedData && cachedData.length === limit) {
+        const parsedCache = cachedData.map(msgStr => {
+          const msg = JSON.parse(msgStr);
+          msg.fromSelf = msg.sender.toString() === from.toString(); 
+          
+          // Apply ViewOnce / Deleted masking
+          const isHiddenViewOnce = msg.isViewOnce && msg.viewed && !msg.fromSelf;
+          if (isHiddenViewOnce) msg.message = "💣 Media Expired";
+          if (msg.isDeleted) msg.message = "🚫 This message was deleted";
+          
+          return msg;
+        });
+
+        // Safely reverse without mutating the original reference mapped array
+        const reversedCache = [...parsedCache].reverse();
+
+        return {
+          messages: reversedCache,
+          hasMore: true, // We know there are likely more messages in the DB if cache is full
+          nextCursor: reversedCache[0].id // Oldest message in this batch acts as the next cursor
+        };
+      }
+    }
+
+    // FALLBACK TO MONGODB
     let query = { 
         users: { $all: [from, to] },
         deletedFor: { $ne: from }, 
@@ -121,13 +207,10 @@ class MessageService {
         ]
     };
 
-    // BUG FIX: Using _id for cursor instead of createdAt to prevent skipping messages
-    if (cursor) {
-      query._id = { $lt: cursor }; 
-    }
+    if (cursor) query._id = { $lt: cursor }; 
 
     const messages = await Message.find(query)
-      .sort({ _id: -1 }) // Sort by _id descending
+      .sort({ _id: -1 })
       .limit(limit)
       .populate("replyTo", "message.text sender type isDeleted");
 
@@ -171,7 +254,7 @@ class MessageService {
     return {
         messages: projectedMessages,
         hasMore: messages.length === limit, 
-        nextCursor: messages.length > 0 ? messages[0]._id : null // Next cursor is the oldest _id in this batch
+        nextCursor: messages.length > 0 ? messages[0]._id : null
     };
   }
 }

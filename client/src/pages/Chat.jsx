@@ -2,6 +2,10 @@ import React, { useEffect, useState, useRef, useCallback, useMemo } from "react"
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { io } from "socket.io-client";
+
+// STEP 3 FIX: Import the binary payload parser
+import customParser from "socket.io-msgpack-parser";
+
 import styled, { keyframes, css } from "styled-components";
 import { allUsersRoute, host, updateFcmTokenRoute } from "../utils/APIRoutes"; 
 import Contacts from "../components/Contacts";
@@ -62,7 +66,9 @@ export default function Chat() {
   useEffect(() => {
     if (currentUser && currentUser._id && !socket.current) {
       socket.current = io(host, {
-        auth: { token: currentUser.token }
+        auth: { token: currentUser.token }, // Fallback for older connections
+        withCredentials: true, // STEP 4 FIX: Include cookies in WebSocket handshake
+        parser: customParser   // STEP 3 FIX: Decode MessagePack binary streams
       });
 
       socket.current.on("connect", () => {
@@ -130,6 +136,7 @@ export default function Chat() {
         try {
           const response = await axios.get(`${allUsersRoute}/${currentUser._id}`, {
             headers: { "x-auth-token": currentUser.token },
+            withCredentials: true // STEP 4 FIX: Pass secure cookies along with the fallback header
           });
           setContacts(response.data);
         } catch (error) {
@@ -154,7 +161,10 @@ export default function Chat() {
               await axios.post(updateFcmTokenRoute, {
                  userId: currentUser._id,
                  fcmToken: token
-              }, { headers: { "x-auth-token": currentUser.token } });
+              }, { 
+                 headers: { "x-auth-token": currentUser.token },
+                 withCredentials: true // STEP 4 FIX
+              });
            } catch (err) {
               console.error("Failed to save FCM token to DB", err);
            }

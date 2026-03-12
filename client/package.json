@@ -26,6 +26,7 @@
     "react-virtuoso": "^4.18.3",
     "simple-peer": "^9.11.1",
     "socket.io-client": "^4.8.3",
+    "socket.io-msgpack-parser": "^3.0.2",
     "styled-components": "^6.3.9",
     "uuid": "^13.0.0",
     "web-vitals": "^2.1.4",

@@ -24,6 +24,9 @@ const Message = require("../models/Message");
 const Group = require("../models/GroupModel"); // Group chat model
 const { notificationQueue } = require("../workers/notificationWorker"); // BullMQ Push Notifications
 
+// STEP 1 FIX: Import Prometheus Metrics
+const { activeSocketsGauge, messageLatencyHistogram } = require("../utils/metrics");
+
 /**
  * DISTRIBUTED RATE LIMITER (Redis-Backed)
  * Uses Redis SET command with NX (Not eXists) and PX (expiration in ms)
@@ -35,6 +38,21 @@ const isRateLimited = async (redisClient, socketId, action, limitMs) => {
   const allowed = await redisClient.set(key, "1", { NX: true, PX: limitMs });
   return !allowed; 
 };
+
+/**
+ * STEP 4 FIX: AUTOMATED CONTENT MODERATION
+ * Simple automated moderation function to detect malicious links and spam
+ */
+function detectSpamOrMalicious(text) {
+  if (!text) return false;
+  // Block common phishing keywords or suspicious patterns
+  const forbiddenPatterns = [
+    /free.*crypto/i,
+    /click.*here.*win/i,
+    /http.*(phish|malware)\.com/i
+  ];
+  return forbiddenPatterns.some(regex => regex.test(text));
+}
 
 /**
  * Initialize Socket Event Handlers
@@ -57,6 +75,9 @@ module.exports = (io, redisClient) => {
    * Triggered whenever a client connects to the socket server
    */
   io.on("connection", (socket) => {
+
+    // STEP 1 FIX: Increment active socket metric
+    activeSocketsGauge.inc();
 
     /* =====================================================
        1. USER ONLINE STATUS
@@ -228,10 +249,18 @@ module.exports = (io, redisClient) => {
 
     socket.on("send-msg", async (data, callback) => {
 
+      const startTime = Date.now(); // STEP 1 FIX: Track start time for latency metrics
+
       // Rate limit sending messages to max 5 per second per socket using Redis
       if (await isRateLimited(redisClient, socket.id, "send-msg", 200)) {
         if (callback) callback({ status: "error", msg: "Sending too fast." });
         return;
+      }
+
+      // STEP 4 FIX: SPAM / MALICIOUS LINK FILTER
+      if (data.type === 'text' && detectSpamOrMalicious(data.msg)) {
+        if (callback) callback({ status: "error", msg: "Message blocked by security filter." });
+        return; 
       }
 
       /**
@@ -298,6 +327,9 @@ module.exports = (io, redisClient) => {
 
         });
 
+        // STEP 1 FIX: Record latency right after emission
+        messageLatencyHistogram.observe(Date.now() - startTime);
+
         if (callback) callback({ status: "sent", id: data.id });
 
       }
@@ -335,6 +367,9 @@ module.exports = (io, redisClient) => {
             fileMetadata: data.fileMetadata
 
           });
+
+          // STEP 1 FIX: Record latency right after emission
+          messageLatencyHistogram.observe(Date.now() - startTime);
 
           try {
 
@@ -636,6 +671,9 @@ module.exports = (io, redisClient) => {
        ===================================================== */
 
     socket.on("disconnect", async () => {
+
+      // STEP 1 FIX: Decrement active socket metric
+      activeSocketsGauge.dec();
 
       const disconnectedUser = socket.userId;
 

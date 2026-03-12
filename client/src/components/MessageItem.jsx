@@ -1,10 +1,10 @@
 import React, { useMemo, useState } from "react";
 import { motion } from "framer-motion"; 
-import styled, { keyframes, css } from "styled-components"; // <-- NEW: Styled components added
+import styled, { keyframes, css } from "styled-components";
 import { 
     FaReply, FaSmile, FaTrash, FaPen, FaShare, FaStar, 
     FaClock, FaCheckDouble, FaFire, FaFileDownload, FaPoll, 
-    FaRegClock, FaLanguage 
+    FaRegClock, FaLanguage, FaSpinner // <-- ADDED: FaSpinner for the loading state
 } from "react-icons/fa";
 import { getSmallAvatar, formatTime, isNewDay, formatDateBadge, isSameSender, isWithinTimeFrame } from "./chatHelpers";
 
@@ -13,9 +13,9 @@ import { translateMessageRoute } from "../utils/APIRoutes";
 import { toast } from "react-toastify";
 
 // --- ZUSTAND STORE ---
-import useChatStore from "../store/chatStore"; // <-- NEW: Accessing theme globally
+import useChatStore from "../store/chatStore";
 
-// --- NEW: Holographic Glitch Animation ---
+// --- Holographic Glitch Animation ---
 const glitch = keyframes`
   0% { clip: rect(44px, 450px, 56px, 0); transform: skew(0.5deg); }
   5% { clip: rect(62px, 450px, 100px, 0); transform: skew(0.5deg); }
@@ -24,7 +24,7 @@ const glitch = keyframes`
   100% { clip: rect(0, 0, 0, 0); }
 `;
 
-// --- NEW: Styled Motion Div for the Bubble ---
+// --- Styled Motion Div for the Bubble ---
 const MessageBubble = styled(motion.div)`
   ${({ $themeType }) => $themeType === 'cyberpunk' && css`
     position: relative;
@@ -108,7 +108,8 @@ const MessageItem = React.memo(({
                 message: message.message,
                 targetLanguage: "English" 
             }, {
-                headers: { "x-auth-token": currentUser.token }
+                headers: { "x-auth-token": currentUser.token },
+                withCredentials: true
             });
 
             if (data.status) {
@@ -155,6 +156,22 @@ const MessageItem = React.memo(({
         if (msg.isDeleted) return <p className="deleted-text">{msg.message}</p>;
         if (msg.isViewOnce && !msg.fromSelf && !msg.viewed) return <button className="view-once-btn" onClick={() => handleOpenViewOnce(msg.id)}><FaFire /> View Once Media</button>;
         if (msg.isViewOnce && (msg.viewed || msg.message === "💣 Media Expired")) return <p className="deleted-text">💣 Media Expired</p>;
+
+        // --- STEP 6 FIX: RENDER PROCESSING OVERLAY FOR BACKGROUND UPLOADS ---
+        const renderProcessingOverlay = () => {
+            if (msg.status === "processing") {
+                return (
+                    <div style={{
+                        position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
+                        background: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center',
+                        alignItems: 'center', zIndex: 10, borderRadius: 'inherit'
+                    }}>
+                        <FaSpinner className="fa-spin" color="#fff" size={24} style={{ animation: 'fa-spin 1s infinite linear' }} />
+                    </div>
+                );
+            }
+            return null;
+        };
 
         if (msg.type === "text") {
             return (
@@ -203,14 +220,43 @@ const MessageItem = React.memo(({
             );
         }
 
-        if (msg.type === "image") return <img src={msg.message} alt="sent" className="msg-image clickable" onClick={() => setLightboxImage(msg.message)} />;
-        if (msg.type === "video") return (<video controls className="msg-video"><source src={msg.message} />Your browser does not support video playback.</video>);
+        if (msg.type === "image") {
+            return (
+                <div style={{ position: 'relative' }}>
+                    {renderProcessingOverlay()}
+                    <img 
+                        src={msg.message} 
+                        alt="sent" 
+                        className={`msg-image ${msg.status !== 'processing' ? 'clickable' : ''}`} 
+                        onClick={() => msg.status !== 'processing' && setLightboxImage(msg.message)} 
+                        style={{ opacity: msg.status === 'processing' ? 0.6 : 1 }} 
+                    />
+                </div>
+            );
+        }
+
+        if (msg.type === "video") {
+            return (
+                <div style={{ position: 'relative' }}>
+                    {renderProcessingOverlay()}
+                    <video 
+                        controls={msg.status !== 'processing'} 
+                        className="msg-video" 
+                        style={{ opacity: msg.status === 'processing' ? 0.6 : 1 }}
+                    >
+                        <source src={msg.message} />
+                        Your browser does not support video playback.
+                    </video>
+                </div>
+            );
+        }
 
         if (msg.type === "file") {
             const fName = msg.fileMetadata?.fileName || "Attachment";
             const fSize = msg.fileMetadata?.fileSize || "";
             return (
-                <a href={msg.message} target="_blank" rel="noreferrer" className="msg-file-link">
+                <a href={msg.status === 'processing' ? '#' : msg.message} target={msg.status === 'processing' ? '_self' : '_blank'} rel="noreferrer" className="msg-file-link" style={{ opacity: msg.status === 'processing' ? 0.6 : 1, position: 'relative' }}>
+                    {renderProcessingOverlay()}
                     <div className="file-icon"><FaFileDownload /></div>
                     <div className="file-details">
                         <span className="fname">{fName}</span>
@@ -219,10 +265,17 @@ const MessageItem = React.memo(({
                 </a>
             );
         }
+
         if (msg.type === "audio") {
             return (
-                <div className="audio-player-wrapper">
-                    <audio controls src={msg.message} className="msg-audio" />
+                <div className="audio-player-wrapper" style={{ position: 'relative' }}>
+                    {renderProcessingOverlay()}
+                    <audio 
+                        controls={msg.status !== 'processing'} 
+                        src={msg.message} 
+                        className="msg-audio" 
+                        style={{ opacity: msg.status === 'processing' ? 0.6 : 1 }} 
+                    />
                 </div>
             );
         }

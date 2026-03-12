@@ -95,7 +95,7 @@ export default function Register() {
     setStep(2);
   };
 
-const handleSubmit = async (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
     if (!acceptedTerms) {
         return toast.warning("You must accept the Terms of Service to register.", toastOptions);
@@ -116,6 +116,9 @@ const handleSubmit = async (event) => {
         avatarImage: selectedAvatar,
         // --- CRITICAL FIX: Convert the public key object to a string ---
         publicKey: JSON.stringify(publicKey) 
+      }, {
+        // STEP 4 FIX: Ensure the browser stores the HttpOnly session cookies from the backend
+        withCredentials: true 
       });
 
       if (data.status === false) {

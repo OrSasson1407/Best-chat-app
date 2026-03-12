@@ -68,7 +68,7 @@ const userSchema = new mongoose.Schema({
     default: [],
   },
 
-  // --- MERGE UPDATE: PRIVACY CONTROLS ---
+  // --- PRIVACY CONTROLS ---
   privacySettings: {
     lastSeen: { 
       type: String, 
@@ -86,17 +86,31 @@ const userSchema = new mongoose.Schema({
     }
   },
   
-  // --- NEW FEATURES ---
+  // --- NOTIFICATIONS ---
   fcmToken: { 
     type: String, 
     default: "" 
   },
-  publicKey: { 
-    type: String, 
-    default: "" 
+
+  // --- STEP 7 FIX: FULL E2EE PRE-KEY BUNDLE ---
+  // Replaced the old single `publicKey` with a full bundle required for Signal-like E2EE
+  e2eKeys: {
+    identityKey: { type: String, default: "" }, // Long-term public identity key
+    registrationId: { type: Number, default: 0 }, 
+    signedPreKey: {
+      keyId: { type: Number },
+      publicKey: { type: String },
+      signature: { type: String }
+    },
+    preKeys: [ // A batch of one-time use keys for perfect forward secrecy
+      {
+        keyId: { type: Number },
+        publicKey: { type: String }
+      }
+    ]
   },
 
-  // --- MERGE UPDATE: CHAT CUSTOMIZATIONS ---
+  // --- CHAT CUSTOMIZATIONS ---
   chatCustomizations: [
     {
       chatId: { type: mongoose.Schema.Types.ObjectId }, // Can be a User ID or Group ID

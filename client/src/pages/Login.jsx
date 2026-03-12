@@ -43,10 +43,14 @@ export default function Login() {
     if (validateForm()) {
       const { username, password } = values;
       try {
+        // STEP 4 FIX: Added withCredentials to allow the browser to store secure HttpOnly cookies
         const { data } = await axios.post(loginRoute, {
           username,
           password,
+        }, {
+          withCredentials: true 
         });
+
         if (data.status === false) {
           toast.error(data.msg, toastOptions);
         }
@@ -64,18 +68,17 @@ export default function Login() {
             const keys = await generateKeyPair();
             
             // Save Private Key locally (NEVER send this to the server)
-            // Storing in localStorage so it persists even if the tab closes, 
-            // but you can change this to sessionStorage if you prefer stricter session limits.
             localStorage.setItem(`privateKey_${data.user._id}`, JSON.stringify(keys.privateKey));
             
             // Send Public Key to the Backend for other users to encrypt messages for this user
-           await axios.post(publicKeyRoute, {
-    userId: data.user._id,
-    publicKey: JSON.stringify(keys.publicKey)
-});
+            await axios.post(publicKeyRoute, {
+              userId: data.user._id,
+              publicKey: JSON.stringify(keys.publicKey)
+            }, {
+              withCredentials: true // Ensure the session cookie is passed during key registration
+            });
           } catch (cryptoErr) {
             console.error("Failed to generate or register E2EE keys", cryptoErr);
-            // Optionally notify the user, though we shouldn't block login
             toast.error("Warning: Encryption keys could not be established.", toastOptions);
           }
           // --------------------------------

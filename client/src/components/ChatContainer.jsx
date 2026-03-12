@@ -78,7 +78,12 @@ export default function ChatContainer({ socket, isTyping }) {
   const myPrivateKeyRef = useRef(null); 
 
   const skeletonWidths = useMemo(() => ['45%', '65%', '35%', '80%', '50%'], []);
-  const getAuthHeader = useCallback(() => ({ headers: { "x-auth-token": currentUser.token } }), [currentUser.token]);
+  
+  // STEP 4 FIX: Added withCredentials: true so that all Axios requests carry the HttpOnly session cookie
+  const getAuthHeader = useCallback(() => ({ 
+      headers: { "x-auth-token": currentUser.token },
+      withCredentials: true 
+  }), [currentUser.token]);
 
   // --- EFFECTS ---
   useEffect(() => {
@@ -209,7 +214,6 @@ export default function ChatContainer({ socket, isTyping }) {
       }
     }
     fetchHistory();
-    // Added loadOfflineMessages to dependency array
   }, [currentChat, currentUser, getAuthHeader, socket, loadOfflineMessages]);
 
   // --- MERGE UPDATE: AUTO-CACHE MESSAGES ---
@@ -357,6 +361,20 @@ export default function ChatContainer({ socket, isTyping }) {
           setShowCallModal(true);
       };
 
+      // --- STEP 6 FIX: ASYNC MEDIA WORKER LISTENER ---
+      const handleMediaReady = ({ messageId, url, type }) => {
+          setMessages((prev) => prev.map(msg => {
+              if (msg.id === messageId) {
+                  return { 
+                      ...msg, 
+                      message: url, 
+                      status: "sent" 
+                  };
+              }
+              return msg;
+          }));
+      };
+
       s.on("presence-response", handlePresenceResponse);
       s.on("user-status-change", handlePresenceResponse);
       s.on("msg-recieve", handleMsgRecieve);
@@ -366,6 +384,7 @@ export default function ChatContainer({ socket, isTyping }) {
       s.on("msg-deleted", handleMsgDeleted);
       s.on("msg-edited", handleMsgEdited);
       s.on("incoming-call", handleIncomingCall);
+      s.on("media-ready", handleMediaReady); // Register new listener
 
       return () => {
           s.off("presence-response", handlePresenceResponse); 
@@ -377,6 +396,7 @@ export default function ChatContainer({ socket, isTyping }) {
           s.off("msg-deleted", handleMsgDeleted); 
           s.off("msg-edited", handleMsgEdited); 
           s.off("incoming-call", handleIncomingCall); 
+          s.off("media-ready", handleMediaReady); // Cleanup
       };
     }
   }, [socket, currentUser, currentChat, activeGroupAesKey]);

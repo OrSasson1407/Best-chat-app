@@ -8,6 +8,9 @@ const { createClient } = require("redis");
 const cacheClient = createClient({ url: process.env.REDIS_URI || "redis://localhost:6379" });
 cacheClient.connect().catch(err => console.error("Cache Client Error:", err));
 
+// STEP 5: Import Meilisearch User Index
+const { userIndex } = require("../utils/meilisearch");
+
 // Safe API constants for Fallback avatar generation
 const femaleTops = "longHairBob,longHairBun,longHairCurly,longHairCurvy,longHairStraight,longHairNotTooLong";
 const maleTops = "shortHairDreads01,shortHairDreads02,shortHairFrizzle,shortHairShaggy,shortHairShortCurly,shortHairShortFlat,shortHairShortRound,shortHairShortWaved,shortHairSides";
@@ -48,6 +51,17 @@ module.exports.register = async (req, res, next) => {
       publicKey: publicKey 
     });
 
+    // STEP 5 FIX: Sync new user to Meilisearch
+    try {
+      await userIndex.addDocuments([{
+        id: user._id.toString(),
+        username: user.username,
+        email: user.email // Make email searchable as well
+      }]);
+    } catch (e) {
+      console.error("Failed to sync user to Meilisearch", e.message);
+    }
+
     const { accessToken, refreshToken } = generateTokens(user._id);
 
     res.cookie("refreshToken", refreshToken, {
@@ -55,6 +69,14 @@ module.exports.register = async (req, res, next) => {
       secure: true, 
       sameSite: "None", 
       maxAge: 7 * 24 * 60 * 60 * 1000, 
+    });
+
+    // STEP 4 FIX: Secure the access token in an HttpOnly cookie
+    res.cookie("accessToken", accessToken, {
+      httpOnly: true,
+      secure: true, 
+      sameSite: "None", 
+      maxAge: 15 * 60 * 1000, // 15 minutes
     });
 
     const userResponse = user.toObject();
@@ -87,6 +109,14 @@ module.exports.login = async (req, res, next) => {
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
+    // STEP 4 FIX: Secure the access token in an HttpOnly cookie
+    res.cookie("accessToken", accessToken, {
+      httpOnly: true,
+      secure: true, 
+      sameSite: "None", 
+      maxAge: 15 * 60 * 1000, // 15 minutes
+    });
+
     const userResponse = user.toObject();
     delete userResponse.password;
 
@@ -99,16 +129,27 @@ module.exports.login = async (req, res, next) => {
 module.exports.logout = async (req, res, next) => {
   try {
     const refreshToken = req.cookies.refreshToken;
+    const accessToken = req.cookies.accessToken;
     
     // --- SECURITY ENHANCEMENT: REDIS BLACKLISTING ---
-    // If a refresh token exists, add it to a Redis blacklist so it cannot be used again
-    if (refreshToken && cacheClient.isReady) {
-        const decoded = jwt.decode(refreshToken);
-        if (decoded && decoded.exp) {
-            const timeToLive = decoded.exp - Math.floor(Date.now() / 1000);
-            if (timeToLive > 0) {
-                // Key format: bl_<token>, value: "revoked", expires automatically when the token would have expired
-                await cacheClient.setEx(`bl_${refreshToken}`, timeToLive, "revoked");
+    if (cacheClient.isReady) {
+        if (refreshToken) {
+            const decoded = jwt.decode(refreshToken);
+            if (decoded && decoded.exp) {
+                const timeToLive = decoded.exp - Math.floor(Date.now() / 1000);
+                if (timeToLive > 0) {
+                    await cacheClient.setEx(`bl_${refreshToken}`, timeToLive, "revoked");
+                }
+            }
+        }
+        
+        if (accessToken) {
+            const decodedAccess = jwt.decode(accessToken);
+            if (decodedAccess && decodedAccess.exp) {
+                const timeToLiveAccess = decodedAccess.exp - Math.floor(Date.now() / 1000);
+                if (timeToLiveAccess > 0) {
+                    await cacheClient.setEx(`bl_${accessToken}`, timeToLiveAccess, "revoked");
+                }
             }
         }
     }
@@ -118,6 +159,13 @@ module.exports.logout = async (req, res, next) => {
       secure: true, 
       sameSite: "None", 
     });
+    
+    res.clearCookie("accessToken", {
+      httpOnly: true,
+      secure: true, 
+      sameSite: "None", 
+    });
+    
     return res.json({ status: true, msg: "Logged out successfully" });
   } catch (ex) {
     next(ex);
@@ -128,20 +176,27 @@ module.exports.refreshToken = async (req, res) => {
   const refreshToken = req.cookies.refreshToken;
   if (!refreshToken) return res.sendStatus(401);
 
-  // --- SECURITY ENHANCEMENT: CHECK REDIS BLACKLIST ---
   if (cacheClient.isReady) {
       const isBlacklisted = await cacheClient.get(`bl_${refreshToken}`);
-      if (isBlacklisted) return res.sendStatus(403); // Token was revoked during a previous logout
+      if (isBlacklisted) return res.sendStatus(403); 
   }
 
   jwt.verify(refreshToken, process.env.REFRESH_SECRET, (err, decoded) => {
     if (err) return res.sendStatus(403);
     const accessToken = jwt.sign({ id: decoded.id }, process.env.JWT_SECRET, { expiresIn: "15m" });
+    
+    res.cookie("accessToken", accessToken, {
+      httpOnly: true,
+      secure: true, 
+      sameSite: "None", 
+      maxAge: 15 * 60 * 1000, 
+    });
+
     res.json({ status: true, token: accessToken });
   });
 };
 
-// --- HIGH-PERFORMANCE REDIS MGET CACHING WITH PRIVACY ENFORCEMENT & GRACEFUL FALLBACK ---
+// --- STEP 5 FIX: MEILISEARCH INTEGRATION FOR TYPO-TOLERANT FAST SEARCH ---
 module.exports.getAllUsers = async (req, res, next) => {
   try {
     const currentUserId = req.params.id;
@@ -150,24 +205,45 @@ module.exports.getAllUsers = async (req, res, next) => {
     const limit = parseInt(req.query.limit) || 50; 
     const skip = (page - 1) * limit;
 
-    const dbQuery = { _id: { $ne: currentUserId } };
-    
+    let userIds = [];
+
+    // Hit Meilisearch instead of MongoDB Regex if there is a search query
     if (searchQuery) {
-        dbQuery.username = { $regex: searchQuery, $options: "i" };
+      try {
+        const searchResults = await userIndex.search(searchQuery, {
+          limit,
+          offset: skip
+        });
+        
+        // Extract IDs and filter out the current user
+        userIds = searchResults.hits
+          .map(hit => hit.id)
+          .filter(id => id !== currentUserId);
+
+      } catch (meiliErr) {
+        console.warn("⚠️ Meilisearch failed, falling back to MongoDB Regex:", meiliErr.message);
+        // Fallback to old regex if Meilisearch is down
+        const usersBasic = await User.find({ 
+          _id: { $ne: currentUserId }, 
+          username: { $regex: searchQuery, $options: "i" } 
+        }).select("_id").skip(skip).limit(limit);
+        userIds = usersBasic.map(u => u._id.toString());
+      }
+    } else {
+      // Standard paginated fetch if no query
+      const usersBasic = await User.find({ _id: { $ne: currentUserId } })
+        .select("_id").skip(skip).limit(limit);
+      userIds = usersBasic.map(u => u._id.toString());
     }
-
-    const usersBasic = await User.find(dbQuery).select("_id").skip(skip).limit(limit);
                                  
-    if (usersBasic.length === 0) return res.json([]);
+    if (userIds.length === 0) return res.json([]);
 
-    const userIds = usersBasic.map(u => u._id.toString());
     const cacheKeys = userIds.map(id => `user_profile:${id}`);
 
     let cachedProfiles = [];
     let finalUsersRaw = [];
     let cacheMisses = []; 
 
-    // --- GRACEFUL REDIS FALLBACK: Try fetching from Redis, fallback to DB if offline ---
     try {
       if (cacheClient.isReady) {
         cachedProfiles = await cacheClient.mGet(cacheKeys);
@@ -176,7 +252,6 @@ module.exports.getAllUsers = async (req, res, next) => {
       }
     } catch (redisErr) {
       console.warn("⚠️ Redis cache unavailable, falling back to DB directly.");
-      // Treat all users as a cache miss to force fetching from DB
       cachedProfiles = new Array(userIds.length).fill(null);
     }
 
@@ -202,20 +277,16 @@ module.exports.getAllUsers = async (req, res, next) => {
         msetArgs.push(JSON.stringify(userObj));
       });
 
-      // --- GRACEFUL REDIS SAVE: Try writing missing profiles to cache ---
       if (msetArgs.length > 0) {
         try {
           if (cacheClient.isReady) {
             await cacheClient.mSet(msetArgs);
             missedUsers.forEach(user => cacheClient.expire(`user_profile:${user._id.toString()}`, 3600));
           }
-        } catch (redisSaveErr) {
-          // Ignore save errors if Redis is down
-        }
+        } catch (redisSaveErr) {}
       }
     }
 
-    // Apply Privacy Settings before sending to frontend
     const finalUsers = finalUsersRaw.map(u => {
         if (u.privacySettings?.profilePhoto === "nobody") {
             u.avatarImage = ""; 
@@ -253,9 +324,15 @@ module.exports.updateProfile = async (req, res, next) => {
         "statusMessage", "statusIcon", "bio", "interests", "privacySettings", "chatCustomizations"
     ]);
 
+    // STEP 5 FIX: Sync potential username updates to Meilisearch
+    if (user.username) {
+        try {
+            await userIndex.updateDocuments([{ id: userId, username: user.username }]);
+        } catch (e) {}
+    }
+
     const userResponse = user.toObject();
     
-    // TARGETED INVALIDATION WITH FALLBACK
     try {
       if (cacheClient.isReady) {
         await cacheClient.setEx(`user_profile:${userId}`, 3600, JSON.stringify(userResponse));

@@ -37,9 +37,14 @@ const swaggerUi = require("swagger-ui-express"); // Swagger UI for API documenta
 const swaggerDocs = require("./config/swagger"); // Swagger specification
 const connectDB = require("./config/db"); // MongoDB connection function
 
-// --- SCALABILITY & ROUTES ---
+// --- SCALABILITY, PERFORMANCE, & METRICS IMPORTS ---
 const { createClient } = require("redis"); // Redis client
 const { createAdapter } = require("@socket.io/redis-adapter"); // Allows Socket.io to scale across multiple servers
+const { metricsMiddleware, register } = require("./utils/metrics"); // STEP 1: Metrics
+const customParser = require("socket.io-msgpack-parser"); // STEP 3: Binary Serialization
+
+// STEP 5: Import Meilisearch setup
+const { setupMeilisearch } = require("./utils/meilisearch");
 
 // --- API ROUTES ---
 const aiRoutes = require("./routes/aiRoutes");
@@ -47,6 +52,7 @@ const authRoutes = require("./routes/authRoutes");
 const messageRoutes = require("./routes/messagesRoute");
 const groupRoutes = require("./routes/groupRoutes");
 const storyRoutes = require("./routes/storyRoutes"); // Feature similar to "stories" in messaging apps
+const e2eRoutes = require("./routes/e2eRoutes"); // STEP 7: E2EE Key Distribution Routes
 
 // --- MIDDLEWARE ---
 const { errorHandler } = require("./middleware/errorMiddleware"); // Global error handler
@@ -54,9 +60,11 @@ const verifyToken = require("./middleware/authMiddleware"); // JWT authenticatio
 
 // --- SOCKET HANDLERS ---
 const socketHandler = require("./socket/socketHandler"); // Contains socket event logic
+const changeStreams = require("./socket/changeStreams"); // STEP 8: MongoDB Change Streams
 
 // --- BACKGROUND WORKERS ---
 const startMessageScheduler = require("./workers/messageScheduler"); 
+require("./workers/mediaWorker");
 // Worker responsible for handling scheduled messages (send later feature)
 
 // --- EXPRESS APPLICATION INITIALIZATION ---
@@ -70,20 +78,22 @@ const server = http.createServer(app);
    MIDDLEWARE & SECURITY CONFIGURATION
    ========================================================= */
 
+// STEP 1: Apply metrics middleware FIRST to track all requests accurately
+app.use(metricsMiddleware);
+
+// Expose /metrics endpoint for Prometheus/Grafana to scrape
+app.get('/metrics', async (req, res) => {
+  res.set('Content-Type', register.contentType);
+  res.end(await register.metrics());
+});
+
 /**
  * Helmet helps secure Express apps by setting various HTTP headers.
- * Protects against:
- * - XSS attacks
- * - Clickjacking
- * - MIME sniffing
- * - Other common vulnerabilities
  */
 app.use(helmet());
 
 /**
  * CORS configuration
- * Allows frontend client to communicate with backend.
- * credentials:true allows cookies / authentication headers.
  */
 app.use(cors({
   origin: process.env.CLIENT_URL || "http://localhost:3000",
@@ -92,14 +102,11 @@ app.use(cors({
 
 /**
  * Cookie parser middleware
- * Extracts cookies from incoming requests.
  */
 app.use(cookieParser());
 
 /**
  * JSON body parser
- * Allows API to accept JSON payloads.
- * Increased limit to support images, files, etc.
  */
 app.use(express.json({ limit: "50mb" }));
 
@@ -113,15 +120,6 @@ app.use(express.urlencoded({ limit: "50mb", extended: true }));
    RATE LIMITING
    ========================================================= */
 
-/**
- * Rate limiter for authentication endpoints
- *
- * Prevents brute-force login attempts and API abuse.
- *
- * Configurable via environment variables:
- * RATE_LIMIT_WINDOW_MS
- * RATE_LIMIT_MAX
- */
 const authLimiter = rateLimit({
   windowMs: process.env.RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000,
   max: process.env.RATE_LIMIT_MAX || 100,
@@ -133,10 +131,6 @@ const authLimiter = rateLimit({
    SWAGGER DOCUMENTATION
    ========================================================= */
 
-/**
- * API documentation available at:
- * http://localhost:PORT/api-docs
- */
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerDocs));
 
 
@@ -144,58 +138,24 @@ app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerDocs));
    API ROUTES
    ========================================================= */
 
-/**
- * Apply rate limiting specifically to authentication endpoints
- */
 app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/register", authLimiter);
 
-/**
- * Authentication routes
- * Handles:
- * - login
- * - register
- * - logout
- * - profile updates
- */
 app.use("/api/auth", authRoutes);
-
-/**
- * Message routes
- * Protected by JWT authentication middleware
- */
 app.use("/api/messages", verifyToken, messageRoutes);
-
-/**
- * Group chat routes
- */
 app.use("/api/groups", verifyToken, groupRoutes);
-
-/**
- * Story routes
- * Similar to temporary posts that disappear after a period
- */
 app.use("/api/stories", storyRoutes);
-
-/**
- * Health check route
- * Used by load balancers / monitoring systems
- */
 app.use("/health", require("./routes/healthRoute"));
-
-/**
- * AI related endpoints
- */
 app.use("/api/ai", aiRoutes);
+
+// STEP 7: Expose the secure E2EE routes
+app.use("/api/e2e", verifyToken, e2eRoutes);
 
 
 /* =========================================================
    GLOBAL ERROR HANDLER
    ========================================================= */
 
-/**
- * Catch all unhandled errors from routes or middleware
- */
 app.use(errorHandler);
 
 
@@ -203,43 +163,25 @@ app.use(errorHandler);
    DATABASE CONNECTION
    ========================================================= */
 
-/**
- * Establish connection to MongoDB
- */
-connectDB();
+// Connect DB and Initialize Search Engine
+connectDB().then(() => {
+  setupMeilisearch(); // STEP 5: Initialize the search indexes once DB connects
+});
 
 
 /* =========================================================
    SOCKET.IO INITIALIZATION
    ========================================================= */
 
-/**
- * Initialize Socket.io server
- * Enables real-time features such as:
- * - Live chat
- * - Typing indicators
- * - Message delivery
- * - Notifications
- */
 const io = socket(server, {
   cors: {
     origin: process.env.CLIENT_URL || "http://localhost:3000",
     credentials: true,
   },
+  parser: customParser // STEP 3: MessagePack binary serialization for smaller payloads
 });
 
-/**
- * Attach Socket.io instance to Express
- * This allows access inside routes via:
- *
- * req.app.get("io")
- */
 app.set("io", io);
-
-/**
- * Legacy global reference for backwards compatibility
- * (Recommended to migrate to req.app.get("io"))
- */
 global.chatSocket = io;
 
 
@@ -247,15 +189,6 @@ global.chatSocket = io;
    REDIS ADAPTER (SCALABILITY)
    ========================================================= */
 
-/**
- * Redis enables horizontal scaling for Socket.io.
- *
- * Without Redis:
- * sockets only work on one server instance.
- *
- * With Redis:
- * multiple backend servers can share socket events.
- */
 const pubClient = createClient({
   url: process.env.REDIS_URI || "redis://localhost:6379"
 });
@@ -263,8 +196,14 @@ const pubClient = createClient({
 const subClient = pubClient.duplicate();
 
 /**
- * Connect Redis clients and attach adapter
+ * Helper to extract HttpOnly accessToken from socket cookies
  */
+function getCookieToken(cookieString) {
+  if (!cookieString) return null;
+  const match = cookieString.match(new RegExp('(^| )accessToken=([^;]+)'));
+  return match ? match[2] : null;
+}
+
 Promise.all([pubClient.connect(), subClient.connect()])
 .then(() => {
 
@@ -272,18 +211,13 @@ Promise.all([pubClient.connect(), subClient.connect()])
 
   logger.info("Redis Adapter connected to Socket.io");
 
-
   /* =========================================================
      SOCKET AUTHENTICATION
      ========================================================= */
 
-  /**
-   * Middleware that runs before a socket connection is accepted.
-   * Validates JWT token sent from the client.
-   */
   io.use((socket, next) => {
-
-    const token = socket.handshake.auth.token;
+    // STEP 4: Check both handshake auth and secure HttpOnly cookies for JWT validation
+    const token = socket.handshake.auth.token || getCookieToken(socket.handshake.headers.cookie);
 
     if (!token) {
       return next(new Error("Authentication error: No token provided"));
@@ -303,27 +237,19 @@ Promise.all([pubClient.connect(), subClient.connect()])
 
   });
 
-
   /* =========================================================
-     SOCKET EVENT HANDLERS
+     SOCKET EVENT HANDLERS & STREAMS
      ========================================================= */
 
-  /**
-   * Delegates all socket event logic to dedicated handler
-   * CHANGED: Now passing the Redis pubClient to manage distributed state
-   */
   socketHandler(io, pubClient);
-
+  
+  // STEP 8 FIX: Initialize MongoDB Change Streams
+  changeStreams(io, pubClient);
 
   /* =========================================================
      BACKGROUND WORKERS
      ========================================================= */
 
-  /**
-   * Start scheduled message worker
-   * Responsible for sending delayed messages
-   * CHANGED: Injecting `io` and `pubClient` to support scalable architecture
-   */
   startMessageScheduler(io, pubClient);
 
 })
@@ -338,9 +264,6 @@ Promise.all([pubClient.connect(), subClient.connect()])
 
 const PORT = process.env.PORT || 5000;
 
-/**
- * Start HTTP server
- */
 server.listen(PORT, () =>
   logger.info(`Server started on Port ${PORT}`)
 );
@@ -350,14 +273,6 @@ server.listen(PORT, () =>
    GRACEFUL SHUTDOWN
    ========================================================= */
 
-/**
- * Handles application shutdown properly.
- *
- * Ensures:
- * - MongoDB connections close
- * - Redis clients disconnect
- * - Server stops accepting new requests
- */
 process.on('SIGINT', async () => {
 
   logger.info("SIGINT signal received: Closing server & cleaning up resources...");
