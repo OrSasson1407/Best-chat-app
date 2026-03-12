@@ -1,10 +1,10 @@
 import React, { useMemo, useState } from "react";
-import { motion } from "framer-motion"; 
+import { motion, AnimatePresence } from "framer-motion"; 
 import styled, { keyframes, css } from "styled-components";
 import { 
     FaReply, FaSmile, FaTrash, FaPen, FaShare, FaStar, 
     FaClock, FaCheckDouble, FaFire, FaFileDownload, FaPoll, 
-    FaRegClock, FaLanguage, FaSpinner // <-- ADDED: FaSpinner for the loading state
+    FaRegClock, FaLanguage, FaSpinner, FaInfoCircle
 } from "react-icons/fa";
 import { getSmallAvatar, formatTime, isNewDay, formatDateBadge, isSameSender, isWithinTimeFrame } from "./chatHelpers";
 
@@ -77,6 +77,9 @@ const MessageItem = React.memo(({
     
     const [translatedText, setTranslatedText] = useState(null);
     const [isTranslating, setIsTranslating] = useState(false);
+    
+    // --- NEW: Custom Context Menu State ---
+    const [contextMenu, setContextMenu] = useState(null);
 
     const showDateSeparator = isNewDay(message.createdAt, prevMsg?.createdAt);
     const isGroupedWithPrev = prevMsg && isSameSender(message, prevMsg) &&
@@ -125,6 +128,30 @@ const MessageItem = React.memo(({
         }
     };
 
+    // --- NEW: Context Menu Handlers ---
+    const handleContextMenu = (e) => {
+        e.preventDefault();
+        // Calculate position slightly offset from cursor
+        setContextMenu({ x: e.pageX, y: e.pageY });
+    };
+
+    const closeContextMenu = () => setContextMenu(null);
+
+    // --- NEW: Animated Read Receipt SVG ---
+    const renderAnimatedTicks = (status, hasReaders) => {
+        const isRead = status === "read" || hasReaders;
+        // Keep original WhatsApp blue for read, dim for delivered
+        const color = isRead ? "#34B7F1" : "var(--text-dim)"; 
+        return (
+            <AnimatedTicks viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <motion.polyline points="20 6 9 17 4 12" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 0.4 }} />
+                {(status === "delivered" || isRead) && (
+                    <motion.polyline points="20 12 14 18" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 0.4, delay: 0.2 }} />
+                )}
+            </AnimatedTicks>
+        );
+    };
+
     const renderStatusTicks = (msg) => {
         const handleClick = () => { if (isGroup) setReadReceiptsMsg(msg); };
         const hasReaders = isGroup && msg.readBy && msg.readBy.length > 0;
@@ -141,12 +168,10 @@ const MessageItem = React.memo(({
                 )}
                 {msg.status === "pending" ? (
                     <span className="tick-pending" style={{ color: 'var(--text-dim)', opacity: 0.7 }}><FaRegClock size={11} /></span>
-                ) : (msg.status === "read" || hasReaders) ? (
-                    <span className="tick-read" style={{ color: '#34B7F1', cursor: isGroup ? 'pointer' : 'default' }}>✓✓</span>
-                ) : msg.status === "delivered" ? (
-                    <span className="tick-delivered" style={{ cursor: isGroup ? 'pointer' : 'default' }}>✓✓</span>
                 ) : (
-                    <span className="tick-sent">✓</span>
+                    <span style={{ cursor: isGroup ? 'pointer' : 'default' }}>
+                        {renderAnimatedTicks(msg.status, hasReaders)}
+                    </span>
                 )}
             </span>
         );
@@ -157,7 +182,6 @@ const MessageItem = React.memo(({
         if (msg.isViewOnce && !msg.fromSelf && !msg.viewed) return <button className="view-once-btn" onClick={() => handleOpenViewOnce(msg.id)}><FaFire /> View Once Media</button>;
         if (msg.isViewOnce && (msg.viewed || msg.message === "💣 Media Expired")) return <p className="deleted-text">💣 Media Expired</p>;
 
-        // --- STEP 6 FIX: RENDER PROCESSING OVERLAY FOR BACKGROUND UPLOADS ---
         const renderProcessingOverlay = () => {
             if (msg.status === "processing") {
                 return (
@@ -222,16 +246,17 @@ const MessageItem = React.memo(({
 
         if (msg.type === "image") {
             return (
-                <div style={{ position: 'relative' }}>
+                // --- APPLIED Peek-to-Hover Container ---
+                <MediaContainer style={{ position: 'relative' }}>
                     {renderProcessingOverlay()}
                     <img 
                         src={msg.message} 
                         alt="sent" 
-                        className={`msg-image ${msg.status !== 'processing' ? 'clickable' : ''}`} 
+                        className={`msg-image peek-media ${msg.status !== 'processing' ? 'clickable' : ''}`} 
                         onClick={() => msg.status !== 'processing' && setLightboxImage(msg.message)} 
                         style={{ opacity: msg.status === 'processing' ? 0.6 : 1 }} 
                     />
-                </div>
+                </MediaContainer>
             );
         }
 
@@ -306,16 +331,42 @@ const MessageItem = React.memo(({
     };
 
     return (
-        <div key={message.id}>
+        <div key={message.id} style={{ position: 'relative' }} onClick={closeContextMenu}>
             {showDateSeparator && (
                 <div className="date-separator">
                     <span>{formatDateBadge(message.createdAt)}</span>
                 </div>
             )}
 
+            {/* --- NEW: Custom Context Menu Overlay --- */}
+            <AnimatePresence>
+                {contextMenu && (
+                    <ContextMenu 
+                        initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}
+                        style={{ top: contextMenu.y, left: contextMenu.x }}
+                    >
+                        <div onClick={() => { setReplyingTo({ id: message.id, text: message.message, type: message.type, isSelfQuote: message.fromSelf }); closeContextMenu(); }}><FaReply /> Reply</div>
+                        <div onClick={closeContextMenu}><FaShare /> Forward</div>
+                        <div onClick={closeContextMenu}><FaStar /> Star</div>
+                        
+                        {message.type === "text" && (
+                            <div onClick={() => { handleTranslate(); closeContextMenu(); }}>
+                                <FaLanguage /> {translatedText ? "Show Original" : "Translate (AI)"}
+                            </div>
+                        )}
+                        
+                        {message.fromSelf && message.type === "text" && (
+                            <div onClick={() => { setEditingMessage({ id: message.id, text: message.message }); closeContextMenu(); }}><FaPen /> Edit</div>
+                        )}
+                        <div className="danger" onClick={() => { handleDeleteMsg(message.id, message.fromSelf); closeContextMenu(); }}><FaTrash /> Delete</div>
+                    </ContextMenu>
+                )}
+            </AnimatePresence>
+
             <div
                 id={`msg-${message.id}`}
                 className={`message-wrapper ${highlightedMsgId === message.id ? 'highlight-flash' : ''} ${isGroupedWithNext ? 'grouped-next' : ''} ${isGroupedWithPrev ? 'grouped-prev' : ''}`}
+                onContextMenu={handleContextMenu}
             >
                 {/* --- APPLIED STYLED MOTION COMPONENT --- */}
                 <MessageBubble 
@@ -412,5 +463,37 @@ const MessageItem = React.memo(({
         </div>
     );
 });
+
+// --- NEW STYLED COMPONENTS FOR UI UPGRADES ---
+
+const AnimatedTicks = styled.svg`
+    width: 14px; height: 14px; margin-left: 4px; display: inline-block; vertical-align: middle;
+`;
+
+const ContextMenu = styled(motion.div)`
+    position: fixed; background: rgba(20, 20, 25, 0.95); backdrop-filter: blur(20px);
+    border: 1px solid var(--glass-border); border-radius: 12px; padding: 6px 0; width: 180px;
+    box-shadow: 0 15px 40px rgba(0,0,0,0.5); z-index: 1000; overflow: hidden;
+    div { 
+        padding: 10px 16px; display: flex; align-items: center; gap: 12px; font-size: 0.85rem; 
+        color: var(--text-main); cursor: pointer; transition: 0.2s; font-weight: 500;
+        &:hover { background: var(--input-bg); transform: translateX(2px); } 
+        &.danger { color: #ff4e4e; &:hover { background: rgba(255, 78, 78, 0.15); } } 
+    }
+`;
+
+const MediaContainer = styled.div`
+    position: relative; border-radius: 8px; overflow: visible; 
+    .peek-media { 
+        transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.4s ease; 
+        transform-origin: center center; z-index: 1; position: relative;
+        &:hover { 
+            transform: scale(1.4); 
+            z-index: 100; 
+            box-shadow: 0 20px 50px rgba(0,0,0,0.6); 
+            border: 2px solid var(--msg-sent); 
+        } 
+    }
+`;
 
 export default MessageItem;

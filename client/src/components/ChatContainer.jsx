@@ -53,8 +53,11 @@ export default function ChatContainer({ socket, isTyping }) {
   const [chatMedia, setChatMedia] = useState({ media: [], links: [], files: [] });
   const [activeSideTab, setActiveSideTab] = useState("about");
   const [isFetchingMedia, setIsFetchingMedia] = useState(false);
+  
+  // Drag and Drop States
   const [isDragging, setIsDragging] = useState(false);
   const [droppedFile, setDroppedFile] = useState(null); 
+  
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [unreadScrollCount, setUnreadScrollCount] = useState(0);
   const [lightboxImage, setLightboxImage] = useState(null);
@@ -79,7 +82,7 @@ export default function ChatContainer({ socket, isTyping }) {
 
   const skeletonWidths = useMemo(() => ['45%', '65%', '35%', '80%', '50%'], []);
   
-  // STEP 4 FIX: Added withCredentials: true so that all Axios requests carry the HttpOnly session cookie
+  // Added withCredentials: true so that all Axios requests carry the HttpOnly session cookie
   const getAuthHeader = useCallback(() => ({ 
       headers: { "x-auth-token": currentUser.token },
       withCredentials: true 
@@ -117,7 +120,7 @@ export default function ChatContainer({ socket, isTyping }) {
         setIsFetchingHistory(true);
         setActiveGroupAesKey(null); 
 
-        // --- MERGE UPDATE: ASYNC OFFLINE CHECK ---
+        // --- OFFLINE CHECK ---
         if (!navigator.onLine) {
             // Fetch directly from IndexedDB asynchronously
             const cached = await loadOfflineMessages(currentChat._id);
@@ -216,7 +219,7 @@ export default function ChatContainer({ socket, isTyping }) {
     fetchHistory();
   }, [currentChat, currentUser, getAuthHeader, socket, loadOfflineMessages]);
 
-  // --- MERGE UPDATE: AUTO-CACHE MESSAGES ---
+  // --- AUTO-CACHE MESSAGES ---
   useEffect(() => {
       // Whenever messages update, silently save them to IndexedDB so they are ready for offline use
       if (currentChat && messages.length > 0) {
@@ -224,7 +227,7 @@ export default function ChatContainer({ socket, isTyping }) {
       }
   }, [messages, currentChat, cacheMessages]);
 
-  // --- MERGE UPDATE: SENTIMENT ANALYSIS ---
+  // --- SENTIMENT ANALYSIS (Ambient Lighting) ---
   useEffect(() => {
       if (messages.length > 0) {
           const last5 = messages.slice(-5);
@@ -361,7 +364,7 @@ export default function ChatContainer({ socket, isTyping }) {
           setShowCallModal(true);
       };
 
-      // --- STEP 6 FIX: ASYNC MEDIA WORKER LISTENER ---
+      // --- ASYNC MEDIA WORKER LISTENER ---
       const handleMediaReady = ({ messageId, url, type }) => {
           setMessages((prev) => prev.map(msg => {
               if (msg.id === messageId) {
@@ -384,7 +387,7 @@ export default function ChatContainer({ socket, isTyping }) {
       s.on("msg-deleted", handleMsgDeleted);
       s.on("msg-edited", handleMsgEdited);
       s.on("incoming-call", handleIncomingCall);
-      s.on("media-ready", handleMediaReady); // Register new listener
+      s.on("media-ready", handleMediaReady);
 
       return () => {
           s.off("presence-response", handlePresenceResponse); 
@@ -396,7 +399,7 @@ export default function ChatContainer({ socket, isTyping }) {
           s.off("msg-deleted", handleMsgDeleted); 
           s.off("msg-edited", handleMsgEdited); 
           s.off("incoming-call", handleIncomingCall); 
-          s.off("media-ready", handleMediaReady); // Cleanup
+          s.off("media-ready", handleMediaReady); 
       };
     }
   }, [socket, currentUser, currentChat, activeGroupAesKey]);
@@ -468,7 +471,7 @@ export default function ChatContainer({ socket, isTyping }) {
     const files = e.dataTransfer.files;
     if (files.length > 0) {
         toast.info(`Preparing to upload ${files[0].name}...`);
-        setDroppedFile(files[0]);
+        setDroppedFile(files[0]); // This is passed down to ChatInput
     }
   };
 
@@ -781,7 +784,7 @@ export default function ChatContainer({ socket, isTyping }) {
                 )}
             </AnimatePresence>
 
-            <div className="chat-messages-container" style={{ background: "var(--chat-wallpaper)", backgroundSize: 'cover', backgroundPosition: 'center' }}>
+            <div className="chat-messages-container">
               {isFetchingHistory ? (
                   <div className="skeleton-container">
                       {Array.from({ length: 5 }).map((_, i) => (

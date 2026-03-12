@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { 
     FaUserFriends, FaPlus, FaSearch, FaCog, FaThumbtack, 
     FaRegEnvelope, FaTimes, FaSpinner, FaShieldAlt, FaEye, FaGlobe,
-    FaSun, FaMoon, FaSignOutAlt, FaCheck // <-- FIXED: Added missing icons here
+    FaSun, FaMoon, FaSignOutAlt, FaCheck, FaChevronLeft, FaChevronRight 
 } from "react-icons/fa";
 import { BsChatDotsFill, BsPeopleFill } from "react-icons/bs";
 import { MdOutlineAllInclusive } from "react-icons/md";
@@ -92,6 +92,10 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
   const [currentStoryIndex, setCurrentStoryIndex] = useState(0);
   const [isUploadingStory, setIsUploadingStory] = useState(false);
   const fileInputRef = useRef(null);
+
+  // Interactive Long Press Story State
+  const pressTimer = useRef(null);
+  const [storyPreview, setStoryPreview] = useState(null);
 
   // Initialize Data
   useEffect(() => {
@@ -241,6 +245,17 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
       } else { setViewingStoryUser(null); }
   };
 
+  const handleStoryPressStart = (feedItem) => {
+      pressTimer.current = setTimeout(() => {
+          setStoryPreview(feedItem);
+      }, 400); // 400ms long press to peek
+  };
+
+  const handleStoryPressEnd = () => {
+      if (pressTimer.current) clearTimeout(pressTimer.current);
+      setStoryPreview(null);
+  };
+
   const toggleMemberSelection = (id) => {
     setSelectedMembers(prev => prev.includes(id) ? prev.filter(m => m !== id) : [...prev, id]);
   };
@@ -315,7 +330,7 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
   const unreadGroupsCount = groups.filter(g => g.unreadCount > 0).length;
   const totalUnreadChatsCount = unreadPersonalChatsCount + unreadGroupsCount;
 
-  // Dynamic Filtering
+  // Dynamic Filtering (Smart Folders logic)
   const displayedItems = useMemo(() => {
     let all = [
       ...contacts.map(c => ({ ...c, isGroup: false })),
@@ -327,13 +342,14 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
     if (activeFolder === "groups") all = all.filter(i => i.isGroup);
     if (activeFolder === "unread") all = all.filter(i => i.unreadCount > 0); 
 
+    // Priority Sort: Pinned -> Online -> Alphabetical
     return all.sort((a, b) => {
       const aPinned = pinnedIds.includes(a._id);
       const bPinned = pinnedIds.includes(b._id);
       if (aPinned !== bPinned) return aPinned ? -1 : 1;
       
-      const aOnline = onlineUsers.includes(a._id);
-      const bOnline = onlineUsers.includes(b._id);
+      const aOnline = !a.isGroup && onlineUsers.includes(a._id);
+      const bOnline = !b.isGroup && onlineUsers.includes(b._id);
       if (aOnline !== bOnline) return aOnline ? -1 : 1;
 
       return a.username.localeCompare(b.username);
@@ -353,95 +369,131 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
       {currentUserName && (
         <Container $isCompact={isCompact} $themeType={theme}>
           
-          <div className="brand">
-            <h3>Snappy</h3>
+          <div className="brand" style={{ justifyContent: isCompact ? 'center' : 'space-between' }}>
+            {!isCompact && <h3>Snappy</h3>}
+            <button className="collapse-btn" onClick={() => setIsCompact(!isCompact)} title="Toggle Sidebar">
+                {isCompact ? <FaChevronRight /> : <FaChevronLeft />}
+            </button>
           </div>
 
-          <StoryTray>
-              <motion.div className="story-item my-status" onClick={() => fileInputRef.current.click()} whileHover={{scale: 1.05}} whileTap={{scale: 0.95}}>
-                  <div className="story-ring empty">
-                      <img src={getAvatarUrl(currentUser)} alt="my-status" />
-                      <div className="add-icon">{isUploadingStory ? <FaSpinner className="fa-spin" /> : <FaPlus />}</div>
-                  </div>
-                  <p>My Status</p>
-                  <input type="file" hidden ref={fileInputRef} accept="image/*,video/*" onChange={handleStoryUpload} />
-              </motion.div>
-              
-              {storyFeed.map((feedItem, index) => {
-                  const hasUnread = feedItem.stories.some(s => !s.viewers.some(v => v.userId === currentUser._id));
-                  return (
-                      <motion.div key={index} className="story-item" onClick={() => openStoryViewer(feedItem)} whileHover={{scale: 1.05}} whileTap={{scale: 0.95}}>
-                          <motion.div layoutId={`story-avatar-${feedItem.user._id}`} className={`story-ring ${hasUnread ? 'unread' : 'read'}`}>
-                              <img src={getAvatarUrl(feedItem.user)} alt="status" />
-                          </motion.div>
-                          <p>{feedItem.user.username}</p>
+          <AnimatePresence>
+            {storyPreview && (
+                <StoryPreviewTooltip 
+                    initial={{ opacity: 0, y: 10, scale: 0.9 }} 
+                    animate={{ opacity: 1, y: 0, scale: 1 }} 
+                    exit={{ opacity: 0, scale: 0.9 }}
+                >
+                    <img src={storyPreview.stories[0].mediaUrl || getAvatarUrl(storyPreview.user)} alt="preview" />
+                    <div className="info">
+                        <h4>{storyPreview.user.username}</h4>
+                        <p>{storyPreview.stories.length} status update{storyPreview.stories.length > 1 ? 's' : ''}</p>
+                    </div>
+                </StoryPreviewTooltip>
+            )}
+          </AnimatePresence>
+
+          {!isCompact && (
+              <>
+                  <StoryTray>
+                      <motion.div className="story-item my-status" onClick={() => fileInputRef.current.click()} whileHover={{scale: 1.05}} whileTap={{scale: 0.95}}>
+                          <div className="story-ring empty">
+                              <img src={getAvatarUrl(currentUser)} alt="my-status" />
+                              <div className="add-icon">{isUploadingStory ? <FaSpinner className="fa-spin" /> : <FaPlus />}</div>
+                          </div>
+                          <p>My Status</p>
+                          <input type="file" hidden ref={fileInputRef} accept="image/*,video/*" onChange={handleStoryUpload} />
                       </motion.div>
-                  );
-              })}
-          </StoryTray>
-          
-          <div className="folders-wrapper">
-              <div className="segmented-control">
-                  {folders.map(f => (
-                      <button 
-                          key={f.id} 
-                          className={`segment-btn ${activeFolder === f.id ? 'active' : ''}`}
-                          onClick={() => setActiveFolder(f.id)}
-                          title={f.title}
-                      >
-                          {activeFolder === f.id && <motion.div layoutId="active-pill" className="active-pill" transition={{ type: "spring", stiffness: 400, damping: 30 }} />}
-                          <span className="content">
-                              {f.icon}
-                              {f.badge > 0 && <span className={`badge ${f.danger ? 'danger' : ''}`}>{f.badge}</span>}
-                          </span>
-                      </button>
-                  ))}
-              </div>
-          </div>
+                      
+                      {storyFeed.map((feedItem, index) => {
+                          const hasUnread = feedItem.stories.some(s => !s.viewers.some(v => v.userId === currentUser._id));
+                          return (
+                              <motion.div 
+                                  key={index} 
+                                  className="story-item" 
+                                  onClick={() => openStoryViewer(feedItem)}
+                                  onMouseDown={() => handleStoryPressStart(feedItem)}
+                                  onMouseUp={handleStoryPressEnd}
+                                  onMouseLeave={handleStoryPressEnd}
+                                  onTouchStart={() => handleStoryPressStart(feedItem)}
+                                  onTouchEnd={handleStoryPressEnd}
+                                  whileHover={{scale: 1.05}} 
+                                  whileTap={{scale: 0.95}}
+                              >
+                                  <motion.div layoutId={`story-avatar-${feedItem.user._id}`} className={`story-ring ${hasUnread ? 'unread' : 'read'}`}>
+                                      <img src={getAvatarUrl(feedItem.user)} alt="status" />
+                                  </motion.div>
+                                  <p>{feedItem.user.username}</p>
+                              </motion.div>
+                          );
+                      })}
+                  </StoryTray>
+                  
+                  <div className="folders-wrapper">
+                      <div className="segmented-control">
+                          {folders.map(f => (
+                              <button 
+                                  key={f.id} 
+                                  className={`segment-btn ${activeFolder === f.id ? 'active' : ''}`}
+                                  onClick={() => setActiveFolder(f.id)}
+                                  title={f.title}
+                              >
+                                  {activeFolder === f.id && <motion.div layoutId="active-pill" className="active-pill" transition={{ type: "spring", stiffness: 400, damping: 30 }} />}
+                                  <span className="content">
+                                      {f.icon}
+                                      {f.badge > 0 && <span className={`badge ${f.danger ? 'danger' : ''}`}>{f.badge}</span>}
+                                  </span>
+                              </button>
+                          ))}
+                      </div>
+                  </div>
 
-          <div className={`search-container ${isSearchFocused ? 'focused' : ''}`}>
-             <motion.div className="search-box" animate={{ borderColor: isSearchFocused ? 'var(--msg-sent)' : 'var(--glass-border)' }}>
-                 <FaSearch className="icon search-icon"/>
-                 <input 
-                    type="text" placeholder={`Search ${activeFolder}...`} 
-                    value={searchTerm} 
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    onFocus={() => setIsSearchFocused(true)}
-                    onBlur={() => setIsSearchFocused(false)}
-                 />
-                 <AnimatePresence>
-                     {searchTerm && (
-                         <motion.div initial={{scale:0, rotate:-90}} animate={{scale:1, rotate:0}} exit={{scale:0, rotate:90}} className="icon clear-icon" onClick={() => setSearchTerm("")}>
-                             <FaTimes />
-                         </motion.div>
-                     )}
-                 </AnimatePresence>
-             </motion.div>
-          </div>
+                  <div className={`search-container ${isSearchFocused ? 'focused' : ''}`}>
+                      <motion.div className="search-box" animate={{ borderColor: isSearchFocused ? 'var(--msg-sent)' : 'var(--glass-border)' }}>
+                          <FaSearch className="icon search-icon"/>
+                          <input 
+                              type="text" placeholder={`Search ${activeFolder}...`} 
+                              value={searchTerm} 
+                              onChange={(e) => setSearchTerm(e.target.value)}
+                              onFocus={() => setIsSearchFocused(true)}
+                              onBlur={() => setIsSearchFocused(false)}
+                          />
+                          <AnimatePresence>
+                              {searchTerm && (
+                                  <motion.div initial={{scale:0, rotate:-90}} animate={{scale:1, rotate:0}} exit={{scale:0, rotate:90}} className="icon clear-icon" onClick={() => setSearchTerm("")}>
+                                      <FaTimes />
+                                  </motion.div>
+                              )}
+                          </AnimatePresence>
+                      </motion.div>
+                  </div>
+              </>
+          )}
 
           <div className="contacts-list">
             {isLoading ? (
                 Array.from({ length: 6 }).map((_, i) => (
                     <div key={i} className="contact-item skeleton">
-                        {!isCompact && <div className="avatar skeleton-anim" />}
-                        <div className="details">
-                            <div className="skeleton-line skeleton-anim" />
-                            <div className="skeleton-line short skeleton-anim" />
-                        </div>
+                        <div className="avatar skeleton-anim" />
+                        {!isCompact && (
+                            <div className="details">
+                                <div className="skeleton-line skeleton-anim" />
+                                <div className="skeleton-line short skeleton-anim" />
+                            </div>
+                        )}
                     </div>
                 ))
             ) : (
               <>
-                {activeFolder === "groups" && !searchTerm && (
+                {!isCompact && activeFolder === "groups" && !searchTerm && (
                     <div className="group-actions">
                         <button className="primary" onClick={() => setShowGroupModal(true)}><FaPlus /> Create</button>
                         <button className="secondary" onClick={() => setShowDiscoverModal(true)}><FaGlobe /> Discover</button>
                     </div>
                 )}
                 
-                {searchTerm.length >= 3 && <div className="section-title">Chats & Groups</div>}
+                {!isCompact && searchTerm.length >= 3 && <div className="section-title">Chats & Groups</div>}
 
-                {displayedItems.length === 0 && !searchTerm ? (
+                {displayedItems.length === 0 && !searchTerm && !isCompact ? (
                     <div className="empty-state">No chats found.</div>
                 ) : (
                     displayedItems.map((item) => {
@@ -456,47 +508,50 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
                               className={`${isSelected ? "selected" : ""} ${isPinned ? "pinned" : ""}`} 
                               onClick={() => changeCurrentChat(item, item.isGroup)}
                               $isCompact={isCompact}
-                              $themeType={theme}
+                              title={isCompact ? item.username : ""}
                             >
-                                {!isCompact && (
-                                    <div className="avatar">
-                                        {item.isGroup ? <div className="group-avatar">#</div> : <img src={getAvatarUrl(item)} alt="avatar" />}
-                                        {isOnline && <div className="online-badge" />}
-                                    </div>
-                                )}
+                                <div className="avatar">
+                                    {item.isGroup ? <div className="group-avatar">#</div> : <img src={getAvatarUrl(item)} alt="avatar" />}
+                                    {isOnline && <div className="online-badge" />}
+                                    {isCompact && item.unreadCount > 0 && <span className="compact-badge">{item.unreadCount}</span>}
+                                </div>
                                 
-                                <div className="details">
-                                    <h3>{item.username}</h3>
-                                    {item.isGroup ? (
-                                        <p className="status group">Group Chat</p>
-                                    ) : (
-                                        <div className="presence">
-                                            {isTyping ? (
-                                                <div className="typing-indicator">
-                                                    <motion.span animate={{y:[0,-3,0]}} transition={{repeat:Infinity, duration:0.6, delay:0}} />
-                                                    <motion.span animate={{y:[0,-3,0]}} transition={{repeat:Infinity, duration:0.6, delay:0.2}} />
-                                                    <motion.span animate={{y:[0,-3,0]}} transition={{repeat:Infinity, duration:0.6, delay:0.4}} />
-                                                    <span className="text">typing</span>
-                                                </div>
+                                {!isCompact && (
+                                    <>
+                                        <div className="details">
+                                            <h3>{item.username}</h3>
+                                            {item.isGroup ? (
+                                                <p className="status group">Group Chat</p>
                                             ) : (
-                                                <p className={`status ${isOnline ? 'online' : ''}`}>{isOnline ? "Online" : formatLastSeen(item.lastSeen)}</p>
+                                                <div className="presence">
+                                                    {isTyping ? (
+                                                        <div className="typing-indicator">
+                                                            <motion.span animate={{y:[0,-3,0]}} transition={{repeat:Infinity, duration:0.6, delay:0}} />
+                                                            <motion.span animate={{y:[0,-3,0]}} transition={{repeat:Infinity, duration:0.6, delay:0.2}} />
+                                                            <motion.span animate={{y:[0,-3,0]}} transition={{repeat:Infinity, duration:0.6, delay:0.4}} />
+                                                            <span className="text">typing</span>
+                                                        </div>
+                                                    ) : (
+                                                        <p className={`status ${isOnline ? 'online' : ''}`}>{isOnline ? "Online" : formatLastSeen(item.lastSeen)}</p>
+                                                    )}
+                                                </div>
                                             )}
                                         </div>
-                                    )}
-                                </div>
-                                
-                                <div className="meta">
-                                  <button className="pin-btn" onClick={(e) => togglePin(e, item._id)}>
-                                    <FaThumbtack />
-                                  </button>
-                                  {item.unreadCount > 0 && <span className="unread-count">{item.unreadCount}</span>}
-                                </div>
+                                        
+                                        <div className="meta">
+                                          <button className="pin-btn" onClick={(e) => togglePin(e, item._id)}>
+                                            <FaThumbtack />
+                                          </button>
+                                          {item.unreadCount > 0 && <span className="unread-count">{item.unreadCount}</span>}
+                                        </div>
+                                    </>
+                                )}
                             </ContactItem>
                         );
                     })
                 )}
 
-                {searchTerm.length >= 3 && (
+                {!isCompact && searchTerm.length >= 3 && (
                     <>
                         <div className="section-title">Message History</div>
                         {isSearchingGlobal ? (
@@ -522,21 +577,20 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
             )}
           </div>
 
-          <div className="user-footer">
-             <div className="user-profile">
+          <div className="user-footer" style={{ padding: isCompact ? '16px 8px' : '16px', justifyContent: isCompact ? 'center' : 'flex-start' }}>
+             <div className="user-profile" style={{ flexDirection: isCompact ? 'column' : 'row', gap: isCompact ? '16px' : '12px' }}>
+                 <div className="avatar" style={{ margin: isCompact ? '0 auto' : '0' }}>
+                     <img src={getAvatarUrl(currentUser)} alt="avatar" />
+                 </div>
+                 
                  {!isCompact && (
-                     <div className="avatar">
-                         <img src={getAvatarUrl(currentUser)} alt="avatar" />
+                     <div className="info">
+                         <h2>{currentUserName}</h2>
+                         <p>{currentUser?.statusIcon || "✨"} {currentUser?.statusMessage || "Available"}</p>
                      </div>
                  )}
-                 <div className="info">
-                     <h2>{currentUserName}</h2>
-                     <p>{currentUser?.statusIcon || "✨"} {currentUser?.statusMessage || "Available"}</p>
-                 </div>
-                 <div className="actions">
-                     <button onClick={() => setTheme(theme === 'light' ? 'glass' : 'light')} title="Toggle Theme">
-                         {theme === 'light' ? <FaMoon /> : <FaSun />}
-                     </button>
+                 <div className="actions" style={{ flexDirection: isCompact ? 'column' : 'row' }}>
+                     {!isCompact && <button onClick={() => setTheme(theme === 'light' ? 'glass' : 'light')} title="Toggle Theme">{theme === 'light' ? <FaMoon /> : <FaSun />}</button>}
                      <button onClick={() => setShowProfileModal(true)} title="Settings"><FaCog /></button>
                      <button className="logout" onClick={handleLogout} title="Logout"><FaSignOutAlt /></button>
                  </div>
@@ -710,17 +764,12 @@ const shimmer = keyframes`
   100% { background-position: -200% 0; }
 `;
 
-const glassShine = keyframes`
-  0% { left: -100%; opacity: 0; }
-  50% { opacity: 0.3; }
-  100% { left: 100%; opacity: 0; }
-`;
-
 const Container = styled.div`
   display: flex;
   flex-direction: column;
   height: 100%;
-  width: 100%;
+  width: ${({ $isCompact }) => $isCompact ? '85px' : '100%'};
+  transition: width 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
   background: transparent;
   border-right: 1px solid var(--glass-border);
   overflow: hidden;
@@ -733,7 +782,12 @@ const Container = styled.div`
   /* 1. Header */
   .brand {
     flex-shrink: 0; padding: 24px 24px 16px;
+    display: flex; align-items: center;
     h3 { color: var(--text-main); font-size: 1.4rem; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; }
+    .collapse-btn {
+        background: var(--input-bg); border: none; color: var(--text-dim); border-radius: 50%; width: 32px; height: 32px; cursor: pointer; display: flex; justify-content: center; align-items: center; transition: 0.2s; 
+        &:hover { color: var(--text-main); background: var(--msg-sent); }
+    }
   }
 
   /* 2. Folders (Segmented Control) */
@@ -768,7 +822,7 @@ const Container = styled.div`
   /* 4. Contact List */
   .contacts-list {
       flex: 1; overflow-y: auto; overflow-x: hidden; padding: 0 12px; display: flex; flex-direction: column; gap: 4px;
-      &::-webkit-scrollbar { width: 4px; }
+      &::-webkit-scrollbar { width: 4px; display: ${({ $isCompact }) => $isCompact ? 'none' : 'block'}; }
       &::-webkit-scrollbar-thumb { background: var(--glass-border); border-radius: 4px; }
 
       .section-title { font-size: 0.75rem; text-transform: uppercase; color: var(--text-dim); font-weight: 700; margin: 16px 8px 8px; letter-spacing: 0.5px; }
@@ -819,8 +873,9 @@ const Container = styled.div`
 const ContactItem = styled.div`
   display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 16px; cursor: pointer;
   background: transparent; border: 1px solid transparent; transition: all 0.2s ease; position: relative;
+  justify-content: ${({ $isCompact }) => $isCompact ? 'center' : 'flex-start'};
 
-  &:hover { background: linear-gradient(90deg, var(--input-bg) 0%, transparent 100%); }
+  &:hover { background: linear-gradient(90deg, var(--input-bg) 0%, transparent 100%); transform: ${({ $isCompact }) => $isCompact ? 'scale(1.1)' : 'none'}; }
   &.selected { background: var(--input-bg); border-color: var(--glass-border); box-shadow: 0 4px 20px rgba(0,0,0,0.05); }
   &.pinned { border-left: 3px solid var(--msg-sent); }
 
@@ -829,6 +884,7 @@ const ContactItem = styled.div`
       img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; background: var(--bg-panel); }
       .group-avatar { width: 100%; height: 100%; border-radius: 50%; background: var(--input-bg); display: flex; justify-content: center; align-items: center; color: var(--msg-sent); font-size: 1.2rem; font-weight: 800; }
       .online-badge { position: absolute; bottom: 2px; right: 2px; width: 12px; height: 12px; background: #00ff88; border-radius: 50%; border: 2px solid var(--bg-panel); box-shadow: 0 0 8px rgba(0, 255, 136, 0.4); }
+      .compact-badge { position: absolute; top: -4px; right: -4px; background: #ff4e4e; color: white; font-size: 0.65rem; font-weight: bold; width: 18px; height: 18px; display: flex; justify-content: center; align-items: center; border-radius: 50%; border: 2px solid var(--bg-panel); }
   }
 
   .details {
@@ -876,6 +932,20 @@ const StoryTray = styled.div`
           
           .add-icon { position: absolute; bottom: -2px; right: -2px; background: var(--msg-sent); color: white; border-radius: 50%; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; border: 3px solid var(--bg-panel); }
       }
+  }
+`;
+
+const StoryPreviewTooltip = styled(motion.div)`
+  position: absolute; top: 130px; left: 20px;
+  background: rgba(10, 10, 15, 0.9); backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border); border-radius: 16px;
+  padding: 12px; display: flex; align-items: center; gap: 12px;
+  z-index: 50; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+
+  img { width: 48px; height: 48px; border-radius: 8px; object-fit: cover; }
+  .info {
+      h4 { color: white; font-size: 0.9rem; margin-bottom: 4px; }
+      p { color: var(--text-dim); font-size: 0.75rem; }
   }
 `;
 
@@ -934,26 +1004,5 @@ const ModalOverlay = styled.div`
           .small { padding: 8px 16px; flex: none; border-radius: 20px; font-size: 0.85rem;}
           .full-width { flex: 1; width: 100%; }
       }
-  }
-`;
-
-const StoryViewerOverlay = styled.div`
-  position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.95); backdrop-filter: blur(20px); z-index: 2000; display: flex; justify-content: center; align-items: center;
-  
-  .viewer-content {
-      width: 100%; max-width: 420px; height: 85vh; background: #000; border-radius: 24px; position: relative; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.1);
-      
-      .progress-bars { display: flex; gap: 6px; padding: 16px 12px 0; position: absolute; top: 0; left: 0; width: 100%; z-index: 10; .bar-bg { flex: 1; height: 3px; background: rgba(255,255,255,0.3); border-radius: 4px; overflow: hidden; } .bar-fill { height: 100%; background: #fff; width: 0%; } }
-
-      .viewer-header {
-          position: absolute; top: 24px; left: 0; width: 100%; padding: 16px 20px; z-index: 10; display: flex; align-items: center; gap: 12px; background: linear-gradient(to bottom, rgba(0,0,0,0.6), transparent);
-          img { width: 40px; height: 40px; border-radius: 50%; border: 2px solid #fff; }
-          div { flex: 1; h4 { color: #fff; font-size: 1rem; font-weight: 600; } p { color: rgba(255,255,255,0.7); font-size: 0.75rem; margin-top: 2px; } }
-          button { background: rgba(255,255,255,0.2); border-radius: 50%; width: 36px; height: 36px; border: none; color: #fff; font-size: 1.1rem; cursor: pointer; transition: 0.2s; backdrop-filter: blur(4px); &:hover { background: rgba(255,255,255,0.4); transform: scale(1.1); } }
-      }
-
-      .media-container { flex: 1; display: flex; align-items: center; justify-content: center; cursor: pointer; background: #111; img, video { max-width: 100%; max-height: 100%; object-fit: contain; } }
-      
-      .viewers-count { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.5); backdrop-filter: blur(8px); padding: 8px 20px; border-radius: 20px; color: white; font-size: 0.85rem; font-weight: 600; display: flex; align-items: center; gap: 8px; border: 1px solid rgba(255,255,255,0.1); }
   }
 `;

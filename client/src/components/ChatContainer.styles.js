@@ -45,7 +45,20 @@ export const Container = styled.div`
   height: 100%;
   position: relative;
   
-  /* --- NEW: Apply Chat Wallpaper globally --- */
+  /* --- UI UPGRADE: Dynamic Variables for Glassmorphism & Typography --- */
+  --font-weight-base: 400;
+  --glass-blur-heavy: 25px;
+  --glass-blur-light: 12px;
+
+  ${({ $themeType }) => $themeType === 'cyberpunk' && css`
+      --font-weight-base: 300;
+      --glass-blur-heavy: 5px;
+      --glass-blur-light: 2px;
+  `}
+
+  font-weight: var(--font-weight-base);
+  
+  /* Apply Chat Wallpaper globally */
   background: var(--chat-wallpaper);
   background-size: cover;
   background-position: center;
@@ -53,6 +66,22 @@ export const Container = styled.div`
   ${({ $isCompact, $hasPinned }) => $isCompact && css`
       grid-template-rows: ${$hasPinned ? '8% auto 1fr 10%' : '8% 1fr 10%'};
   `}
+
+  /* --- UI UPGRADE: Sentiment-Driven Ambient Lighting (Mesh Orbs) --- */
+  &::before {
+      content: ""; position: absolute; top: -20%; right: -10%;
+      width: 50vw; height: 50vw; border-radius: 50%;
+      background: hsla(var(--sentiment-hue, 250), 70%, 50%, 0.15);
+      filter: blur(80px); z-index: -2; pointer-events: none;
+      transition: background 2s ease;
+  }
+  &::after {
+      content: ""; position: absolute; bottom: -20%; left: -10%;
+      width: 60vw; height: 60vw; border-radius: 50%;
+      background: hsla(calc(var(--sentiment-hue, 250) + 40), 70%, 50%, 0.1);
+      filter: blur(100px); z-index: -2; pointer-events: none;
+      transition: background 2s ease;
+  }
 
   .fa-spin { animation: spin 2s infinite linear; }
   @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(359deg); } }
@@ -68,20 +97,20 @@ export const Container = styled.div`
       width: 96%;
       border-radius: 12px;
       /* Dynamic adaptive hue based on message sentiment */
-      background: hsla(var(--sentiment-hue), 50%, 15%, 0.85); 
+      background: hsla(var(--sentiment-hue, 250), 50%, 15%, 0.85); 
       border: 1px solid var(--glass-border);
       border-left: 4px solid var(--adaptive-accent);
       padding: 0.6rem 1.5rem; 
       display: flex; align-items: center; gap: 1rem; color: var(--text-main); 
       cursor: pointer;
-      backdrop-filter: blur(16px); 
-      -webkit-backdrop-filter: blur(16px);
+      backdrop-filter: blur(var(--glass-blur-light)); 
+      -webkit-backdrop-filter: blur(var(--glass-blur-light));
       z-index: 2; 
       transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
       box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
       
       &:hover { 
-          background: hsla(var(--sentiment-hue), 50%, 25%, 0.95); 
+          background: hsla(var(--sentiment-hue, 250), 50%, 25%, 0.95); 
           transform: translateY(-2px);
           box-shadow: 0 12px 28px rgba(0, 0, 0, 0.15);
       }
@@ -97,7 +126,8 @@ export const Container = styled.div`
     padding: 0 2rem;
     background: transparent; 
     border-bottom: 1px solid var(--glass-border);
-    backdrop-filter: blur(10px); z-index: 2;
+    backdrop-filter: blur(var(--glass-blur-heavy)); /* Layered Glassmorphism */
+    z-index: 2;
     
     ${({ $themeType }) => $themeType === 'cyberpunk' && css`border-bottom: 1px solid rgba(0, 255, 136, 0.3);`}
     
@@ -150,7 +180,7 @@ export const Container = styled.div`
         `}
     }
 
-    /* --- NEW: Holographic Scanline Overlay --- */
+    /* --- Holographic Scanline Overlay --- */
     ${({ $themeType }) => $themeType === 'cyberpunk' && css`
         &::after {
             content: ""; position: absolute;
@@ -377,12 +407,12 @@ export const Container = styled.div`
       .content {
         background: var(--msg-received); 
         border-bottom-left-radius: 0.3rem; 
-        backdrop-filter: blur(16px); 
-        -webkit-backdrop-filter: blur(16px);
+        backdrop-filter: blur(var(--glass-blur-light)); /* UI UPGRADE: Layered Glassmorphism */
+        -webkit-backdrop-filter: blur(var(--glass-blur-light));
         border: 1px solid var(--glass-border);
         box-shadow: 0 4px 15px rgba(0,0,0,0.05);
 
-        &::before { left: -6px; background: var(--msg-received); clip-path: polygon(100% 0, 0 100%, 100% 100%); backdrop-filter: blur(16px); border-bottom: 1px solid var(--glass-border);}
+        &::before { left: -6px; background: var(--msg-received); clip-path: polygon(100% 0, 0 100%, 100% 100%); backdrop-filter: blur(var(--glass-blur-light)); border-bottom: 1px solid var(--glass-border);}
       }
       .tail-physics { transform-origin: bottom left; }
     }
@@ -491,7 +521,7 @@ export const SideInfoPanel = styled.div`
   flex-direction: column;
   animation: slideInRight 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
   box-shadow: -10px 0 40px rgba(0, 0, 0, 0.2);
-  /* Added overflow hidden to cleanly hide Framer Motion exiting elements */
+  backdrop-filter: blur(var(--glass-blur-heavy)); /* Layered Glassmorphism */
   overflow: hidden; 
 
   @keyframes slideInRight {
@@ -523,7 +553,7 @@ export const SideInfoPanel = styled.div`
     .loader { display: flex; justify-content: center; align-items: center; height: 100px; color: var(--adaptive-accent); font-size: 1.5rem; }
     .empty-state { color: var(--text-dim); text-align: center; margin-top: 3rem; font-style: italic; font-size: 0.9rem; }
 
-    /* --- IDEA 3: IN-TAB SEARCH BAR --- */
+    /* --- IN-TAB SEARCH BAR --- */
     .tab-search {
         display: flex; align-items: center; background: var(--input-bg);
         border: 1px solid var(--glass-border); border-radius: 12px; padding: 0.6rem 1rem;
@@ -550,14 +580,14 @@ export const SideInfoPanel = styled.div`
             .interest-tag { background: var(--input-bg); color: var(--text-main); padding: 6px 14px; border-radius: 2rem; font-size: 0.8rem; border: 1px solid var(--glass-border); font-weight: 500; transition: 0.2s; cursor: default; &:hover { filter: brightness(0.9); border-color: var(--adaptive-accent); transform: translateY(-2px); }} 
         }
 
-        /* --- IDEA 3: CUSTOMIZATION UI --- */
+        /* --- CUSTOMIZATION UI --- */
         .wallpaper-presets {
             display: flex; gap: 10px; margin-top: 10px;
             .color-swatch { width: 35px; height: 35px; border-radius: 50%; border: 2px solid var(--glass-border); cursor: pointer; transition: 0.2s; &:hover { transform: scale(1.1); border-color: var(--adaptive-accent); } }
             .clear-wallpaper { background: var(--bg-panel); color: var(--text-dim); border: 1px solid var(--glass-border); border-radius: 8px; padding: 0 10px; cursor: pointer; font-size: 0.8rem; transition: 0.2s; &:hover { color: var(--text-main); background: var(--input-bg); } }
         }
 
-        /* --- IDEA 2 & 3: TOGGLES & ACTIONS UI --- */
+        /* --- TOGGLES & ACTIONS UI --- */
         .toggle-card { cursor: pointer; display: flex; justify-content: space-between; alignItems: center; }
         .toggle-switch { width: 40px; height: 22px; border-radius: 20px; background: var(--bg-panel); position: relative; transition: 0.3s; 
             &::after { content: ''; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--text-dim); transition: 0.3s; }
@@ -575,7 +605,7 @@ export const SideInfoPanel = styled.div`
             }
         }
 
-        /* --- IDEA 2: DANGER ZONE --- */
+        /* --- DANGER ZONE --- */
         .danger-zone {
             margin-top: 2rem; border-top: 1px solid var(--glass-border); padding-top: 1.5rem;
             display: flex; flex-direction: column; gap: 10px;

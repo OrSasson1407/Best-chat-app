@@ -6,9 +6,9 @@ import imageCompression from "browser-image-compression";
 import { IoMdSend, IoMdClose, IoMdCheckmark } from "react-icons/io";
 import { 
     BsEmojiSmileFill, BsPaperclip, BsMicFill, 
-    BsStopCircleFill, BsCodeSlash, BsClockHistory 
+    BsStopCircleFill, BsCodeSlash, BsClockHistory, BsTerminal 
 } from "react-icons/bs";
-import { FaBomb, FaFire, FaCalendarAlt, FaLink, FaSpinner, FaLock } from "react-icons/fa";
+import { FaBomb, FaFire, FaCalendarAlt, FaLink, FaSpinner, FaLock, FaMagic } from "react-icons/fa";
 
 // --- MERGE UPDATE: IMPORT ZUSTAND STORE ---
 import useChatStore from "../store/chatStore";
@@ -16,6 +16,13 @@ import useChatStore from "../store/chatStore";
 // --- CLOUDINARY CONFIGURATION ---
 const CLOUDINARY_CLOUD_NAME = "dz6weueae"; 
 const CLOUDINARY_UPLOAD_PRESET = "chat_app_preset"; // MUST be an "Unsigned" preset in Cloudinary settings
+
+// --- COMMANDS REGISTRY ---
+const COMMANDS = [
+    { cmd: "/code", desc: "Enable Code Mode", icon: <BsCodeSlash /> },
+    { cmd: "/bomb", desc: "Set 1-hour self-destruct", icon: <FaBomb /> },
+    { cmd: "/clear", desc: "Clear current input", icon: <FaMagic /> },
+];
 
 export default function ChatInput({ 
     handleSendMsg, handleTyping, replyingTo, setReplyingTo, 
@@ -41,11 +48,20 @@ export default function ChatInput({
   const [isViewOnceMedia, setIsViewOnceMedia] = useState(false);
   
   const [detectedUrl, setDetectedUrl] = useState(null);
+
+  // --- NEW: Slash Commands & Audio Analyzer State ---
+  const [showCommands, setShowCommands] = useState(false);
+  const [audioLevels, setAudioLevels] = useState(Array(15).fill(10));
   
   const fileInputRef = useRef(null);
   const textareaRef = useRef(null); 
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
+
+  // --- NEW: Audio Context Refs ---
+  const audioContextRef = useRef(null);
+  const analyzerRef = useRef(null);
+  const animationFrameRef = useRef(null);
 
   const isChannel = currentChat?.isChannel || false;
   const isAdmin = currentChat?.admins?.includes(currentUser?._id);
@@ -55,7 +71,7 @@ export default function ChatInput({
   // Has content check for styling the Send button
   const hasContent = msg.trim().length > 0 || mediaPreview !== null;
 
-  // --- NEW: Process file dropped from ChatContainer ---
+  // Process file dropped from ChatContainer
   useEffect(() => {
       if (droppedFile && canPost) {
           processFile(droppedFile);
@@ -97,6 +113,16 @@ export default function ChatInput({
       return () => document.removeEventListener('click', handleClickOutside);
   }, []);
 
+  // --- NEW: Clean up Audio Context on unmount ---
+  useEffect(() => {
+      return () => {
+          if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+          if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+              audioContextRef.current.close().catch(()=>console.log("Audio context already closed"));
+          }
+      }
+  }, []);
+
   const handleEmojiClick = (emojiData) => {
     setMsg((prev) => prev + emojiData.emoji);
     handleTyping(true); 
@@ -106,6 +132,16 @@ export default function ChatInput({
       if (textareaRef.current) {
           textareaRef.current.style.height = 'auto';
       }
+  };
+
+  // --- NEW: Execute Slash Command ---
+  const executeCommand = (cmdStr) => {
+      if (cmdStr === "/code") setIsCodeMode(true);
+      if (cmdStr === "/bomb") setTimerDuration(3600);
+      if (cmdStr === "/clear") { setMsg(""); setIsCodeMode(false); setTimerDuration(null); }
+      setShowCommands(false);
+      setMsg("");
+      resetTextarea();
   };
 
   const sendChat = (event) => {
@@ -129,13 +165,19 @@ export default function ChatInput({
       setScheduleDate(""); 
       setShowScheduleMenu(false);
       setDetectedUrl(null);
+      setShowCommands(false); // Close command palette if open
     }
   };
 
   const handleInput = (e) => {
-      setMsg(e.target.value);
-      handleTyping(e.target.value.length > 0);
+      const val = e.target.value;
+      setMsg(val);
+      handleTyping(val.length > 0);
       
+      // --- NEW: Trigger Slash Commands ---
+      if (val.startsWith("/")) setShowCommands(true);
+      else setShowCommands(false);
+
       // Auto-expand logic
       e.target.style.height = 'auto';
       const newHeight = Math.min(e.target.scrollHeight, 150); // Max height 150px
@@ -145,7 +187,13 @@ export default function ChatInput({
   const handleKeyDown = (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
           e.preventDefault(); // Prevent new line
-          sendChat();
+          
+          // --- NEW: Intercept Enter for Commands ---
+          if (showCommands && COMMANDS.some(c => msg.startsWith(c.cmd))) {
+              executeCommand(msg.trim());
+          } else {
+              sendChat();
+          }
       }
   };
 
@@ -252,6 +300,7 @@ export default function ChatInput({
       }
   };
 
+  // --- MERGE UPDATE: Advanced Web Audio API Recording ---
   const startRecording = async () => {
     if (!canPost) return;
     try {
@@ -260,11 +309,38 @@ export default function ChatInput({
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
 
+      // Set up Audio Analyzer
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      audioContextRef.current = new AudioContext();
+      analyzerRef.current = audioContextRef.current.createAnalyser();
+      const source = audioContextRef.current.createMediaStreamSource(stream);
+      source.connect(analyzerRef.current);
+      analyzerRef.current.fftSize = 64;
+      const bufferLength = analyzerRef.current.frequencyBinCount;
+      const dataArray = new Uint8Array(bufferLength);
+
+      const updateWaveform = () => {
+          if (!analyzerRef.current) return;
+          analyzerRef.current.getByteFrequencyData(dataArray);
+          // Sample 15 points across the frequency array for visualization
+          const step = Math.floor(bufferLength / 15);
+          const newLevels = Array.from({length: 15}).map((_, i) => Math.max(10, dataArray[i * step] / 2));
+          setAudioLevels(newLevels);
+          animationFrameRef.current = requestAnimationFrame(updateWaveform);
+      };
+      updateWaveform();
+
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) audioChunksRef.current.push(event.data);
       };
 
       mediaRecorder.onstop = async () => {
+        // Stop animation
+        if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+        if (audioContextRef.current) {
+            audioContextRef.current.close().catch(()=>console.log("Audio context already closed"));
+        }
+
         const audioBlob = new Blob(audioChunksRef.current, { type: "audio/mp3" });
         const audioFile = new File([audioBlob], `voice_record_${Date.now()}.mp3`, { type: "audio/mp3" });
         
@@ -315,6 +391,21 @@ export default function ChatInput({
 
   return (
     <Wrapper>
+      
+      {/* --- NEW: Slash Command Palette --- */}
+      {showCommands && (
+          <CommandPalette>
+              <div className="cmd-header"><BsTerminal /> Slash Commands</div>
+              {COMMANDS.map((cmd, i) => (
+                  <div key={i} className="cmd-item" onClick={() => executeCommand(cmd.cmd)}>
+                      <span className="cmd-icon">{cmd.icon}</span>
+                      <span className="cmd-name">{cmd.cmd}</span>
+                      <span className="cmd-desc">{cmd.desc}</span>
+                  </div>
+              ))}
+          </CommandPalette>
+      )}
+
       <div className="status-badges">
           {timerDuration && (
               <div className="badge timer-badge" onClick={() => setTimerDuration(null)}>
@@ -440,9 +531,10 @@ export default function ChatInput({
           {isRecording ? (
             <div className="recording-ui">
                <span className="rec-text">Recording Audio... (Click Stop)</span>
-               <div className="waveform">
-                   <span className="bar"></span><span className="bar"></span><span className="bar"></span>
-                   <span className="bar"></span><span className="bar"></span><span className="bar"></span>
+               <div className="dynamic-waveform">
+                   {audioLevels.map((level, i) => (
+                       <span key={i} className="bar" style={{ height: `${level}px` }}></span>
+                   ))}
                </div>
             </div>
           ) : isCodeMode ? (
@@ -458,7 +550,7 @@ export default function ChatInput({
           ) : (
             <textarea
               ref={textareaRef}
-              placeholder={isUploading ? "Uploading media..." : "Type a message or paste an image..."}
+              placeholder={isUploading ? "Uploading media..." : (showCommands ? "Select a command..." : "Type a message or use '/' for commands...")}
               onChange={handleInput}
               onKeyDown={handleKeyDown}
               value={msg}
@@ -495,6 +587,7 @@ const pulse = keyframes`
   100% { transform: scale(1); }
 `;
 
+// Only used as fallback now, dynamic waveform uses JS heights
 const wave = keyframes`
   0%, 100% { height: 8px; }
   50% { height: 24px; }
@@ -508,6 +601,30 @@ const ReadOnlyBanner = styled.div`
   font-style: italic; font-size: 0.95rem; min-height: 10%;
   
   .lock-icon { margin-right: 10px; font-size: 1.1rem; color: var(--msg-sent); }
+`;
+
+const CommandPalette = styled.div`
+    position: absolute; bottom: 85px; left: 2rem; width: 300px;
+    background: rgba(10, 10, 15, 0.85); backdrop-filter: blur(25px); 
+    border: 1px solid var(--glass-border); border-radius: 12px; overflow: hidden; 
+    box-shadow: 0 10px 40px rgba(0,0,0,0.4); z-index: 100; 
+    animation: ${popIn} 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    
+    .cmd-header { 
+        padding: 10px 14px; background: rgba(255,255,255,0.05); font-size: 0.8rem; 
+        font-weight: bold; color: var(--text-dim); display: flex; align-items: center; 
+        gap: 8px; border-bottom: 1px solid var(--glass-border); text-transform: uppercase;
+    }
+    
+    .cmd-item { 
+        display: flex; align-items: center; gap: 12px; padding: 12px 14px; 
+        cursor: pointer; transition: all 0.2s; color: var(--text-main);
+        &:hover { background: var(--input-bg); transform: translateX(4px); } 
+    }
+    
+    .cmd-icon { color: var(--text-dim); display: flex; align-items: center; }
+    .cmd-name { font-weight: 700; color: #00ff88; }
+    .cmd-desc { font-size: 0.8rem; opacity: 0.7; }
 `;
 
 const PreviewOverlay = styled.div`
@@ -631,7 +748,10 @@ const Container = styled.div`
     .recording-ui {
         width: 100%; height: 40px; display: flex; align-items: center; justify-content: space-between; padding-left: 1.5rem; padding-right: 1rem;
         .rec-text { color: #ff4e4e; font-style: italic; font-weight: bold; animation: ${pulse} 1.5s infinite; }
-        .waveform { display: flex; align-items: center; gap: 4px; height: 30px; .bar { display: block; width: 4px; background: #ff4e4e; border-radius: 4px; animation: ${wave} 1s ease-in-out infinite; } .bar:nth-child(2) { animation-delay: 0.1s; } .bar:nth-child(3) { animation-delay: 0.2s; } .bar:nth-child(4) { animation-delay: 0.3s; } .bar:nth-child(5) { animation-delay: 0.4s; } .bar:nth-child(6) { animation-delay: 0.5s; } }
+        .dynamic-waveform { 
+            display: flex; align-items: center; gap: 3px; height: 30px; 
+            .bar { width: 4px; background: #ff4e4e; border-radius: 4px; transition: height 0.05s ease; min-height: 4px;} 
+        }
     }
 
     textarea { 
