@@ -96,8 +96,8 @@ export const Container = styled.div`
       margin: 12px auto 0 auto;
       width: 96%;
       border-radius: 12px;
-      /* Dynamic adaptive hue based on message sentiment */
-      background: hsla(var(--sentiment-hue, 250), 50%, 15%, 0.85); 
+      /* Now fully theme adaptive based on index.css variables */
+      background: var(--bg-panel); 
       border: 1px solid var(--glass-border);
       border-left: 4px solid var(--adaptive-accent);
       padding: 0.6rem 1.5rem; 
@@ -107,12 +107,11 @@ export const Container = styled.div`
       -webkit-backdrop-filter: blur(var(--glass-blur-light));
       z-index: 2; 
       transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+      box-shadow: var(--glass-shadow);
       
       &:hover { 
-          background: hsla(var(--sentiment-hue, 250), 50%, 25%, 0.95); 
+          filter: brightness(0.95); 
           transform: translateY(-2px);
-          box-shadow: 0 12px 28px rgba(0, 0, 0, 0.15);
       }
       .pin-content { 
           display: flex; flex-direction: column; 
@@ -143,11 +142,11 @@ export const Container = styled.div`
           .presence-info {
               display: flex; align-items: center; gap: 6px; margin-top: -2px; margin-bottom: 4px;
               .status-dot {
-                  width: 8px; height: 8px; border-radius: 50%; background: #555;
+                  width: 8px; height: 8px; border-radius: 50%; background: var(--text-dim);
                   transition: all 0.3s ease;
-                  &.online { background: #00ff88; box-shadow: 0 0 8px rgba(0, 255, 136, 0.6); }
+                  &.online { background: #10b981; box-shadow: 0 0 8px rgba(16, 185, 129, 0.6); }
               }
-              span { font-size: 0.75rem; color: var(--text-dim); transition: color 0.3s; &.online { color: #00ff88; } }
+              span { font-size: 0.75rem; color: var(--text-dim); transition: color 0.3s; &.online { color: #10b981; } }
           }
           .chat-bio { font-size: 0.75rem; color: var(--text-dim); display: flex; align-items: center; gap: 0.4rem; cursor: help; }
       }
@@ -157,8 +156,8 @@ export const Container = styled.div`
         display: flex; align-items: center; gap: 1rem;
         .chat-search-input { background: var(--input-bg); color: var(--text-main); border: 1px solid var(--glass-border); padding: 0.5rem 1rem; border-radius: 2rem; outline: none; font-size: 0.85rem; animation: ${springyPop} 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); transition: all 0.2s; &:focus { border-color: var(--adaptive-accent); box-shadow: 0 0 10px rgba(78, 14, 255, 0.2); } }
         .huddle-btn { background: var(--adaptive-accent); color: white; border: none; padding: 0.5rem 1rem; border-radius: 2rem; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; font-weight: 600; transition: all 0.2s ease; box-shadow: 0 4px 15px rgba(0,0,0,0.2); &:hover { transform: translateY(-2px); filter: brightness(1.1); } }
-        .admin-badge { background: var(--input-bg); color: #00ff88; padding: 0.3rem 0.8rem; border-radius: 1rem; border: 1px solid var(--glass-border); font-size: 0.7rem; font-weight: 700; display: flex; align-items: center; gap: 0.4rem; backdrop-filter: blur(4px); }
-        .action-icon { color: var(--text-dim); cursor: pointer; font-size: 1.2rem; transition: 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275); &:hover { transform: scale(1.15); color: var(--text-main); } &.blocked { color: #ff0055; } }
+        .admin-badge { background: var(--input-bg); color: var(--adaptive-accent); padding: 0.3rem 0.8rem; border-radius: 1rem; border: 1px solid var(--glass-border); font-size: 0.7rem; font-weight: 700; display: flex; align-items: center; gap: 0.4rem; backdrop-filter: blur(4px); }
+        .action-icon { color: var(--text-dim); cursor: pointer; font-size: 1.2rem; transition: 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275); &:hover { transform: scale(1.15); color: var(--text-main); } &.blocked { color: #ef4444; } }
     }
   }
 
@@ -251,7 +250,7 @@ export const Container = styled.div`
         position: relative; min-width: 140px; 
         transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.2s ease, border-radius 0.2s ease;
         
-        &:hover { box-shadow: 0 6px 20px rgba(0,0,0,0.1); }
+        &:hover { box-shadow: var(--glass-shadow); }
 
         &::before { content: ""; position: absolute; bottom: 0; width: 16px; height: 16px; z-index: -1; }
 
@@ -307,7 +306,7 @@ export const Container = styled.div`
             }
         }
 
-        .sender-name { font-size: 0.75rem; color: #00ff88; font-weight: 700; margin-bottom: 6px; text-transform: capitalize; letter-spacing: 0.3px;}
+        .sender-name { font-size: 0.75rem; color: var(--adaptive-accent); font-weight: 700; margin-bottom: 6px; text-transform: capitalize; letter-spacing: 0.3px;}
         .deleted-text { font-style: italic; color: var(--text-dim); font-size: 0.9rem; }
         .edited-tag { font-size: 0.65rem; opacity: 0.5; margin-left: 6px; font-style: italic; }
         .forwarded-tag { font-size: 0.7rem; color: var(--text-dim); margin-bottom: 0.6rem; font-style: italic; display: flex; align-items: center; gap: 0.4rem; font-weight: 500;}
@@ -357,8 +356,8 @@ export const Container = styled.div`
             .read-status { font-weight: 700; font-size: 0.85rem; display: flex; align-items: center; transition: 0.2s; }
             .read-status-wrapper {
                 display: flex; align-items: center; gap: 4px; border-radius: 12px; padding: 2px 6px; transition: 0.2s;
-                &.has-avatars { background: rgba(0,0,0,0.1); }
-                &:hover.has-avatars { background: rgba(0,0,0,0.2); }
+                &.has-avatars { background: var(--input-bg); }
+                &:hover.has-avatars { background: var(--glass-border); }
             }
             .reader-avatars { display: flex; align-items: center; margin-right: 2px; }
             .tiny-avatar {
@@ -410,7 +409,7 @@ export const Container = styled.div`
         backdrop-filter: blur(var(--glass-blur-light)); /* UI UPGRADE: Layered Glassmorphism */
         -webkit-backdrop-filter: blur(var(--glass-blur-light));
         border: 1px solid var(--glass-border);
-        box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        box-shadow: var(--glass-shadow);
 
         &::before { left: -6px; background: var(--msg-received); clip-path: polygon(100% 0, 0 100%, 100% 100%); backdrop-filter: blur(var(--glass-blur-light)); border-bottom: 1px solid var(--glass-border);}
       }
@@ -422,7 +421,7 @@ export const Container = styled.div`
     
     .typing-dots {
         display: flex; align-items: center; gap: 4px; height: 15px; padding: 0 5px;
-        span { width: 6px; height: 6px; background-color: #00ff88; border-radius: 50%; animation: ${bounce} 1.4s infinite ease-in-out both; opacity: 0.8; }
+        span { width: 6px; height: 6px; background-color: var(--adaptive-accent); border-radius: 50%; animation: ${bounce} 1.4s infinite ease-in-out both; opacity: 0.8; }
         span:nth-child(1) { animation-delay: -0.32s; }
         span:nth-child(2) { animation-delay: -0.16s; }
     }
@@ -431,14 +430,14 @@ export const Container = styled.div`
 
 export const DropOverlay = styled.div`
     position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-    background: rgba(0, 0, 0, 0.4); backdrop-filter: blur(12px);
+    background: var(--glass-bg); backdrop-filter: blur(12px);
     z-index: 100; display: flex; justify-content: center; align-items: center;
     border: 4px dashed var(--adaptive-accent); border-radius: 1.5rem;
     animation: ${pulseBorder} 2s infinite ease-in-out;
     margin: 10px; width: calc(100% - 20px); height: calc(100% - 20px);
     .overlay-content { 
-        text-align: center; color: white; animation: ${springyPop} 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); 
-        background: var(--bg-panel); padding: 3rem 4rem; border-radius: 2rem; box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+        text-align: center; color: var(--text-main); animation: ${springyPop} 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); 
+        background: var(--bg-panel); padding: 3rem 4rem; border-radius: 2rem; box-shadow: var(--glass-shadow);
         h2 { margin: 1rem 0; font-weight: 700; color: var(--text-main); } 
         p { color: var(--text-dim); }
     }
@@ -472,16 +471,16 @@ export const ScrollButton = styled.button`
 
 export const Lightbox = styled.div`
     position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-    background: rgba(0,0,0,0.85); z-index: 1000; display: flex; justify-content: center; align-items: center;
+    background: var(--glass-bg); z-index: 1000; display: flex; justify-content: center; align-items: center;
     backdrop-filter: blur(8px);
     
-    img { max-width: 90%; max-height: 90%; border-radius: 12px; box-shadow: 0 15px 50px rgba(0,0,0,0.6); }
+    img { max-width: 90%; max-height: 90%; border-radius: 12px; box-shadow: var(--glass-shadow); }
     
-    .close-btn { position: absolute; top: 30px; right: 30px; background: rgba(255,255,255,0.1); border-radius: 50%; width: 50px; height: 50px; display: flex; justify-content: center; align-items: center; border: none; color: white; font-size: 1.5rem; cursor: pointer; transition: 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275); backdrop-filter: blur(4px); &:hover { transform: scale(1.1); background: rgba(255,78,78,0.8); } }
+    .close-btn { position: absolute; top: 30px; right: 30px; background: var(--input-bg); border-radius: 50%; width: 50px; height: 50px; display: flex; justify-content: center; align-items: center; border: 1px solid var(--glass-border); color: var(--text-main); font-size: 1.5rem; cursor: pointer; transition: 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275); backdrop-filter: blur(4px); &:hover { transform: scale(1.1); background: rgba(255,78,78,0.8); color: white; border-color: transparent;} }
     
     .receipt-modal {
         background: var(--bg-panel); padding: 2.5rem; border-radius: 24px; width: 420px;
-        border: 1px solid var(--glass-border); box-shadow: 0 25px 60px rgba(0,0,0,0.5); position: relative;
+        border: 1px solid var(--glass-border); box-shadow: var(--glass-shadow); position: relative;
         color: var(--text-main); 
         
         .close-btn-small { position: absolute; top: 20px; right: 20px; background: var(--input-bg); border-radius: 50%; width: 32px; height: 32px; display: flex; justify-content: center; align-items: center; border: none; color: var(--text-dim); cursor: pointer; font-size: 1rem; transition: 0.2s; &:hover { color: #ff4e4e; transform: scale(1.1); } }
@@ -567,7 +566,7 @@ export const SideInfoPanel = styled.div`
             text-align: center; margin-bottom: 2.5rem; 
             img { width: 110px; height: 110px; border-radius: 50%; border: 3px solid var(--adaptive-accent); margin-bottom: 1.2rem; object-fit: cover; box-shadow: 0 8px 25px rgba(0,0,0,0.1); } 
             h3 { color: var(--text-main); margin: 0; font-size: 1.3rem; font-weight: 700; letter-spacing: 0.5px; } 
-            .presence { color: #00ff88; font-size: 0.85rem; font-weight: 600; margin-top: 8px; display: inline-block; background: rgba(0,255,136,0.1); padding: 4px 12px; border-radius: 12px;} 
+            .presence { color: #10b981; font-size: 0.85rem; font-weight: 600; margin-top: 8px; display: inline-block; background: rgba(16, 185, 129, 0.1); padding: 4px 12px; border-radius: 12px;} 
         }
         .info-card { 
             background: var(--input-bg); padding: 1.2rem; border-radius: 1.2rem; margin-bottom: 1.2rem; border: 1px solid var(--glass-border); transition: 0.2s;

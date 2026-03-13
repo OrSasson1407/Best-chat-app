@@ -605,13 +605,13 @@ const ReadOnlyBanner = styled.div`
 
 const CommandPalette = styled.div`
     position: absolute; bottom: 85px; left: 2rem; width: 300px;
-    background: rgba(10, 10, 15, 0.85); backdrop-filter: blur(25px); 
+    background: var(--bg-panel); backdrop-filter: blur(25px); 
     border: 1px solid var(--glass-border); border-radius: 12px; overflow: hidden; 
-    box-shadow: 0 10px 40px rgba(0,0,0,0.4); z-index: 100; 
+    box-shadow: 0 10px 40px rgba(0,0,0,0.2); z-index: 100; 
     animation: ${popIn} 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
     
     .cmd-header { 
-        padding: 10px 14px; background: rgba(255,255,255,0.05); font-size: 0.8rem; 
+        padding: 10px 14px; background: var(--input-bg); font-size: 0.8rem; 
         font-weight: bold; color: var(--text-dim); display: flex; align-items: center; 
         gap: 8px; border-bottom: 1px solid var(--glass-border); text-transform: uppercase;
     }
@@ -623,7 +623,7 @@ const CommandPalette = styled.div`
     }
     
     .cmd-icon { color: var(--text-dim); display: flex; align-items: center; }
-    .cmd-name { font-weight: 700; color: #00ff88; }
+    .cmd-name { font-weight: 700; color: var(--adaptive-accent); }
     .cmd-desc { font-size: 0.8rem; opacity: 0.7; }
 `;
 
@@ -634,7 +634,7 @@ const PreviewOverlay = styled.div`
     .preview-container {
         background: var(--bg-panel); 
         backdrop-filter: blur(15px); border-radius: 1.5rem; padding: 1.2rem;
-        box-shadow: 0 15px 40px rgba(0,0,0,0.4);
+        box-shadow: 0 15px 40px rgba(0,0,0,0.2);
         border: 1px solid var(--glass-border);
         display: flex; flex-direction: column; gap: 1rem; width: 380px; 
         animation: ${popIn} 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
@@ -676,14 +676,14 @@ const Wrapper = styled.div`
       position: absolute; top: -35px; left: 2rem; display: flex; gap: 0.8rem; z-index: 10;
       .badge { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.8rem; border-radius: 1rem; font-size: 0.75rem; font-weight: bold; cursor: pointer; color: white; animation: ${popIn} 0.3s ease; box-shadow: 0 4px 10px rgba(0,0,0,0.2); .close { margin-left: 5px; opacity: 0.6; &:hover { opacity: 1; } } }
       .timer-badge { background: rgba(255, 85, 0, 0.2); border: 1px solid #ff5500; color: #ff5500; backdrop-filter: blur(5px); }
-      .schedule-badge { background: rgba(0, 255, 136, 0.2); border: 1px solid #00ff88; color: #00ff88; backdrop-filter: blur(5px); }
+      .schedule-badge { background: rgba(16, 185, 129, 0.15); border: 1px solid #10b981; color: #10b981; backdrop-filter: blur(5px); }
   }
 
   .reply-banner {
       background: var(--input-bg); backdrop-filter: blur(10px); padding: 0.6rem 2rem; display: flex; justify-content: space-between; align-items: center; color: var(--text-dim); font-size: 0.85rem; border-top: 1px solid var(--glass-border);
       .close-btn { cursor: pointer; color: var(--text-dim); font-size: 1.2rem; transition: 0.2s; &:hover { color: #ff4e4e; transform: scale(1.2); } }
   }
-  .edit-banner { background: rgba(0, 255, 136, 0.15); }
+  .edit-banner { background: rgba(16, 185, 129, 0.1); }
   .link-banner { background: rgba(52, 183, 241, 0.1); border-top: 1px solid rgba(52, 183, 241, 0.2); justify-content: flex-start; animation: ${popIn} 0.3s ease; }
   
   @keyframes fa-spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
@@ -695,7 +695,7 @@ const Container = styled.div`
   padding: 0 2rem; min-height: 10%; 
   border-top: 1px solid var(--glass-border);
   
-  ${({ $isRecording }) => $isRecording && css` background: rgba(255, 78, 78, 0.05); box-shadow: inset 0 0 20px rgba(255, 78, 78, 0.1); `}
+  ${({ $isRecording }) => $isRecording && css` background: rgba(239, 68, 68, 0.05); box-shadow: inset 0 0 20px rgba(239, 68, 68, 0.1); `}
 
   @media screen and (max-width: 1080px) { grid-template-columns: 35% 65%; }
   @media screen and (max-width: 720px) { padding: 0 1rem; gap: 1rem; grid-template-columns: 40% 60%; }
@@ -706,20 +706,21 @@ const Container = styled.div`
     .tool-toggle {
       position: relative; cursor: pointer;
       svg { font-size: 1.4rem; color: var(--text-dim); transition: 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); &:hover { color: var(--text-main); transform: scale(1.15) translateY(-2px); } }
-      &.active svg { color: var(--msg-sent); filter: drop-shadow(0 0 5px rgba(78,14,255,0.5)); }
+      &.active svg { color: var(--msg-sent); filter: drop-shadow(0 0 5px rgba(99, 102, 241, 0.5)); }
     }
     
-    .emoji svg { color: #d4d412; }
+    .emoji svg { color: #eab308; }
     .upload svg { color: #34B7F1; }
-    .mic .recording-active { color: #ff4e4e; animation: ${pulse} 1s infinite; filter: drop-shadow(0 0 10px #ff4e4e); }
+    .mic .recording-active { color: #ef4444; animation: ${pulse} 1s infinite; filter: drop-shadow(0 0 10px #ef4444); }
     .loading-mic { color: var(--text-dim); animation: fa-spin 1s infinite linear; }
-    .code-toggle.active svg { color: #00ff88; filter: drop-shadow(0 0 5px #00ff88); }
+    
+    .code-toggle.active svg { color: var(--adaptive-accent); filter: drop-shadow(0 0 5px var(--adaptive-accent)); }
 
     .floating-menu {
       position: absolute; bottom: 50px; left: 0; 
       background: var(--bg-panel); 
       backdrop-filter: blur(15px);
-      box-shadow: 0 10px 30px rgba(0,0,0,0.3); 
+      box-shadow: 0 10px 30px rgba(0,0,0,0.15); 
       border: 1px solid var(--glass-border); 
       border-radius: 1rem; z-index: 99;
       animation: ${popIn} 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
@@ -730,7 +731,7 @@ const Container = styled.div`
     .timer-menu, .schedule-menu {
         padding: 1.2rem; width: 220px; display: flex; flex-direction: column; gap: 0.6rem;
         h4 { color: var(--text-main); margin-top: 0; margin-bottom: 0.5rem; font-size: 0.9rem; text-align: center; border-bottom: 1px solid var(--glass-border); padding-bottom: 0.5rem; }
-        button { background: var(--input-bg); border: 1px solid transparent; color: inherit; padding: 0.6rem; border-radius: 0.5rem; cursor: pointer; transition: 0.2s; &:hover { filter: brightness(0.9); } &.selected { background: var(--msg-sent); color: white; font-weight: bold; box-shadow: 0 0 10px rgba(78,14,255,0.3); } }
+        button { background: var(--input-bg); border: 1px solid transparent; color: inherit; padding: 0.6rem; border-radius: 0.5rem; cursor: pointer; transition: 0.2s; &:hover { filter: brightness(0.9); } &.selected { background: var(--msg-sent); color: white; font-weight: bold; box-shadow: 0 0 10px rgba(99,102,241,0.3); } }
         input[type="datetime-local"] { background: var(--input-bg); color: inherit; border: 1px solid var(--glass-border); padding: 0.8rem; border-radius: 0.5rem; outline: none; margin-bottom: 0.5rem; font-family: inherit; }
     }
   }
@@ -742,15 +743,15 @@ const Container = styled.div`
     border: 1px solid transparent; 
     
     &:focus-within { 
-        border-color: var(--msg-sent); box-shadow: 0 0 15px rgba(78, 14, 255, 0.1); 
+        border-color: var(--msg-sent); box-shadow: 0 0 15px rgba(99, 102, 241, 0.1); 
     }
     
     .recording-ui {
         width: 100%; height: 40px; display: flex; align-items: center; justify-content: space-between; padding-left: 1.5rem; padding-right: 1rem;
-        .rec-text { color: #ff4e4e; font-style: italic; font-weight: bold; animation: ${pulse} 1.5s infinite; }
+        .rec-text { color: #ef4444; font-style: italic; font-weight: bold; animation: ${pulse} 1.5s infinite; }
         .dynamic-waveform { 
             display: flex; align-items: center; gap: 3px; height: 30px; 
-            .bar { width: 4px; background: #ff4e4e; border-radius: 4px; transition: height 0.05s ease; min-height: 4px;} 
+            .bar { width: 4px; background: #ef4444; border-radius: 4px; transition: height 0.05s ease; min-height: 4px;} 
         }
     }
 
@@ -772,12 +773,13 @@ const Container = styled.div`
       border: none; transition: 0.3s; 
       
       &.empty { background: var(--bg-panel); color: var(--text-dim); cursor: default; }
-      &.ready { background: var(--primary-gradient); color: white; cursor: pointer; box-shadow: 0 4px 15px rgba(78, 14, 255, 0.3); }
-      &.ready:hover { transform: scale(1.08); box-shadow: 0 6px 20px rgba(78, 14, 255, 0.5); }
+      &.ready { background: var(--primary-gradient); color: white; cursor: pointer; box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3); }
+      &.ready:hover { transform: scale(1.08); box-shadow: 0 6px 20px rgba(99, 102, 241, 0.5); }
       
       svg { font-size: 1.3rem; }
       &:disabled { background: var(--bg-panel); cursor: not-allowed; box-shadow: none; color: var(--text-dim); }
-      &.schedule-btn { background: linear-gradient(135deg, #00ff88 0%, #00b35f 100%); box-shadow: 0 4px 15px rgba(0, 255, 136, 0.3); color: black;}
+      
+      &.schedule-btn { background: linear-gradient(135deg, #10b981 0%, #059669 100%); box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3); color: white;}
       .spin-icon { animation: fa-spin 1s infinite linear; }
     }
   }

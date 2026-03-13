@@ -169,7 +169,7 @@ const Container = styled.div`
     border-radius: 32px;
     padding: clamp(2rem, 5vh, 4rem) 2rem;
     backdrop-filter: blur(10px);
-    box-shadow: 0 10px 40px rgba(0,0,0,0.05);
+    box-shadow: var(--glass-shadow);
 
     .robot-mascot {
       /* Fluid image sizing */
@@ -260,7 +260,7 @@ const Container = styled.div`
         top: 0; left: 0; right: 0; bottom: 0;
         background: radial-gradient(
           800px circle at var(--mouse-x) var(--mouse-y), 
-          rgba(255,255,255,0.04),
+          rgba(128, 128, 128, 0.15),
           transparent 40%
         );
         opacity: 0;
@@ -302,10 +302,10 @@ const Container = styled.div`
         margin-bottom: 0.5rem;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 
-        &.primary { background: rgba(78, 14, 255, 0.2); color: #9a86f3; border: 1px solid rgba(78, 14, 255, 0.3); }
-        &.danger { background: rgba(255, 78, 78, 0.15); color: #ff4e4e; border: 1px solid rgba(255, 78, 78, 0.3); }
-        &.success { background: rgba(0, 255, 136, 0.15); color: #00ff88; border: 1px solid rgba(0, 255, 136, 0.3); }
-        &.warning { background: rgba(255, 170, 0, 0.15); color: #ffaa00; border: 1px solid rgba(255, 170, 0, 0.3); }
+        &.primary { background: var(--glass-bg); color: var(--msg-sent); border: 1px solid var(--glass-border); }
+        &.danger { background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); }
+        &.success { background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); }
+        &.warning { background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); }
       }
 
       h3 {

@@ -203,7 +203,7 @@ const MessageItem = React.memo(({
                     <p>
                         <HighlightedText text={translatedText || msg.message} query={searchQuery} />
                     </p>
-                    {isTranslating && <span style={{ fontSize: '0.65rem', color: '#00ff88', fontStyle: 'italic', marginTop: '4px' }}>Translating via AI...</span>}
+                    {isTranslating && <span style={{ fontSize: '0.65rem', color: 'var(--adaptive-accent)', fontStyle: 'italic', marginTop: '4px' }}>Translating via AI...</span>}
                     {translatedText && <span style={{ fontSize: '0.65rem', color: 'var(--text-main)', opacity: 0.7, fontStyle: 'italic', marginTop: '4px' }}>Translated from original</span>}
                 </div>
             );
@@ -471,9 +471,9 @@ const AnimatedTicks = styled.svg`
 `;
 
 const ContextMenu = styled(motion.div)`
-    position: fixed; background: rgba(20, 20, 25, 0.95); backdrop-filter: blur(20px);
+    position: fixed; background: var(--bg-panel); backdrop-filter: blur(20px);
     border: 1px solid var(--glass-border); border-radius: 12px; padding: 6px 0; width: 180px;
-    box-shadow: 0 15px 40px rgba(0,0,0,0.5); z-index: 1000; overflow: hidden;
+    box-shadow: 0 15px 40px rgba(0,0,0,0.2); z-index: 1000; overflow: hidden;
     div { 
         padding: 10px 16px; display: flex; align-items: center; gap: 12px; font-size: 0.85rem; 
         color: var(--text-main); cursor: pointer; transition: 0.2s; font-weight: 500;

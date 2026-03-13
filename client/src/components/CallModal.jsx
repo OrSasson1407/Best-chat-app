@@ -170,10 +170,10 @@ export default function CallModal({ socket, currentUser, currentChat, incomingCa
             ) : (
                 <>
                     <button className="ctrl-btn" onClick={toggleMic}>
-                        {micActive ? <FaMicrophone /> : <FaMicrophoneSlash color="red"/>}
+                        {micActive ? <FaMicrophone /> : <FaMicrophoneSlash color="#ef4444"/>}
                     </button>
                     <button className="ctrl-btn" onClick={toggleVideo}>
-                        {videoActive ? <FaVideo /> : <FaVideoSlash color="red"/>}
+                        {videoActive ? <FaVideo /> : <FaVideoSlash color="#ef4444"/>}
                     </button>
                     <button className="btn-reject" onClick={leaveCall}><FaPhoneSlash /> End</button>
                 </>
@@ -187,14 +187,18 @@ export default function CallModal({ socket, currentUser, currentChat, incomingCa
 const ModalOverlay = styled.div`
   position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
   background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(8px);
   display: flex; justify-content: center; align-items: center;
   z-index: 1000;
-  color: white;
+  color: var(--text-main); /* UI UPGRADE */
 
   .call-container {
-    background: #1a1a1a; padding: 2rem; border-radius: 12px;
+    background: var(--bg-panel); /* UI UPGRADE */
+    border: 1px solid var(--glass-border);
+    padding: 2rem; border-radius: 12px;
     display: flex; flex-direction: column; align-items: center;
     gap: 1.5rem; max-width: 800px; width: 90%;
+    box-shadow: var(--glass-shadow);
   }
 
   .video-grid {
@@ -205,13 +209,14 @@ const ModalOverlay = styled.div`
     position: relative;
     background: #000; border-radius: 8px; overflow: hidden;
     width: 300px; height: 225px;
+    border: 2px solid var(--glass-border);
   }
 
   video { width: 100%; height: 100%; object-fit: cover; }
-  .name-tag { position: absolute; bottom: 10px; left: 10px; background: rgba(0,0,0,0.5); padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; }
+  .name-tag { position: absolute; bottom: 10px; left: 10px; background: rgba(0,0,0,0.5); padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; color: white; }
   
   .controls { display: flex; gap: 1rem; margin-top: 1rem; }
-  .ctrl-btn { background: #333; border: none; padding: 12px; border-radius: 50%; color: white; cursor: pointer; font-size: 1.2rem; }
-  .btn-answer { background: #25D366; border: none; padding: 10px 20px; border-radius: 8px; color: white; font-weight: bold; cursor: pointer; display: flex; gap: 8px; align-items: center;}
-  .btn-reject { background: #ff4b4b; border: none; padding: 10px 20px; border-radius: 8px; color: white; font-weight: bold; cursor: pointer; display: flex; gap: 8px; align-items: center;}
+  .ctrl-btn { background: var(--input-bg); border: 1px solid var(--glass-border); padding: 12px; border-radius: 50%; color: var(--text-main); cursor: pointer; font-size: 1.2rem; transition: 0.2s; &:hover { background: var(--glass-border); } }
+  .btn-answer { background: #10b981; border: none; padding: 10px 20px; border-radius: 8px; color: white; font-weight: bold; cursor: pointer; display: flex; gap: 8px; align-items: center; transition: 0.2s; &:hover { filter: brightness(1.1); } }
+  .btn-reject { background: #ef4444; border: none; padding: 10px 20px; border-radius: 8px; color: white; font-weight: bold; cursor: pointer; display: flex; gap: 8px; align-items: center; transition: 0.2s; &:hover { filter: brightness(1.1); } }
 `;

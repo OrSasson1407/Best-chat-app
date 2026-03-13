@@ -15,7 +15,7 @@ export default function ChatHeader({
                 <div className="header-info" onClick={() => { setShowSidePanel(true); setActiveSideTab('about'); }} style={{ cursor: 'pointer' }}>
                     <h3>
                         {currentChat.name || currentChat.username} 
-                        {isBlocked && <span style={{ color: '#ff4e4e', fontSize: '10px', marginLeft: '6px', letterSpacing: '0.5px', textTransform: 'uppercase' }}>(Blocked)</span>}
+                        {isBlocked && <span style={{ color: '#ef4444', fontSize: '10px', marginLeft: '6px', letterSpacing: '0.5px', textTransform: 'uppercase' }}>(Blocked)</span>}
                     </h3>
                     
                     {!currentChat.admin && (

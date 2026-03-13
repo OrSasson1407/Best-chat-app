@@ -29,7 +29,8 @@ export default function Chat() {
     currentChat, setCurrentChat,
     setOnlineUsers,
     setGlobalTypingUsers,
-    theme,
+    theme,           // Get current theme
+    setTheme,        // Function to update theme
     isCompact
   } = useChatStore();
 
@@ -47,6 +48,16 @@ export default function Chat() {
     if (hour >= 17 && hour < 21) return ["#f6d365", "#fda085"]; // Evening (Sunset)
     return ["#30cfd0", "#330867"]; // Night (Deep Purple/Teal)
   }, []);
+
+  // --- NEW: Apply Theme to HTML Document globally ---
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+  }, [theme]);
+
+  // --- NEW: Theme Toggle Handler ---
+  const toggleTheme = () => {
+    setTheme(theme === 'light' ? 'glass' : 'light'); 
+  };
 
   // 1. Authentication Check & Data Retrieval
   useEffect(() => {
@@ -215,14 +226,21 @@ export default function Chat() {
       $isMobileMenuOpen={isMobileMenuOpen}
       $timeColors={timeBasedColors}
     >
-      {/* --- NEW: Mesh Gradient Orbs --- */}
-      <div className="mesh-gradient">
-        <div className="orb orb-1"></div>
-        <div className="orb orb-2"></div>
-        <div className="orb orb-3"></div>
-      </div>
+      {/* --- NEW: Theme Toggle Button --- */}
+      <button className="theme-toggle" onClick={toggleTheme}>
+        {theme === 'light' ? '🌙 Dark Mode' : '☀️ Light Mode'}
+      </button>
 
-      {/* --- NEW: Cyberpunk Scanlines Overlay --- */}
+      {/* --- Mesh Gradient Orbs (Hidden in Light Mode for clean visibility) --- */}
+      {theme !== 'light' && (
+        <div className="mesh-gradient">
+          <div className="orb orb-1"></div>
+          <div className="orb orb-2"></div>
+          <div className="orb orb-3"></div>
+        </div>
+      )}
+
+      {/* --- Cyberpunk Scanlines Overlay --- */}
       {theme === 'cyberpunk' && <div className="scanlines"></div>}
       
       {/* Mobile Menu Toggle */}
@@ -280,49 +298,31 @@ const scanlineAnim = keyframes`
   100% { transform: translateY(100%); }
 `;
 
+// Helper to keep only localized specialty theme overrides.
+// Light/Glass defaults are now fully controlled dynamically via index.css variables!
 const getThemeStyles = (themeType) => {
-  switch (themeType) {
-    case 'light':
-      return css`
-        background-color: #f0f2f5;
-        color: #333;
-        .mesh-gradient { display: none; }
-        .glass-container { 
-          background: rgba(255, 255, 255, 0.6); 
-          backdrop-filter: blur(25px); 
-          border: 1px solid rgba(255, 255, 255, 0.6); 
-          box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.05);
-        }
-      `;
-    case 'midnight':
-      return css`
-        background-color: #000000;
-        .mesh-gradient { display: none; }
-        .glass-container { 
-          background: #0a0a0a; 
-          border: 1px solid #1a1a1a; 
-          box-shadow: none; 
-          backdrop-filter: none; 
-        }
-      `;
-    case 'cyberpunk':
-      return css`
-        background-color: #0d0221;
-        .glass-container { 
-          background: rgba(13, 2, 33, 0.85); 
-          border: 2px solid #00ff88; 
-          box-shadow: 0 0 20px rgba(0, 255, 136, 0.3), inset 0 0 10px rgba(0, 255, 136, 0.2);
-        }
-      `;
-    default: // 'glass'
-      return css`
-        .glass-container { 
-          background: rgba(255, 255, 255, 0.03); 
-          backdrop-filter: blur(20px); 
-          border: 1px solid rgba(255, 255, 255, 0.1); 
-        }
-      `;
+  if (themeType === 'midnight') {
+    return css`
+      background-color: #000000;
+      .glass-container { 
+        background: #0a0a0a; 
+        border: 1px solid #1a1a1a; 
+        box-shadow: none; 
+        backdrop-filter: none; 
+      }
+    `;
   }
+  if (themeType === 'cyberpunk') {
+    return css`
+      background-color: #0d0221;
+      .glass-container { 
+        background: rgba(13, 2, 33, 0.85); 
+        border: 2px solid #00ff88; 
+        box-shadow: 0 0 20px rgba(0, 255, 136, 0.3), inset 0 0 10px rgba(0, 255, 136, 0.2);
+      }
+    `;
+  }
+  return css``;
 };
 
 const Container = styled.div`
@@ -335,10 +335,36 @@ const Container = styled.div`
   position: relative;
   transition: background-color 0.5s ease;
   
-  /* Apply Time-Based Background Gradient */
-  background: ${({ $timeColors }) => `linear-gradient(135deg, ${$timeColors[0]} 0%, ${$timeColors[1]} 100%)`};
+  /* Apply Time-Based Background Gradient OR Solid Color for Light Mode */
+  background: ${({ $themeType, $timeColors }) => 
+    $themeType === 'light' 
+      ? 'var(--bg-color)' 
+      : `linear-gradient(135deg, ${$timeColors[0]} 0%, ${$timeColors[1]} 100%)`
+  };
 
   ${({ $themeType }) => getThemeStyles($themeType)}
+
+  .theme-toggle {
+    position: absolute;
+    top: 1.5rem;
+    right: 1.5rem;
+    z-index: 10;
+    background: var(--glass-bg);
+    color: var(--text-main);
+    border: 1px solid var(--glass-border);
+    padding: 0.6rem 1.2rem;
+    border-radius: 2rem;
+    font-weight: 600;
+    cursor: pointer;
+    backdrop-filter: var(--glass-blur);
+    transition: all 0.3s ease;
+    
+    &:hover {
+      transform: translateY(-2px);
+      background: var(--msg-sent);
+      color: white;
+    }
+  }
 
   .mesh-gradient {
     position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow: hidden; z-index: 0;
@@ -372,16 +398,16 @@ const Container = styled.div`
     top: 1.5rem;
     left: 1.5rem;
     z-index: 10;
-    background: rgba(78, 14, 255, 0.8);
+    background: var(--msg-sent);
     color: white;
     border: none;
     padding: 0.5rem 1rem;
     border-radius: 0.5rem;
     font-size: 1.2rem;
     cursor: pointer;
-    backdrop-filter: blur(10px);
+    backdrop-filter: var(--glass-blur);
     transition: 0.3s;
-    &:hover { background: #4e0eff; }
+    &:hover { opacity: 0.8; }
   }
 
   .glass-container {
@@ -392,7 +418,12 @@ const Container = styled.div`
     grid-template-columns: 25% 75%;
     overflow: hidden;
     z-index: 3; /* Lifted above scanlines */
-    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8);
+    
+    /* Tied to global CSS variables from index.css */
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    backdrop-filter: var(--glass-blur);
+    box-shadow: var(--glass-shadow);
     transition: all 0.3s ease;
     
     &.compact-mode {
@@ -434,9 +465,9 @@ const Container = styled.div`
       width: 80%;
       height: 100%;
       z-index: 5;
-      background: ${({ $themeType }) => $themeType === 'light' ? '#fff' : '#050510'};
+      background: var(--bg-layout); /* Updated to use CSS variable */
       transition: 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-      border-right: 1px solid rgba(255, 255, 255, 0.1);
+      border-right: 1px solid var(--glass-border);
       
       &.open {
         box-shadow: 20px 0 50px rgba(0, 0, 0, 0.8);

@@ -129,7 +129,7 @@ export default function ChatSidePanel({
                                         <div className="profile-hero">
                                             <img src={currentChat.avatarImage ? `https://avatar.iran.liara.run/public/${currentChat.avatarImage}` : getSmallAvatar(currentChat.name)} alt="hero" />
                                             <h3>{currentChat.name}</h3>
-                                            <p className="presence" style={{ color: currentChat.isPublic ? '#34B7F1' : '#00ff88', background: currentChat.isPublic ? 'rgba(52,183,241,0.1)' : 'rgba(0,255,136,0.1)' }}>
+                                            <p className="presence" style={{ color: currentChat.isPublic ? '#34B7F1' : '#10b981', background: currentChat.isPublic ? 'rgba(52,183,241,0.1)' : 'rgba(16, 185, 129, 0.1)' }}>
                                                 {currentChat.isPublic ? "Public Channel" : "Private Group"}
                                             </p>
                                         </div>
@@ -181,7 +181,7 @@ export default function ChatSidePanel({
                                                                 </span>
                                                                 <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
                                                                     {isUserAdmin && (
-                                                                        <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.65rem', background: 'rgba(0, 255, 136, 0.1)', color: '#00ff88', padding: '2px 6px', borderRadius: '8px', fontWeight: 'bold', border: '1px solid rgba(0, 255, 136, 0.3)' }}>
+                                                                        <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.65rem', background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', padding: '2px 6px', borderRadius: '8px', fontWeight: 'bold', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
                                                                             <FaCrown /> Admin
                                                                         </span>
                                                                     )}
@@ -238,7 +238,7 @@ export default function ChatSidePanel({
                                         <div className="profile-hero">
                                             <img src={currentChat.avatarImage ? `https://avatar.iran.liara.run/public/${currentChat.avatarImage}` : getSmallAvatar(currentChat.username)} alt="hero" />
                                             <h3>{currentChat.username}</h3>
-                                            <p className="presence">{isOnline ? "Online Now" : formatLastSeen(lastSeen)}</p>
+                                            <p className="presence" style={{ color: '#10b981', background: 'rgba(16, 185, 129, 0.1)' }}>{isOnline ? "Online Now" : formatLastSeen(lastSeen)}</p>
                                         </div>
 
                                         <div className="info-card">
@@ -262,7 +262,7 @@ export default function ChatSidePanel({
 
                                 <div className="info-card toggle-card" onClick={() => setIsMuted(!isMuted)}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                        {isMuted ? <FaBellSlash color="#ff4e4e" /> : <FaBell color="var(--msg-sent)" />}
+                                        {isMuted ? <FaBellSlash color="#ef4444" /> : <FaBell color="var(--msg-sent)" />}
                                         <span style={{ fontWeight: '600' }}>Mute Notifications</span>
                                     </div>
                                     <div className={`toggle-switch ${isMuted ? 'on' : 'off'}`}></div>
