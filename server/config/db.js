@@ -3,7 +3,7 @@ const logger = require("../utils/logger");
 
 const connectDB = async () => {
   try {
-    await mongoose.connect(process.env.MONGO_URI);
+await mongoose.connect("mongodb://127.0.0.1:27017/chat-app");
     logger.info("DB Connection Successful");
   } catch (err) {
     logger.error(`DB Connection Error: ${err.message}`);
