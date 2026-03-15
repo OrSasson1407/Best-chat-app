@@ -63,7 +63,7 @@ const socketHandler = require("./socket/socketHandler"); // Contains socket even
 const changeStreams = require("./socket/changeStreams"); // STEP 8: MongoDB Change Streams
 
 // --- BACKGROUND WORKERS ---
-const startMessageScheduler = require("./workers/messageScheduler"); 
+const { startMessageScheduler } = require("./workers/messageScheduler"); 
 require("./workers/mediaWorker"); // Worker responsible for handling scheduled messages (send later feature)
 
 // --- EXPRESS APPLICATION INITIALIZATION ---
