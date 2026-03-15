@@ -20,7 +20,7 @@
 
 const { Queue, Worker } = require("bullmq"); // Redis job queue system
 const admin = require("firebase-admin"); // Firebase Admin SDK for push notifications
-const User = require("../models/User"); // ADDED: Required to clean up stale FCM tokens
+const User = require("../models/User"); // Required to clean up stale FCM tokens
 
 
 
@@ -91,7 +91,7 @@ const connection = {
  *
  * Jobs added here will be processed by the worker.
  */
-// ADDED: Added defaultJobOptions to handle retries and keep Redis memory clean
+// Added defaultJobOptions to handle retries and keep Redis memory clean
 const notificationQueue = new Queue("notifications", { 
   connection,
   defaultJobOptions: {
@@ -123,10 +123,13 @@ const worker = new Worker(
    * Job handler
    */
   async (job) => {
+    
+    // Skip processing entirely if Firebase failed to initialize
+    if (admin.apps.length === 0) return;
 
-    /**
-     * Handle FCM push notification jobs
-     */
+    // ----------------------------------------------------
+    // 1. Handle SINGLE User push notifications
+    // ----------------------------------------------------
     if (job.name === "send_fcm_message") {
 
       const { userId, fcmToken, title, body } = job.data;
@@ -137,19 +140,15 @@ const worker = new Worker(
        */
       if (!fcmToken) return;
 
-
       /**
        * Construct FCM message payload
        */
       const message = {
-
         notification: {
           title: title,
           body: body,
         },
-
         token: fcmToken,
-
         /**
          * Custom data payload
          * Used by mobile apps or web apps
@@ -159,42 +158,20 @@ const worker = new Worker(
           click_action: "FLUTTER_NOTIFICATION_CLICK",
           userId: userId.toString()
         }
-
       };
 
-
       try {
-
-        /**
-         * Send push notification if Firebase initialized
-         */
-        if (admin.apps.length > 0) {
-
-          const response =
-            await admin.messaging().send(message);
-
-          console.log(
-            `✅ Push notification sent to ${userId}:`,
-            response
-          );
-        }
-
+        const response = await admin.messaging().send(message);
+        console.log(`✅ Push notification sent to ${userId}:`, response);
       } catch (error) {
-
         /**
          * Handle push notification errors
          */
-        console.error(
-          `❌ Failed to send push notification to ${userId}:`,
-          error.message
-        );
+        console.error(`❌ Failed to send push notification to ${userId}:`, error.message);
 
         /**
-         * Optional improvement:
-         * If token becomes invalid (user uninstalled app),
-         * remove it from the database.
+         * Logic to actually remove the dead token from the database
          */
-        // ADDED: Logic to actually remove the dead token from the database
         if (
           error.code === 'messaging/invalid-registration-token' ||
           error.code === 'messaging/registration-token-not-registered'
@@ -205,15 +182,70 @@ const worker = new Worker(
           return; // Return so BullMQ knows NOT to retry sending to this dead token
         }
 
-        // ADDED: Rethrow the error if it was a network issue, so BullMQ triggers a retry
+        // Rethrow the error if it was a network issue, so BullMQ triggers a retry
         throw error;
       }
 
     }
 
-  },
+    // ----------------------------------------------------
+    // 2. IMPROVEMENT: Handle MULTICAST (Group) notifications
+    // ----------------------------------------------------
+    else if (job.name === "send_multicast_message") {
+      const { fcmTokens, title, body, groupId } = job.data;
+      
+      if (!fcmTokens || fcmTokens.length === 0) return;
 
-  { connection }
+      // Firebase limit is 500 tokens per multicast batch
+      const maxBatchTokens = fcmTokens.slice(0, 500);
+
+      const message = {
+        notification: {
+          title: title,
+          body: body,
+        },
+        tokens: maxBatchTokens,
+        data: {
+          click_action: "FLUTTER_NOTIFICATION_CLICK",
+          groupId: groupId.toString()
+        }
+      };
+
+      try {
+        const response = await admin.messaging().sendEachForMulticast(message);
+        
+        // Clean up any dead tokens from the batch efficiently
+        if (response.failureCount > 0) {
+          const failedTokens = [];
+          
+          response.responses.forEach((resp, idx) => {
+            if (!resp.success && (
+              resp.error.code === 'messaging/invalid-registration-token' || 
+              resp.error.code === 'messaging/registration-token-not-registered'
+            )) {
+              failedTokens.push(maxBatchTokens[idx]);
+            }
+          });
+
+          if (failedTokens.length > 0) {
+            console.log(`🧹 Removing ${failedTokens.length} stale FCM tokens from multicast batch`);
+            await User.updateMany(
+              { fcmToken: { $in: failedTokens } },
+              { $unset: { fcmToken: "" } }
+            );
+          }
+        }
+      } catch (error) {
+        console.error(`❌ Multicast Notification Error:`, error.message);
+        throw error; // Rethrow to trigger BullMQ retry
+      }
+    }
+
+  },
+  { 
+      connection,
+      concurrency: 10 // ADDED: Process up to 10 notification jobs simultaneously for high throughput
+  }
 );
 
 
@@ -226,14 +258,14 @@ const worker = new Worker(
  * Triggered when a job completes successfully
  */
 worker.on("completed", (job) =>
-  console.log(`Job ${job.id} completed.`)
+  console.log(`[BullMQ] Notification Job ${job.id} completed.`)
 );
 
 /**
  * Triggered when a job fails
  */
 worker.on("failed", (job, err) =>
-  console.error(`Job ${job.id} failed:`, err.message)
+  console.error(`[BullMQ] Notification Job ${job.id} failed:`, err.message)
 );
 
 
@@ -253,6 +285,12 @@ worker.on("failed", (job, err) =>
  * fcmToken,
  * title: "New Message",
  * body: "You received a new message"
+ * });
+ * * await notificationQueue.add("send_multicast_message", {
+ * groupId,
+ * fcmTokens: ["token1", "token2", ...],
+ * title: "Group Chat",
+ * body: "New message in Group!"
  * });
  */
 module.exports = { notificationQueue };

@@ -1,6 +1,7 @@
 const Message = require("../models/Message"); 
 const messageService = require("../services/messageService");
 const urlMetadata = require('url-metadata'); // Needed for editMessage rich link previews
+const { scheduledMessageQueue } = require("../workers/messageScheduler"); // ADDED: BullMQ integration
 
 // Helper to detect URLs in text for link previews
 const extractUrls = (text) => {
@@ -47,13 +48,14 @@ module.exports.getChatMedia = async (req, res, next) => {
     const messages = await Message.find(query).sort({ _id: -1 });
 
     const mediaList = messages.map((msg) => {
-      // Check if view-once media was already viewed by the current user
-      const hasViewed = msg.viewed || (msg.viewedBy && msg.viewedBy.includes(from));
-      const isHiddenViewOnce = msg.isViewOnce && hasViewed && msg.sender.toString() !== from;
+      // FIX: Use .some() and .toString() to prevent Mongoose ObjectId comparison bugs
+      const hasViewedBy = msg.viewedBy && msg.viewedBy.some(id => id.toString() === from.toString());
+      const hasViewed = msg.viewed || hasViewedBy;
+      const isHiddenViewOnce = msg.isViewOnce && hasViewed && msg.sender.toString() !== from.toString();
 
       return {
         id: msg._id,
-        fromSelf: msg.sender.toString() === from,
+        fromSelf: msg.sender.toString() === from.toString(),
         message: isHiddenViewOnce ? "💣 Media Expired" : msg.message.text,
         type: msg.type,
         createdAt: msg.createdAt, 
@@ -86,14 +88,28 @@ module.exports.getMessages = async (req, res, next) => {
   }
 };
 
-// --- Add Message (Delegated to Service Layer) ---
+// --- Add Message (Delegated to Service Layer + BullMQ Scheduler) ---
 module.exports.addMessage = async (req, res, next) => {
   try {
     // Delegate Cloudinary uploads, URL metadata, saving, and Notifications to the Service Layer
     const data = await messageService.processAndSaveMessage(req.body);
     
-    if (data) return res.json({ msg: "Message added successfully.", data });
-    else return res.status(400).json({ msg: "Failed to add message" });
+    if (data) {
+        // IMPROVEMENT: If the message is scheduled for the future, send it to the BullMQ worker
+        if (data.scheduledAt && data.status === "pending") {
+            const delayMs = new Date(data.scheduledAt).getTime() - Date.now();
+            if (delayMs > 0) {
+                await scheduledMessageQueue.add("send_scheduled", 
+                    { messageId: data._id }, 
+                    { delay: delayMs }
+                );
+            }
+        }
+
+        return res.json({ msg: "Message added successfully.", data });
+    } else {
+        return res.status(400).json({ msg: "Failed to add message" });
+    }
   } catch (ex) {
     if (ex.message === "Cannot send message. You are blocked by this user.") {
         return res.status(403).json({ msg: ex.message });
@@ -108,11 +124,19 @@ module.exports.reactToMessage = async (req, res, next) => {
     const message = await Message.findById(messageId);
     if (!message) return res.status(404).json({ msg: "Message not found" });
 
-    const existingReaction = message.reactions.findIndex(r => r.by.toString() === userId && r.emoji === emoji);
+    // FIX: Check if user already reacted. If they did, update the emoji instead of pushing duplicates.
+    const userReactionIndex = message.reactions.findIndex(r => r.by.toString() === userId.toString());
     
-    if (existingReaction > -1) {
-        message.reactions.splice(existingReaction, 1);
+    if (userReactionIndex > -1) {
+        if (message.reactions[userReactionIndex].emoji === emoji) {
+            // Same emoji clicked again -> Remove reaction (toggle off)
+            message.reactions.splice(userReactionIndex, 1);
+        } else {
+            // Different emoji clicked -> Update reaction
+            message.reactions[userReactionIndex].emoji = emoji;
+        }
     } else {
+        // New reaction
         message.reactions.push({ emoji, by: userId, username });
     }
 
@@ -130,7 +154,9 @@ module.exports.deleteMessage = async (req, res, next) => {
     const message = await Message.findById(messageId);
     if (!message) return res.status(404).json({ msg: "Message not found" });
 
-    if (message.sender.toString() !== req.user.id) {
+    // FIX: Safe check for user ID depending on how your auth middleware maps it
+    const requestingUserId = req.user?.id || req.body.userId;
+    if (message.sender.toString() !== requestingUserId.toString()) {
         return res.status(403).json({ msg: "Unauthorized action: You can only delete your own messages." });
     }
 
@@ -158,8 +184,8 @@ module.exports.deleteMessageForMe = async (req, res, next) => {
     // Initialize array if it doesn't exist in the older schema records
     if (!message.deletedFor) message.deletedFor = [];
     
-    // Add user to the deleted list
-    if (!message.deletedFor.includes(userId)) {
+    // FIX: Use .some() instead of .includes() for ObjectIds
+    if (!message.deletedFor.some(id => id.toString() === userId.toString())) {
         message.deletedFor.push(userId);
         await message.save();
     }
@@ -176,7 +202,9 @@ module.exports.editMessage = async (req, res, next) => {
     const message = await Message.findById(messageId);
     if (!message) return res.status(404).json({ msg: "Message not found" });
 
-    if (message.sender.toString() !== req.user.id) {
+    // FIX: Safe check for user ID
+    const requestingUserId = req.user?.id || req.body.userId;
+    if (message.sender.toString() !== requestingUserId.toString()) {
         return res.status(403).json({ msg: "Unauthorized action: You can only edit your own messages." });
     }
 
@@ -222,12 +250,13 @@ module.exports.votePoll = async (req, res, next) => {
 
         if (!message.pollData.multipleAnswers) {
             message.pollData.options.forEach(opt => {
-                opt.votes = opt.votes.filter(id => id.toString() !== userId);
+                opt.votes = opt.votes.filter(id => id.toString() !== userId.toString()); // FIX: .toString()
             });
         }
 
         const option = message.pollData.options.id(optionId);
-        if(option && !option.votes.includes(userId)) {
+        // FIX: Use .some() instead of .includes() for ObjectIds
+        if (option && !option.votes.some(id => id.toString() === userId.toString())) {
             option.votes.push(userId);
         }
 
@@ -247,7 +276,8 @@ module.exports.triggerViewOnce = async (req, res, next) => {
         if(!message) return res.status(404).json({ msg: "Message not found" });
 
         message.viewed = true;
-        if (userId && !message.viewedBy.includes(userId)) {
+        // FIX: Use .some() instead of .includes() for ObjectIds
+        if (userId && !message.viewedBy.some(id => id.toString() === userId.toString())) {
             message.viewedBy.push(userId);
         }
         await message.save();
@@ -265,12 +295,13 @@ module.exports.toggleStarMessage = async (req, res, next) => {
         
         if(!message) return res.status(404).json({ msg: "Message not found" });
 
-        const isStarred = message.starredBy && message.starredBy.includes(userId);
+        // FIX: Use .some() instead of .includes() for ObjectIds
+        const isStarred = message.starredBy && message.starredBy.some(id => id.toString() === userId.toString());
         
         if (isStarred) {
-            message.starredBy = message.starredBy.filter(id => id.toString() !== userId);
+            message.starredBy = message.starredBy.filter(id => id.toString() !== userId.toString()); // FIX: .toString()
         } else {
-            if(!message.starredBy) message.starredBy = [];
+            if (!message.starredBy) message.starredBy = [];
             message.starredBy.push(userId);
         }
 

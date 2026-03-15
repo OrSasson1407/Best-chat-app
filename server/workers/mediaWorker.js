@@ -4,6 +4,7 @@ const Message = require("../models/Message");
 const User = require("../models/User");
 const { notificationQueue } = require("./notificationWorker");
 const { createClient } = require("redis");
+const { Readable } = require("stream"); // ADDED: For streaming uploads to save RAM
 
 // Configure Cloudinary
 cloudinary.config({
@@ -26,8 +27,29 @@ const getChatCacheKey = (user1, user2) => {
   return `chat_history:${sortedIds[0]}:${sortedIds[1]}`;
 };
 
+// ADDED: Helper for stream-based Cloudinary upload
+const streamUpload = (buffer) => {
+    return new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          { 
+              resource_type: "auto", 
+              folder: "best_chat_app_media",
+              // IMPROVEMENT: On-the-fly eager transformations to compress and optimize images for mobile
+              eager: [{ fetch_format: "auto", quality: "auto", width: 1200, crop: "limit" }]
+          },
+          (error, result) => {
+            if (result) resolve(result);
+            else reject(error);
+          }
+        );
+        Readable.from(buffer).pipe(stream);
+    });
+};
+
 const worker = new Worker("media_processing", async (job) => {
   const { messageId, from, to, type, fileName, fileSize } = job.data;
+  
+  await job.updateProgress(10); // ADDED: Report initial progress to BullMQ
   
   const message = await Message.findById(messageId);
   if (!message || message.status !== "processing") return;
@@ -36,14 +58,21 @@ const worker = new Worker("media_processing", async (job) => {
   const isSent = message.scheduledAt ? new Date(message.scheduledAt) <= new Date() : true;
 
   try {
-      // 1. Upload to Cloudinary without blocking the main event loop
-      const uploadRes = await cloudinary.uploader.upload(base64Data, {
-        resource_type: "auto", 
-        folder: "best_chat_app_media", 
-      });
+      await job.updateProgress(30);
+
+      // 1. IMPROVEMENT: Upload via Node Streams to prevent blocking the event loop and consuming massive RAM
+      const base64Content = base64Data.includes(",") ? base64Data.split(",")[1] : base64Data;
+      const fileBuffer = Buffer.from(base64Content, "base64");
+      
+      const uploadRes = await streamUpload(fileBuffer);
+      
+      await job.updateProgress(70);
+
+      // Use the optimized WebP/AVIF version if it's an image and available, else fallback to standard secure_url
+      const finalUrl = (uploadRes.eager && uploadRes.eager[0]) ? uploadRes.eager[0].secure_url : uploadRes.secure_url;
 
       // 2. Update MongoDB with secure URL and resolve status
-      message.message.text = uploadRes.secure_url;
+      message.message.text = finalUrl;
       message.status = isSent ? "sent" : "pending"; // Respect scheduled messages
       
       if (type === "file") {
@@ -54,6 +83,8 @@ const worker = new Worker("media_processing", async (job) => {
         };
       }
       await message.save();
+
+      await job.updateProgress(85);
 
       // 3. Update Redis Hot Cache (Only if message is active/sent)
       if (cacheClient.isReady && isSent) {
@@ -104,8 +135,8 @@ const worker = new Worker("media_processing", async (job) => {
 
       // 4. Emit Socket Event to update clients in real-time
       if (global.chatSocket && isSent) {
-         global.chatSocket.to(to).emit("media-ready", { messageId, url: uploadRes.secure_url, type });
-         global.chatSocket.to(from).emit("media-ready", { messageId, url: uploadRes.secure_url, type });
+         global.chatSocket.to(to).emit("media-ready", { messageId, url: finalUrl, type });
+         global.chatSocket.to(from).emit("media-ready", { messageId, url: finalUrl, type });
       }
 
       // 5. Trigger FCM Push Notification
@@ -125,6 +156,8 @@ const worker = new Worker("media_processing", async (job) => {
           }
       }
 
+      await job.updateProgress(100); // ADDED: Mark job as 100% complete
+
   } catch (err) {
       console.error(`Media Worker Error for message ${messageId}:`, err);
       message.status = "failed";
@@ -134,8 +167,13 @@ const worker = new Worker("media_processing", async (job) => {
       if (global.chatSocket) {
          global.chatSocket.to(from).emit("media-failed", { messageId });
       }
+      
+      throw err; // ADDED: Rethrow error so BullMQ knows the job failed and can trigger a retry
   }
-}, { connection });
+}, { 
+    connection,
+    concurrency: 5 // ADDED: Process up to 5 media uploads concurrently (avoids queue bottlenecks)
+});
 
 worker.on("completed", (job) => console.log(`[BullMQ] Media Job ${job.id} completed.`));
 worker.on("failed", (job, err) => console.error(`[BullMQ] Media Job ${job.id} failed:`, err.message));

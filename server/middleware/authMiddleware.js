@@ -25,22 +25,22 @@ cacheClient.connect().catch(err => console.warn("Middleware Cache Client Error:"
 
 
 /**
- * Middleware function to verify JWT Access Token
+ * Main Middleware function to verify JWT Access Token
  * CHANGED: Now async to support Redis blacklist checking
  *
  * @param {Request} req - Express request object
  * @param {Response} res - Express response object
  * @param {Function} next - Next middleware in the chain
  */
-module.exports = async (req, res, next) => {
+const protect = async (req, res, next) => {
 
   /**
    * Step 1: Extract token
-   * STEP 4 FIX: Prioritize HttpOnly Cookie, fallback to header for backwards compatibility
+   * IMPROVEMENT: Prioritize HttpOnly Cookie, fallback to x-auth-token OR standard Authorization Bearer header
    */
   const token = (req.cookies && req.cookies.accessToken) 
     ? req.cookies.accessToken 
-    : req.header("x-auth-token");
+    : req.header("x-auth-token") || req.header("Authorization")?.replace("Bearer ", "");
 
 
   /**
@@ -48,7 +48,8 @@ module.exports = async (req, res, next) => {
    */
   if (!token) {
     return res.status(401).json({
-      msg: "No token, authorization denied"
+      msg: "No token, authorization denied",
+      code: "NO_TOKEN"
     });
   }
 
@@ -63,7 +64,8 @@ module.exports = async (req, res, next) => {
         const isBlacklisted = await cacheClient.get(`bl_${token}`);
         if (isBlacklisted) {
             return res.status(401).json({ 
-                msg: "Token has been revoked. Please log in again." 
+                msg: "Token has been revoked. Please log in again.",
+                code: "TOKEN_REVOKED"
             });
         }
     }
@@ -86,7 +88,7 @@ module.exports = async (req, res, next) => {
      * Step 4: Attach decoded payload to request
      *
      * Your token structure:
-     * { id: user._id }
+     * { id: user._id, role: user.role }
      *
      * Controllers can now access:
      * req.user.id
@@ -102,12 +104,47 @@ module.exports = async (req, res, next) => {
   } catch (err) {
 
     /**
-     * If token invalid or expired
+     * IMPROVEMENT: Granular Expiration Handling
+     * If token expired, send a specific code so frontend knows to automatically refresh it
+     * instead of kicking the user out completely.
      */
-    res.status(401).json({
-      msg: "Token is not valid or has expired"
+    if (err.name === "TokenExpiredError") {
+        return res.status(401).json({
+            msg: "Your session has expired. Please refresh your token.",
+            code: "TOKEN_EXPIRED"
+        });
+    }
+
+    /**
+     * If token is generally invalid (bad signature, tampered with)
+     */
+    return res.status(401).json({
+      msg: "Token is not valid",
+      code: "TOKEN_INVALID"
     });
 
   }
 
 };
+
+/**
+ * IMPROVEMENT: Role-Based Access Control (RBAC)
+ * Higher-order middleware to restrict routes to specific user roles.
+ * * Usage example in routes: 
+ * router.delete('/group/:id', protect, protect.restrictTo('admin', 'moderator'), deleteGroup)
+ */
+protect.restrictTo = (...roles) => {
+  return (req, res, next) => {
+      // Ensure the token payload actually contains a role field and matches allowed roles
+      if (!req.user || !roles.includes(req.user.role)) {
+          return res.status(403).json({ 
+              msg: "You do not have permission to perform this action",
+              code: "FORBIDDEN"
+          });
+      }
+      next();
+  };
+};
+
+// Export the main middleware function
+module.exports = protect;
