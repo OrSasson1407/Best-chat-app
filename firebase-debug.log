@@ -1,0 +1,53 @@
+[debug] [2026-03-15T15:08:31.395Z] ----------------------------------------------------------------------
+[debug] [2026-03-15T15:08:31.398Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\User\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js init hosting
+[debug] [2026-03-15T15:08:31.398Z] CLI Version:   15.9.0
+[debug] [2026-03-15T15:08:31.398Z] Platform:      win32
+[debug] [2026-03-15T15:08:31.398Z] Node Version:  v25.2.1
+[debug] [2026-03-15T15:08:31.399Z] Time:          Sun Mar 15 2026 17:08:31 GMT+0200 (שעון ישראל (חורף))
+[debug] [2026-03-15T15:08:31.399Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-03-15T15:08:31.402Z] >>> [apiv2][query] GET https://firebase-public.firebaseio.com/cli.json [none]
+[info] 
+     ######## #### ########  ######## ########     ###     ######  ########
+     ##        ##  ##     ## ##       ##     ##  ##   ##  ##       ##
+     ######    ##  ########  ######   ########  #########  ######  ######
+     ##        ##  ##    ##  ##       ##     ## ##     ##       ## ##
+     ##       #### ##     ## ######## ########  ##     ##  ######  ########
+
+You're about to initialize a Firebase project in this directory:
+
+  C:\Users\User\Desktop\תואר\Projects\chat-app
+
+[debug] [2026-03-15T15:08:35.194Z] <<< [apiv2][status] GET https://firebase-public.firebaseio.com/cli.json 200
+[debug] [2026-03-15T15:08:35.195Z] <<< [apiv2][body] GET https://firebase-public.firebaseio.com/cli.json {"cloudBuildErrorAfter":1594252800000,"cloudBuildWarnAfter":1590019200000,"defaultNode10After":1594252800000,"minVersion":"3.0.5","node8DeploysDisabledAfter":1613390400000,"node8RuntimeDisabledAfter":1615809600000,"node8WarnAfter":1600128000000}
+[info] 
+=== Project Setup
+[info] 
+[info] First, let's associate this project directory with a Firebase project.
+[info] You can create multiple project aliases by running firebase use --add, 
+[info] 
+[debug] [2026-03-15T15:08:44.115Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-03-15T15:08:44.116Z] > authorizing via signed-in user (orsasson140701@gmail.com)
+[debug] [2026-03-15T15:08:44.118Z] Checked if tokens are valid: false, expires at: 1773068403707
+[debug] [2026-03-15T15:08:44.118Z] Checked if tokens are valid: false, expires at: 1773068403707
+[debug] [2026-03-15T15:08:44.119Z] > refreshing access token with scopes: []
+[debug] [2026-03-15T15:08:44.120Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2026-03-15T15:08:44.120Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-03-15T15:08:44.299Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 200
+[debug] [2026-03-15T15:08:44.299Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-03-15T15:08:44.307Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects/chat-app-or [none]
+[debug] [2026-03-15T15:08:44.708Z] <<< [apiv2][status] GET https://firebase.googleapis.com/v1beta1/projects/chat-app-or 200
+[debug] [2026-03-15T15:08:44.708Z] <<< [apiv2][body] GET https://firebase.googleapis.com/v1beta1/projects/chat-app-or {"projectId":"chat-app-or","projectNumber":"152961488891","displayName":"chat-app-Or","name":"projects/chat-app-or","resources":{"hostingSite":"chat-app-or"},"state":"ACTIVE","etag":"1_a8b1b357-6386-4c86-93cc-cd906900ae2c"}
+[info] i  Using project chat-app-or (chat-app-Or) . 
+[info] 
+=== Hosting Setup
+[debug] [2026-03-15T15:08:44.741Z] Checked if tokens are valid: true, expires at: 1773590923299
+[debug] [2026-03-15T15:08:44.741Z] Checked if tokens are valid: true, expires at: 1773590923299
+[debug] [2026-03-15T15:08:44.742Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects/chat-app-or [none]
+[debug] [2026-03-15T15:08:45.050Z] <<< [apiv2][status] GET https://firebase.googleapis.com/v1beta1/projects/chat-app-or 200
+[debug] [2026-03-15T15:08:45.051Z] <<< [apiv2][body] GET https://firebase.googleapis.com/v1beta1/projects/chat-app-or {"projectId":"chat-app-or","projectNumber":"152961488891","displayName":"chat-app-Or","name":"projects/chat-app-or","resources":{"hostingSite":"chat-app-or"},"state":"ACTIVE","etag":"1_a8b1b357-6386-4c86-93cc-cd906900ae2c"}
+[info] 
+[info] Your public directory is the folder (relative to your project directory) that
+[info] will contain Hosting assets to be uploaded with firebase deploy. If you
+[info] have a build process for your assets, use your build's output directory.
+[info] 
