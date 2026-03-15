@@ -64,8 +64,7 @@ const changeStreams = require("./socket/changeStreams"); // STEP 8: MongoDB Chan
 
 // --- BACKGROUND WORKERS ---
 const startMessageScheduler = require("./workers/messageScheduler"); 
-require("./workers/mediaWorker");
-// Worker responsible for handling scheduled messages (send later feature)
+require("./workers/mediaWorker"); // Worker responsible for handling scheduled messages (send later feature)
 
 // --- EXPRESS APPLICATION INITIALIZATION ---
 const app = express();
@@ -77,6 +76,12 @@ const server = http.createServer(app);
 /* =========================================================
    MIDDLEWARE & SECURITY CONFIGURATION
    ========================================================= */
+
+// PRODUCTION FIX: Trust reverse proxy (e.g., Heroku, Render, Nginx) 
+// so express-rate-limit tracks correct client IP addresses.
+if (process.env.NODE_ENV === "production") {
+  app.set("trust proxy", 1);
+}
 
 // STEP 1: Apply metrics middleware FIRST to track all requests accurately
 app.use(metricsMiddleware);
@@ -122,7 +127,7 @@ app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
 const authLimiter = rateLimit({
   windowMs: process.env.RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000,
-  max: process.env.RATE_LIMIT_MAX || 100,
+  max: process.env.RATE_LIMIT_MAX || 10, // Updated default fallback to 10 for production security
   message: "Too many requests, please try again later."
 });
 
@@ -178,7 +183,10 @@ const io = socket(server, {
     origin: process.env.CLIENT_URL || "http://localhost:3000",
     credentials: true,
   },
-  parser: customParser // STEP 3: MessagePack binary serialization for smaller payloads
+  parser: customParser, // STEP 3: MessagePack binary serialization for smaller payloads
+  // PRODUCTION FIX: Mobile connection resilience
+  pingTimeout: 60000,  
+  pingInterval: 25000, 
 });
 
 app.set("io", io);
@@ -190,7 +198,13 @@ global.chatSocket = io;
    ========================================================= */
 
 const pubClient = createClient({
-  url: process.env.REDIS_URI || "redis://localhost:6379"
+  url: process.env.REDIS_URI || "redis://localhost:6379",
+  socket: {
+    // PRODUCTION FIX: Reconnect strategy for Redis outages
+    reconnectStrategy: (retries) => {
+      return Math.min(retries * 50, 3000); 
+    }
+  }
 });
 
 const subClient = pubClient.duplicate();

@@ -120,4 +120,11 @@ const userSchema = new mongoose.Schema({
   ]
 });
 
+// ==========================================
+// Performance & Search Indexes
+// ==========================================
+
+// 1. Enables fast keyword search for discovering users
+userSchema.index({ username: "text", bio: "text" });
+
 module.exports = mongoose.model("User", userSchema);

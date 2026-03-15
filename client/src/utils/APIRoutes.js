@@ -1,8 +1,9 @@
 // --- MERGE UPDATE: Dynamic Environment Host ---
-// Replace the production URL with your actual deployed backend URL (e.g., Render, Railway, Heroku)
-export const host = process.env.NODE_ENV === "production" 
+// Prioritize environment variables so you don't have to change code between environments.
+// If REACT_APP_API_URL is missing, it falls back to a hardcoded URL or localhost.
+export const host = process.env.REACT_APP_API_URL || (process.env.NODE_ENV === "production" 
     ? "https://your-backend-api-url.onrender.com" 
-    : "http://localhost:5000";
+    : "http://localhost:5000");
 
 // Auth & User Routes
 export const loginRoute = `${host}/api/auth/login`;

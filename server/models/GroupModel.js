@@ -68,4 +68,14 @@ const GroupSchema = new mongoose.Schema(
   }
 );
 
+// ==========================================
+// Performance & Search Indexes
+// ==========================================
+
+// 1. Instantly find all groups a user belongs to (CRITICAL FOR INITIAL LOAD)
+GroupSchema.index({ members: 1 });
+
+// 2. Allow fast searching of public groups by name and description
+GroupSchema.index({ name: "text", description: "text" });
+
 module.exports = mongoose.model("Group", GroupSchema);

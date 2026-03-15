@@ -12,6 +12,7 @@ const connectDB = async () => {
       maxPoolSize: 100, // Maintain up to 100 socket connections for high traffic
       serverSelectionTimeoutMS: 5000, // Time out after 5 seconds if DB is unreachable
       socketTimeoutMS: 45000, // Close sockets after 45 seconds of inactivity
+      wtimeoutMS: 2500, // PRODUCTION FIX: Ensure write operations timeout after 2.5s instead of hanging
     });
 
     logger.info("DB Connection Successful");

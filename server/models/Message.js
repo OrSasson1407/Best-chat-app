@@ -148,4 +148,10 @@ MessageSchema.index({ sender: 1 });
 // MongoDB will automatically delete documents from the DB when the `expireAt` time is reached.
 MessageSchema.index({ expireAt: 1 }, { expireAfterSeconds: 0 });
 
+// 5. CRITICAL FOR BACKGROUND WORKER: Speeds up finding scheduled messages
+MessageSchema.index({ isSent: 1, scheduledAt: 1 });
+
+// 6. Fast queries for finding unread messages for a specific user
+MessageSchema.index({ "readBy.userId": 1, status: 1 });
+
 module.exports = mongoose.model("Message", MessageSchema);
