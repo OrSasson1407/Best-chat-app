@@ -127,7 +127,7 @@ app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
 const authLimiter = rateLimit({
   windowMs: process.env.RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000,
-  max: process.env.RATE_LIMIT_MAX || 10, // Updated default fallback to 10 for production security
+  max: process.env.RATE_LIMIT_MAX || 10,
   message: "Too many requests, please try again later."
 });
 
@@ -195,11 +195,16 @@ global.chatSocket = io;
 
 /* =========================================================
    REDIS ADAPTER (SCALABILITY)
+   // FIX: Added TLS support for Upstash (rediss://) in production
    ========================================================= */
 
+const redisUrl = process.env.REDIS_URI || "redis://localhost:6379";
+const isTLS = redisUrl.startsWith("rediss://");
+
 const pubClient = createClient({
-  url: process.env.REDIS_URI || "redis://localhost:6379",
+  url: redisUrl,
   socket: {
+    tls: isTLS,
     // PRODUCTION FIX: Reconnect strategy for Redis outages
     reconnectStrategy: (retries) => {
       return Math.min(retries * 50, 3000); 

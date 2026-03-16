@@ -15,8 +15,7 @@
 // 2. If production but env missing → fallback to Render URL
 // 3. Otherwise → localhost for development
 
-export const host = "http://localhost:5000";
-
+export const host = process.env.REACT_APP_API_URL || "http://localhost:5000";
 // =======================================================
 // AUTH & USER ROUTES
 // =======================================================

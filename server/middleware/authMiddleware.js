@@ -19,8 +19,19 @@
 const jwt = require("jsonwebtoken");
 
 // --- LEVEL 4: REDIS BLACKLIST CHECKING ---
+// FIX: Added TLS support for Upstash (rediss://) in production
 const { createClient } = require("redis");
-const cacheClient = createClient({ url: process.env.REDIS_URI || "redis://localhost:6379" });
+
+const redisUrl = process.env.REDIS_URI || "redis://localhost:6379";
+const isTLS = redisUrl.startsWith("rediss://");
+
+const cacheClient = createClient({
+  url: redisUrl,
+  socket: {
+    tls: isTLS,
+  }
+});
+
 cacheClient.connect().catch(err => console.warn("Middleware Cache Client Error:", err));
 
 
@@ -130,7 +141,7 @@ const protect = async (req, res, next) => {
 /**
  * IMPROVEMENT: Role-Based Access Control (RBAC)
  * Higher-order middleware to restrict routes to specific user roles.
- * * Usage example in routes: 
+ * Usage example in routes: 
  * router.delete('/group/:id', protect, protect.restrictTo('admin', 'moderator'), deleteGroup)
  */
 protect.restrictTo = (...roles) => {
