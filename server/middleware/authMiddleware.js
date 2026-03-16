@@ -22,14 +22,16 @@ const jwt = require("jsonwebtoken");
 const { createRedisClient } = require("../config/redis");
 const cacheClient = createRedisClient();
 
-// CRITICAL FIX: Attach an error event listener. 
+// CRITICAL FIX: Attach an error event listener.
 // Without this, background Redis timeouts will crash the entire Node.js process (Exit Status 1).
 cacheClient.on("error", (err) => {
   console.warn("Redis Cache Client Background Error:", err.message);
 });
 
-// Initial connection
-cacheClient.connect().catch(err => console.warn("Middleware Cache Client Error:", err.message));
+// LAZY CONNECT FIX: Connect in the background without blocking startup.
+// The client will retry automatically on failure — we never await this.
+// All usage is guarded by cacheClient.isReady so no requests will fail if Redis is slow to connect.
+cacheClient.connect().catch(() => {});
 
 
 /**
