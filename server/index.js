@@ -20,6 +20,15 @@
  */
 
 require("dotenv").config({ path: require('path').resolve(__dirname, '.env') });
+
+// --- DEBUG: Print env var presence immediately on startup ---
+console.log("🔍 ENV CHECK:", {
+  MONGO_URI: process.env.MONGO_URI ? "✅ set" : "❌ MISSING",
+  REDIS_URI: process.env.REDIS_URI ? "✅ set" : "❌ MISSING",
+  JWT_SECRET: process.env.JWT_SECRET ? "✅ set" : "❌ MISSING",
+  PORT: process.env.PORT || "(not set, will use 5000)"
+});
+
 // --- CORE FRAMEWORK IMPORTS ---
 const express = require("express"); // Web framework for Node.js
 const http = require("http"); // Required for integrating Socket.io with Express
@@ -247,12 +256,23 @@ function getCookieToken(cookieString) {
 
 const PORT = process.env.PORT || 5000;
 
+// DIAGNOSTIC: If startup hangs for 20s, print what's stuck and exit
+const startupTimeout = setTimeout(() => {
+  console.error("❌ TIMEOUT: Startup took too long — MongoDB or Redis is hanging.");
+  console.error("🔍 Check MONGO_URI and REDIS_URI environment variables in Render.");
+  process.exit(1);
+}, 20000);
+
+console.log("🚀 Starting MongoDB and Redis connections...");
+
 Promise.all([
   connectDB(),
   pubClient.connect(),
   subClient.connect()
 ])
 .then(() => {
+
+  clearTimeout(startupTimeout); // ✅ Cancel the timeout — startup succeeded
 
   console.log("✅ MongoDB and Redis connected successfully.");
   logger.info("MongoDB and Redis connected successfully. Initializing services...");
@@ -312,6 +332,7 @@ Promise.all([
 
 })
 .catch((err) => {
+  clearTimeout(startupTimeout);
   console.error(`❌ Startup Connection Error: ${err.message}`);
   logger.error(`Startup Connection Error: ${err.message}`);
   process.exit(1);
