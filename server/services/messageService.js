@@ -6,10 +6,10 @@ const { notificationQueue } = require("../workers/notificationWorker");
 // STEP 6 FIX: Import the new async media worker queue
 const { mediaQueue } = require("../workers/mediaWorker"); 
 
-const { createClient } = require("redis");
+const { createRedisClient } = require("../config/redis");
 
 // Initialize Redis for Hot Cache
-const cacheClient = createClient({ url: process.env.REDIS_URI || "redis://localhost:6379" });
+const cacheClient = createRedisClient();
 cacheClient.connect().catch(err => console.error("Message Cache Client Error:", err));
 
 const extractUrls = (text) => {

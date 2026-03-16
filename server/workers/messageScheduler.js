@@ -20,10 +20,7 @@ const logger = require("../utils/logger"); // Central logging utility
 const { notificationQueue } = require("./notificationWorker"); // Notification queue
 
 // Redis connection used by BullMQ
-const connection = {
-  host: process.env.REDIS_HOST || "127.0.0.1",
-  port: process.env.REDIS_PORT || 6379,
-};
+const { bullMQConnection: connection } = require("../config/redis");
 
 // IMPROVEMENT: Queue for scheduling messages. 
 // Export this so controllers can push to it with a specific delay.

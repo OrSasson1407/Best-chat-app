@@ -19,8 +19,7 @@
  * This acts as the **central orchestrator** of the backend system.
  */
 
-require("dotenv").config(); // Load environment variables from .env file
-
+require("dotenv").config({ path: require('path').resolve(__dirname, '.env') });
 // --- CORE FRAMEWORK IMPORTS ---
 const express = require("express"); // Web framework for Node.js
 const http = require("http"); // Required for integrating Socket.io with Express

@@ -3,7 +3,6 @@ const cloudinary = require("cloudinary").v2;
 const Message = require("../models/Message");
 const User = require("../models/User");
 const { notificationQueue } = require("./notificationWorker");
-const { createClient } = require("redis");
 const { Readable } = require("stream"); // ADDED: For streaming uploads to save RAM
 
 // Configure Cloudinary
@@ -13,13 +12,11 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_SECRET,
 });
 
-const connection = {
-  host: process.env.REDIS_HOST || "127.0.0.1",
-  port: process.env.REDIS_PORT || 6379,
-};
+const { bullMQConnection: connection } = require("../config/redis");
 
 const mediaQueue = new Queue("media_processing", { connection });
-const cacheClient = createClient({ url: process.env.REDIS_URI || "redis://localhost:6379" });
+const { createRedisClient, bullMQConnection } = require("../config/redis");
+const cacheClient = createRedisClient();
 cacheClient.connect().catch(err => console.warn("Media Worker Cache Client Error:", err));
 
 const getChatCacheKey = (user1, user2) => {

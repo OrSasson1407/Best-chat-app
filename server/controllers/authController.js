@@ -4,8 +4,8 @@ const jwt = require("jsonwebtoken");
 const { registerSchema, loginSchema } = require("../utils/validation"); 
 
 // --- LEVEL 2: REDIS CACHING SETUP ---
-const { createClient } = require("redis");
-const cacheClient = createClient({ url: process.env.REDIS_URI || "redis://localhost:6379" });
+const { createRedisClient } = require("../config/redis");
+const cacheClient = createRedisClient();
 cacheClient.connect().catch(err => console.error("Cache Client Error:", err));
 
 // STEP 5: Import Meilisearch User Index

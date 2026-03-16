@@ -75,10 +75,7 @@ try {
  * Redis connection used by BullMQ.
  * Required for job queue persistence.
  */
-const connection = {
-  host: process.env.REDIS_HOST || "127.0.0.1",
-  port: process.env.REDIS_PORT || 6379,
-};
+const { bullMQConnection: connection } = require("../config/redis");
 
 
 
