@@ -26,6 +26,11 @@ const { bullMQConnection: connection } = require("../config/redis");
 // Export this so controllers can push to it with a specific delay.
 const scheduledMessageQueue = new Queue("scheduled_messages", { connection });
 
+// CRITICAL FIX: Catch BullMQ Queue background errors
+scheduledMessageQueue.on("error", (err) => {
+  logger.error(`[BullMQ] scheduledMessageQueue background error: ${err.message}`);
+});
+
 /**
  * Initializes the scheduled message worker.
  *
@@ -143,6 +148,11 @@ const startMessageScheduler = async (io, redisClient) => {
   // =========================================================
   worker.on("failed", (job, err) => {
     logger.error(`[BullMQ] Scheduled Job ${job.id} failed: ${err.message}`);
+  });
+
+  // CRITICAL FIX: Catch BullMQ Worker background errors
+  worker.on("error", (err) => {
+    logger.error(`[BullMQ] scheduledMessageWorker background error: ${err.message}`);
   });
 };
 

@@ -15,9 +15,21 @@ cloudinary.config({
 const { bullMQConnection: connection } = require("../config/redis");
 
 const mediaQueue = new Queue("media_processing", { connection });
+
+// CRITICAL FIX: Catch BullMQ Queue background errors
+mediaQueue.on("error", (err) => {
+  console.error(`[BullMQ] mediaQueue background error: ${err.message}`);
+});
+
 const { createRedisClient, bullMQConnection } = require("../config/redis");
 const cacheClient = createRedisClient();
-cacheClient.connect().catch(err => console.warn("Media Worker Cache Client Error:", err));
+
+// CRITICAL FIX: Catch Redis cache background errors
+cacheClient.on("error", (err) => {
+  console.warn("Media Worker Cache Client Background Error:", err.message);
+});
+
+cacheClient.connect().catch(err => console.warn("Media Worker Cache Client Error:", err.message));
 
 const getChatCacheKey = (user1, user2) => {
   const sortedIds = [user1.toString(), user2.toString()].sort();
@@ -174,5 +186,10 @@ const worker = new Worker("media_processing", async (job) => {
 
 worker.on("completed", (job) => console.log(`[BullMQ] Media Job ${job.id} completed.`));
 worker.on("failed", (job, err) => console.error(`[BullMQ] Media Job ${job.id} failed:`, err.message));
+
+// CRITICAL FIX: Catch BullMQ Worker background errors
+worker.on("error", (err) => {
+  console.error(`[BullMQ] mediaWorker background error: ${err.message}`);
+});
 
 module.exports = { mediaQueue };

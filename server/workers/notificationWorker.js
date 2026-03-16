@@ -102,6 +102,10 @@ const notificationQueue = new Queue("notifications", {
   }
 });
 
+// CRITICAL FIX: Catch BullMQ Queue background errors
+notificationQueue.on("error", (err) => {
+  console.error(`[BullMQ] notificationQueue background error: ${err.message}`);
+});
 
 
 /* =========================================================
@@ -265,6 +269,10 @@ worker.on("failed", (job, err) =>
   console.error(`[BullMQ] Notification Job ${job.id} failed:`, err.message)
 );
 
+// CRITICAL FIX: Catch BullMQ Worker background errors
+worker.on("error", (err) => {
+  console.error(`[BullMQ] notificationWorker background error: ${err.message}`);
+});
 
 
 /* =========================================================
