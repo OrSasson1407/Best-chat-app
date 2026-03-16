@@ -55,24 +55,40 @@ const customParser = require("socket.io-msgpack-parser"); // STEP 3: Binary Seri
 const { setupMeilisearch } = require("./utils/meilisearch");
 
 // --- API ROUTES ---
+console.log("📦 Loading routes...");
 const aiRoutes = require("./routes/aiRoutes");
+console.log("✅ aiRoutes loaded");
 const authRoutes = require("./routes/authRoutes");
+console.log("✅ authRoutes loaded");
 const messageRoutes = require("./routes/messagesRoute");
+console.log("✅ messageRoutes loaded");
 const groupRoutes = require("./routes/groupRoutes");
-const storyRoutes = require("./routes/storyRoutes"); // Feature similar to "stories" in messaging apps
-const e2eRoutes = require("./routes/e2eRoutes"); // STEP 7: E2EE Key Distribution Routes
+console.log("✅ groupRoutes loaded");
+const storyRoutes = require("./routes/storyRoutes");
+console.log("✅ storyRoutes loaded");
+const e2eRoutes = require("./routes/e2eRoutes");
+console.log("✅ e2eRoutes loaded");
 
 // --- MIDDLEWARE ---
-const { errorHandler } = require("./middleware/errorMiddleware"); // Global error handler
-const verifyToken = require("./middleware/authMiddleware"); // JWT authentication middleware
+console.log("📦 Loading middleware...");
+const { errorHandler } = require("./middleware/errorMiddleware");
+console.log("✅ errorMiddleware loaded");
+const verifyToken = require("./middleware/authMiddleware");
+console.log("✅ authMiddleware loaded");
 
 // --- SOCKET HANDLERS ---
-const socketHandler = require("./socket/socketHandler"); // Contains socket event logic
-const changeStreams = require("./socket/changeStreams"); // STEP 8: MongoDB Change Streams
+console.log("📦 Loading socket handlers...");
+const socketHandler = require("./socket/socketHandler");
+console.log("✅ socketHandler loaded");
+const changeStreams = require("./socket/changeStreams");
+console.log("✅ changeStreams loaded");
 
 // --- BACKGROUND WORKERS ---
-const { startMessageScheduler } = require("./workers/messageScheduler"); 
-require("./workers/mediaWorker"); // Worker responsible for handling scheduled messages (send later feature)
+console.log("📦 Loading workers...");
+const { startMessageScheduler } = require("./workers/messageScheduler");
+console.log("✅ messageScheduler loaded");
+require("./workers/mediaWorker");
+console.log("✅ mediaWorker loaded");
 
 // --- EXPRESS APPLICATION INITIALIZATION ---
 const app = express();
