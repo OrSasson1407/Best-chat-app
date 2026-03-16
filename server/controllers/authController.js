@@ -1,6 +1,7 @@
 const User = require("../models/User");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const mongoose = require("mongoose"); // FIX: Added mongoose for ID validation
 const { registerSchema, loginSchema } = require("../utils/validation"); 
 
 // --- LEVEL 2: REDIS CACHING SETUP ---
@@ -384,6 +385,9 @@ module.exports.updateFcmToken = async (req, res, next) => {
 module.exports.updatePublicKey = async (req, res, next) => {
   try {
     const { userId, publicKey } = req.body;
+    if (!userId || !publicKey) {
+        return res.status(400).json({ status: false, msg: "Missing data" });
+    }
     await User.findByIdAndUpdate(userId, { publicKey });
     return res.json({ status: true, msg: "Public Key registered for E2EE" });
   } catch (ex) {
@@ -391,9 +395,28 @@ module.exports.updatePublicKey = async (req, res, next) => {
   }
 };
 
+// --- FIX: ADDED NULL CHECKS TO PREVENT 500 SERVER CRASH ---
 module.exports.getPublicKey = async (req, res, next) => {
   try {
-    const user = await User.findById(req.params.id).select("publicKey");
+    const targetId = req.params.id;
+    
+    // 1. Prevent CastError crashes if the ID string is malformed
+    if (!mongoose.Types.ObjectId.isValid(targetId)) {
+        return res.status(400).json({ status: false, msg: "Invalid User ID format" });
+    }
+
+    const user = await User.findById(targetId).select("publicKey");
+    
+    // 2. Prevent TypeError crash if the user was deleted/doesn't exist
+    if (!user) {
+        return res.status(404).json({ status: false, msg: "User not found" });
+    }
+
+    // 3. Gracefully handle users who haven't logged in to generate keys yet
+    if (!user.publicKey) {
+        return res.status(404).json({ status: false, msg: "Public key not registered for this user yet" });
+    }
+
     return res.json({ status: true, publicKey: user.publicKey });
   } catch (ex) {
     next(ex);
