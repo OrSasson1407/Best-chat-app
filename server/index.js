@@ -132,7 +132,7 @@ app.use(cors({
   ].filter(Boolean), // Safely removes undefined values if env var is missing
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   credentials: true,
-  allowedHeaders: ["Origin", "X-Requested-With", "Content-Type", "Accept", "Authorization"]
+  allowedHeaders: ["Origin", "X-Requested-With", "Content-Type", "Accept", "Authorization", "x-auth-token"]
 }));
 
 // Explicitly handle pre-flight OPTIONS requests for all routes
@@ -282,9 +282,9 @@ const startupTimeout = setTimeout(() => {
 console.log("🚀 Starting MongoDB and Redis connections...");
 
 Promise.all([
-  connectDB().then(() => console.log("✅ MongoDB connected")).catch(e => { console.error("❌ MongoDB failed:", e.message); throw e; }),
-  pubClient.connect().then(() => console.log("✅ pubClient connected")).catch(e => { console.error("❌ pubClient failed:", e.message); throw e; }),
-  subClient.connect().then(() => console.log("✅ subClient connected")).catch(e => { console.error("❌ subClient failed:", e.message); throw e; })
+  connectDB(),
+  pubClient.connect(),
+  subClient.connect()
 ])
 .then(() => {
 
