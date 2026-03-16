@@ -1,18 +1,82 @@
-version: '3.8'
 services:
+  # 1. Database Service (MongoDB with replica set)
+  mongo:
+    image: mongo:latest
+    container_name: chat-app-mongo
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - chat-network
+    healthcheck:
+      test: >
+        mongosh --port 27017 --quiet --eval '
+        try {
+          if (rs.status().ok) {
+            quit(0);
+          }
+        } catch (e) {
+          rs.initiate({_id:"rs0",members:[{_id:0,host:"mongo:27017"}]});
+          quit(1);
+        }'
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+
+  # 2. Redis Cache / Socket Adapter
+  redis:
+    image: redis:alpine
+    container_name: chat-app-redis
+    restart: unless-stopped
+    networks:
+      - chat-network
+
+  # 3. Node.js Backend
   server:
-    build: ./server
+    build: 
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: chat-app-server
     ports:
       - "5000:5000"
+    env_file:
+      - ./server/.env
     environment:
-      - NODE_ENV=development
-      # Add other environment variables here (e.g., database URIs, Firebase keys)
-    
+      - NODE_ENV=production
+      - PORT=5000
+      - MONGO_URI=mongodb://mongo:27017/chat-app?replicaSet=rs0
+      - REDIS_URI=redis://redis:6379
+      - REDIS_HOST=redis
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - chat-network
+
+  # 4. React Frontend
   client:
     build: 
       context: ./client
       dockerfile: Dockerfile
+    container_name: chat-app-client
     ports:
       - "3000:80"
     depends_on:
       - server
+    restart: unless-stopped
+    networks:
+      - chat-network
+
+# Isolated network
+networks:
+  chat-network:
+    driver: bridge
+
+# Persistent storage for MongoDB
+volumes:
+  mongo-data:
