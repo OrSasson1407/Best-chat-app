@@ -106,8 +106,8 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
                   axios.get(getUserGroupsRoute, { headers: { "x-auth-token": currentUser.token } }),
                   axios.get(getStoryFeedRoute, { headers: { "x-auth-token": currentUser.token } })
               ]);
-              setGroups(groupRes.data);
-              if(storyRes.data.status) setStoryFeed(storyRes.data.feed);
+              setGroups(groupRes.data || []);
+              if(storyRes.data.status) setStoryFeed(storyRes.data.feed || []);
           } catch (error) { console.error("Error fetching data:", error); } 
           finally { setIsLoading(false); }
       }
@@ -148,7 +148,7 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
           setIsSearchingGlobal(true);
           try {
               const { data } = await axios.post(searchMessageRoute, { userId: currentUser._id, query: searchTerm }, { headers: { "x-auth-token": currentUser.token } });
-              if (data.status) setGlobalMessages(data.messages);
+              if (data.status) setGlobalMessages(data.messages || []);
           } catch (error) { console.error("Error searching messages:", error); } 
           finally { setIsSearchingGlobal(false); }
       }, 600);
@@ -163,7 +163,7 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
           setIsSearchingChannels(true);
           try {
               const { data } = await axios.get(`${searchChannelsRoute}?query=${channelSearchQuery}`, { headers: { "x-auth-token": currentUser.token } });
-              if (data.status) setDiscoveredChannels(data.channels);
+              if (data.status) setDiscoveredChannels(data.channels || []);
           } catch (error) { console.error(error); } 
           finally { setIsSearchingChannels(false); }
       }, 500);
@@ -174,10 +174,11 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
   const togglePin = useCallback((e, id) => {
     e.stopPropagation(); 
     setPinnedIds((prev) => {
-        if (prev.includes(id)) { toast.info("Chat unpinned"); return prev.filter(pid => pid !== id); } 
+        const currentPins = prev || [];
+        if (currentPins.includes(id)) { toast.info("Chat unpinned"); return currentPins.filter(pid => pid !== id); } 
         else {
-            if (prev.length >= 5) { toast.warning("Maximum 5 pins allowed"); return prev; }
-            toast.success("Chat pinned to top"); return [...prev, id];
+            if (currentPins.length >= 5) { toast.warning("Maximum 5 pins allowed"); return currentPins; }
+            toast.success("Chat pinned to top"); return [...currentPins, id];
         }
     });
   }, []);
@@ -188,11 +189,12 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
   }, [changeChat]);
 
   const handleGlobalMessageClick = (msg) => {
-      let targetChat = groups.find(g => msg.users.includes(g._id));
+      // FIX: Added safe navigations here
+      let targetChat = groups.find(g => msg.users?.includes(g._id));
       let isGroupChat = !!targetChat;
 
       if (!targetChat) {
-          const otherUserId = msg.users.find(id => id !== currentUser._id);
+          const otherUserId = msg.users?.find(id => id !== currentUser._id);
           targetChat = contacts.find(c => c._id === otherUserId);
       }
 
@@ -215,7 +217,7 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
               if (data.status) {
                   toast.success("Status updated!");
                   const storyRes = await axios.get(getStoryFeedRoute, { headers: { "x-auth-token": currentUser.token } });
-                  setStoryFeed(storyRes.data.feed);
+                  setStoryFeed(storyRes.data.feed || []);
               }
           } catch (err) { toast.error("Failed to upload status."); } 
           finally { setIsUploadingStory(false); }
@@ -225,20 +227,20 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
   const openStoryViewer = async (userFeedObj) => {
       setViewingStoryUser(userFeedObj);
       setCurrentStoryIndex(0);
-      const firstStory = userFeedObj.stories[0];
-      if (firstStory.user._id !== currentUser._id) {
+      const firstStory = userFeedObj?.stories?.[0];
+      if (firstStory && firstStory.user?._id !== currentUser._id) {
           try { await axios.post(`${viewStoryRoute}/${firstStory._id}`, {}, { headers: { "x-auth-token": currentUser.token } }); } 
           catch (error) { console.error("Failed to mark story as viewed"); }
       }
   };
 
   const handleNextStory = async () => {
-      if (!viewingStoryUser) return;
+      if (!viewingStoryUser || !viewingStoryUser.stories) return;
       if (currentStoryIndex < viewingStoryUser.stories.length - 1) {
           const nextIdx = currentStoryIndex + 1;
           setCurrentStoryIndex(nextIdx);
           const nextStory = viewingStoryUser.stories[nextIdx];
-          if (nextStory.user._id !== currentUser._id) {
+          if (nextStory && nextStory.user?._id !== currentUser._id) {
               try { await axios.post(`${viewStoryRoute}/${nextStory._id}`, {}, { headers: { "x-auth-token": currentUser.token } }); } 
               catch (error) {}
           }
@@ -257,7 +259,7 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
   };
 
   const toggleMemberSelection = (id) => {
-    setSelectedMembers(prev => prev.includes(id) ? prev.filter(m => m !== id) : [...prev, id]);
+    setSelectedMembers(prev => prev?.includes(id) ? prev.filter(m => m !== id) : [...(prev || []), id]);
   };
 
   const handleCreateGroup = async () => {
@@ -326,33 +328,35 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
       return `https://api.dicebear.com/9.x/avataaars/svg?seed=${seed}&top=${tops}&backgroundColor=${backgroundColors}`;
   };
 
-  const unreadPersonalChatsCount = contacts.filter(c => c.unreadCount > 0).length;
-  const unreadGroupsCount = groups.filter(g => g.unreadCount > 0).length;
+  const unreadPersonalChatsCount = (contacts || []).filter(c => c.unreadCount > 0).length;
+  const unreadGroupsCount = (groups || []).filter(g => g.unreadCount > 0).length;
   const totalUnreadChatsCount = unreadPersonalChatsCount + unreadGroupsCount;
 
   // Dynamic Filtering (Smart Folders logic)
   const displayedItems = useMemo(() => {
     let all = [
-      ...contacts.map(c => ({ ...c, isGroup: false })),
-      ...groups.map(g => ({ ...g, isGroup: true, username: g.name }))
+      ...(contacts || []).map(c => ({ ...c, isGroup: false })),
+      ...(groups || []).map(g => ({ ...g, isGroup: true, username: g.name }))
     ];
 
-    if (searchTerm) all = all.filter(item => item.username.toLowerCase().includes(searchTerm.toLowerCase()));
+    // FIX: Safely check for username before calling toLowerCase() or includes()
+    if (searchTerm) all = all.filter(item => item.username?.toLowerCase()?.includes(searchTerm.toLowerCase()));
     if (activeFolder === "personal") all = all.filter(i => !i.isGroup);
     if (activeFolder === "groups") all = all.filter(i => i.isGroup);
     if (activeFolder === "unread") all = all.filter(i => i.unreadCount > 0); 
 
     // Priority Sort: Pinned -> Online -> Alphabetical
     return all.sort((a, b) => {
-      const aPinned = pinnedIds.includes(a._id);
-      const bPinned = pinnedIds.includes(b._id);
+      // FIX: Safely check includes to prevent undefined errors
+      const aPinned = pinnedIds?.includes(a._id);
+      const bPinned = pinnedIds?.includes(b._id);
       if (aPinned !== bPinned) return aPinned ? -1 : 1;
       
-      const aOnline = !a.isGroup && onlineUsers.includes(a._id);
-      const bOnline = !b.isGroup && onlineUsers.includes(b._id);
+      const aOnline = !a.isGroup && onlineUsers?.includes(a._id);
+      const bOnline = !b.isGroup && onlineUsers?.includes(b._id);
       if (aOnline !== bOnline) return aOnline ? -1 : 1;
 
-      return a.username.localeCompare(b.username);
+      return (a.username || "").localeCompare(b.username || "");
     });
   }, [contacts, groups, searchTerm, activeFolder, pinnedIds, onlineUsers]);
 
@@ -383,10 +387,10 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
                     animate={{ opacity: 1, y: 0, scale: 1 }} 
                     exit={{ opacity: 0, scale: 0.9 }}
                 >
-                    <img src={storyPreview.stories[0].mediaUrl || getAvatarUrl(storyPreview.user)} alt="preview" />
+                    <img src={storyPreview.stories?.[0]?.mediaUrl || getAvatarUrl(storyPreview.user)} alt="preview" />
                     <div className="info">
-                        <h4>{storyPreview.user.username}</h4>
-                        <p>{storyPreview.stories.length} status update{storyPreview.stories.length > 1 ? 's' : ''}</p>
+                        <h4>{storyPreview.user?.username}</h4>
+                        <p>{storyPreview.stories?.length} status update{storyPreview.stories?.length > 1 ? 's' : ''}</p>
                     </div>
                 </StoryPreviewTooltip>
             )}
@@ -395,7 +399,7 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
           {!isCompact && (
               <>
                   <StoryTray>
-                      <motion.div className="story-item my-status" onClick={() => fileInputRef.current.click()} whileHover={{scale: 1.05}} whileTap={{scale: 0.95}}>
+                      <motion.div className="story-item my-status" onClick={() => fileInputRef.current?.click()} whileHover={{scale: 1.05}} whileTap={{scale: 0.95}}>
                           <div className="story-ring empty">
                               <img src={getAvatarUrl(currentUser)} alt="my-status" />
                               <div className="add-icon">{isUploadingStory ? <FaSpinner className="fa-spin" /> : <FaPlus />}</div>
@@ -404,8 +408,9 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
                           <input type="file" hidden ref={fileInputRef} accept="image/*,video/*" onChange={handleStoryUpload} />
                       </motion.div>
                       
-                      {storyFeed.map((feedItem, index) => {
-                          const hasUnread = feedItem.stories.some(s => !s.viewers.some(v => v.userId === currentUser._id));
+                      {(storyFeed || []).map((feedItem, index) => {
+                          // FIX: Safely map through viewers
+                          const hasUnread = feedItem.stories?.some(s => !s.viewers?.some(v => v.userId === currentUser._id));
                           return (
                               <motion.div 
                                   key={index} 
@@ -419,10 +424,10 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
                                   whileHover={{scale: 1.05}} 
                                   whileTap={{scale: 0.95}}
                               >
-                                  <motion.div layoutId={`story-avatar-${feedItem.user._id}`} className={`story-ring ${hasUnread ? 'unread' : 'read'}`}>
+                                  <motion.div layoutId={`story-avatar-${feedItem.user?._id}`} className={`story-ring ${hasUnread ? 'unread' : 'read'}`}>
                                       <img src={getAvatarUrl(feedItem.user)} alt="status" />
                                   </motion.div>
-                                  <p>{feedItem.user.username}</p>
+                                  <p>{feedItem.user?.username}</p>
                               </motion.div>
                           );
                       })}
@@ -497,9 +502,10 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
                     <div className="empty-state">No chats found.</div>
                 ) : (
                     displayedItems.map((item) => {
-                        const isOnline = !item.isGroup && onlineUsers.includes(item._id);
-                        const isPinned = pinnedIds.includes(item._id);
-                        const isTyping = !item.isGroup && globalTypingUsers.includes(item._id);
+                        // FIX: Safely check includes for visual states
+                        const isOnline = !item.isGroup && onlineUsers?.includes(item._id);
+                        const isPinned = pinnedIds?.includes(item._id);
+                        const isTyping = !item.isGroup && globalTypingUsers?.includes(item._id);
                         const isSelected = item._id === currentSelected;
 
                         return (
@@ -610,11 +616,11 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
                           <div className="member-selection">
                               <label>Select Members</label>
                               <div className="scroll-list">
-                                  {contacts.map(c => (
-                                      <div key={c._id} className={`select-item ${selectedMembers.includes(c._id) ? "selected" : ""}`} onClick={() => toggleMemberSelection(c._id)}>
+                                  {(contacts || []).map(c => (
+                                      <div key={c._id} className={`select-item ${selectedMembers?.includes(c._id) ? "selected" : ""}`} onClick={() => toggleMemberSelection(c._id)}>
                                           <img src={getAvatarUrl(c)} alt=""/>
                                           <span>{c.username}</span>
-                                          {selectedMembers.includes(c._id) && <FaCheck className="check"/>}
+                                          {selectedMembers?.includes(c._id) && <FaCheck className="check"/>}
                                       </div>
                                   ))}
                               </div>

@@ -135,7 +135,8 @@ export default function Chat() {
       socket.current.on("typing-status", handleTypingStatus);
 
       return () => {
-        socket.current.off("typing-status", handleTypingStatus);
+        // FIX: Added optional chaining to prevent crash on unmount if socket is already null
+        socket.current?.off("typing-status", handleTypingStatus);
       };
     }
   }, [currentChat, setGlobalTypingUsers]);
