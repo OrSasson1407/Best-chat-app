@@ -21,7 +21,15 @@ const jwt = require("jsonwebtoken");
 // --- LEVEL 4: REDIS BLACKLIST CHECKING ---
 const { createRedisClient } = require("../config/redis");
 const cacheClient = createRedisClient();
-cacheClient.connect().catch(err => console.warn("Middleware Cache Client Error:", err));
+
+// CRITICAL FIX: Attach an error event listener. 
+// Without this, background Redis timeouts will crash the entire Node.js process (Exit Status 1).
+cacheClient.on("error", (err) => {
+  console.warn("Redis Cache Client Background Error:", err.message);
+});
+
+// Initial connection
+cacheClient.connect().catch(err => console.warn("Middleware Cache Client Error:", err.message));
 
 
 /**
