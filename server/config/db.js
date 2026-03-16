@@ -2,28 +2,23 @@ const mongoose = require("mongoose");
 const logger = require("../utils/logger");
 
 const connectDB = async () => {
-  try {
-    // 1. IMPROVEMENT: Use Environment Variables for the connection string
-    // Fallback to the local URI for development if the env variable isn't set.
-const mongoURI = process.env.MONGO_URI || process.env.MONGO_URL || "mongodb://127.0.0.1:27017/chat-app";
+  // CRITICAL FIX: Removed try/catch + process.exit so errors propagate up to index.js
+  // This allows the startup Promise.all to catch and log the real error message.
+  const mongoURI = process.env.MONGO_URI || process.env.MONGO_URL || "mongodb://127.0.0.1:27017/chat-app";
+  console.log("🔍 Connecting to MongoDB:", mongoURI.substring(0, 40) + "...");
 
-    // 2. IMPROVEMENT: Configure Connection Pooling Options
-    await mongoose.connect(mongoURI, {
-      maxPoolSize: 100, // Maintain up to 100 socket connections for high traffic
-      serverSelectionTimeoutMS: 5000, // Time out after 5 seconds if DB is unreachable
-      socketTimeoutMS: 45000, // Close sockets after 45 seconds of inactivity
-      wtimeoutMS: 2500, // PRODUCTION FIX: Ensure write operations timeout after 2.5s instead of hanging
-    });
+  await mongoose.connect(mongoURI, {
+    maxPoolSize: 100,          // Maintain up to 100 socket connections for high traffic
+    serverSelectionTimeoutMS: 5000, // Time out after 5 seconds if DB is unreachable
+    socketTimeoutMS: 45000,    // Close sockets after 45 seconds of inactivity
+    wtimeoutMS: 2500,          // PRODUCTION FIX: Ensure write operations timeout after 2.5s
+  });
 
-    logger.info("DB Connection Successful");
-  } catch (err) {
-    logger.error(`DB Initial Connection Error: ${err.message}`);
-    process.exit(1); // Exit process with failure if DB fails to connect at startup
-  }
+  logger.info("DB Connection Successful");
 };
 
 // =========================================================
-// 3. IMPROVEMENT: Connection Event Listeners
+// IMPROVEMENT: Connection Event Listeners
 // These continuously monitor the connection health after startup.
 // =========================================================
 
@@ -40,7 +35,7 @@ mongoose.connection.on("disconnected", () => {
 });
 
 // =========================================================
-// 4. IMPROVEMENT: Graceful Shutdown
+// IMPROVEMENT: Graceful Shutdown
 // Ensures database connections are cleanly closed when the server stops,
 // preventing data corruption or locked resources.
 // =========================================================
@@ -57,8 +52,9 @@ const gracefulShutdown = async (signal) => {
   }
 };
 
-// Listen for Node.js process termination signals (e.g., Ctrl+C, Docker stop, Heroku restart)
-process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+// Listen for Node.js process termination signals
+// NOTE: SIGINT is also handled in index.js for full graceful shutdown.
+// The handler here acts as a safety net.
 process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
 
 module.exports = connectDB;
