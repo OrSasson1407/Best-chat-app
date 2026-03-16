@@ -21,7 +21,7 @@ const bullMQConnection = {
   username: url.username || "default",
   password: url.password || undefined,
   tls: isTLS ? {} : undefined,
-  family: 4, // <--- CRITICAL FIX: Forces IPv4 to prevent Render/Upstash timeouts for background jobs
+  family: 4, // <--- CRITICAL FIX: Strict IPv4 to prevent Render/Upstash timeouts for background jobs
 };
 
 /**
@@ -33,7 +33,7 @@ const createRedisClient = () => {
     url: redisUrl,
     socket: {
       tls: isTLS,
-      family: 0, // <--- CRITICAL FIX: Forces IPv4 for the cache middleware
+      family: 4, // <--- CRITICAL FIX: Strict IPv4 to prevent Render/Upstash timeouts
       // PRODUCTION FIX: Always good practice to tell Redis to try reconnecting instead of crashing
       reconnectStrategy: (retries) => Math.min(retries * 50, 3000)
     },
