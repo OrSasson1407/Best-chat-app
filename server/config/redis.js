@@ -21,7 +21,7 @@ const bullMQConnection = {
   username: url.username || "default",
   password: url.password || undefined,
   tls: isTLS ? {} : undefined,
-  family: 0, // <--- CRITICAL FIX: Forces IPv4 to prevent Render/Upstash timeouts for background jobs
+  family: 4, // <--- CRITICAL FIX: Forces IPv4 to prevent Render/Upstash timeouts for background jobs
 };
 
 /**

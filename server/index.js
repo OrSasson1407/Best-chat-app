@@ -207,7 +207,7 @@ const isTLS = redisUrl.startsWith("rediss://");
 const pubClient = createClient({
   url: redisUrl,
   socket: {
-    family: 0, // <--- CRITICAL FIX: Forces IPv4 to prevent Render/Upstash timeouts
+    family: 4, // <--- CRITICAL FIX: Strict IPv4 to prevent Render/Upstash timeouts
     tls: isTLS,
     // PRODUCTION FIX: Reconnect strategy for Redis outages
     reconnectStrategy: (retries) => {
@@ -218,6 +218,7 @@ const pubClient = createClient({
 
 // CRITICAL FIX: Catch background errors so they don't crash Node.js
 pubClient.on("error", (err) => {
+  console.error(`❌ Redis pubClient Error: ${err.message}`);
   logger.error(`Redis pubClient Background Error: ${err.message}`);
 });
 
@@ -225,6 +226,7 @@ const subClient = pubClient.duplicate();
 
 // CRITICAL FIX: Catch background errors so they don't crash Node.js
 subClient.on("error", (err) => {
+  console.error(`❌ Redis subClient Error: ${err.message}`);
   logger.error(`Redis subClient Background Error: ${err.message}`);
 });
 
@@ -252,12 +254,14 @@ Promise.all([
 ])
 .then(() => {
 
+  console.log("✅ MongoDB and Redis connected successfully.");
   logger.info("MongoDB and Redis connected successfully. Initializing services...");
 
   setupMeilisearch(); // STEP 5: Initialize the search indexes once DB connects
 
   io.adapter(createAdapter(pubClient, subClient));
 
+  console.log("✅ Redis Adapter connected to Socket.io.");
   logger.info("Redis Adapter connected to Socket.io");
 
   /* =========================================================
@@ -301,12 +305,14 @@ Promise.all([
      SERVER START
      ========================================================= */
 
-  server.listen(PORT, () =>
-    logger.info(`Server started on Port ${PORT}`)
-  );
+  server.listen(PORT, () => {
+    console.log(`✅ Server started on Port ${PORT}`);
+    logger.info(`Server started on Port ${PORT}`);
+  });
 
 })
 .catch((err) => {
+  console.error(`❌ Startup Connection Error: ${err.message}`);
   logger.error(`Startup Connection Error: ${err.message}`);
   process.exit(1);
 });
@@ -318,6 +324,7 @@ Promise.all([
 
 process.on('SIGINT', async () => {
 
+  console.log("⚠️ SIGINT received: Shutting down gracefully...");
   logger.info("SIGINT signal received: Closing server & cleaning up resources...");
 
   server.close(async () => {
@@ -329,10 +336,12 @@ process.on('SIGINT', async () => {
       await pubClient.quit();
       await subClient.quit();
 
+      console.log("✅ MongoDB and Redis connections closed cleanly.");
       logger.info("MongoDB and Redis connections closed cleanly. Exiting.");
       process.exit(0);
 
     } catch (err) {
+      console.error(`❌ Error during shutdown: ${err.message}`);
       logger.error(`Error during shutdown: ${err.message}`);
       process.exit(1);
     }
