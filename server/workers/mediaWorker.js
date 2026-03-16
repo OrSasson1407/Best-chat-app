@@ -29,7 +29,8 @@ cacheClient.on("error", (err) => {
   console.warn("Media Worker Cache Client Background Error:", err.message);
 });
 
-cacheClient.connect().catch(() => {});;
+// LAZY CONNECT FIX: Connect in background, don't block startup
+cacheClient.connect().catch(() => {});
 
 const getChatCacheKey = (user1, user2) => {
   const sortedIds = [user1.toString(), user2.toString()].sort();
