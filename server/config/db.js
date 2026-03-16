@@ -5,7 +5,7 @@ const connectDB = async () => {
   try {
     // 1. IMPROVEMENT: Use Environment Variables for the connection string
     // Fallback to the local URI for development if the env variable isn't set.
-    const mongoURI = process.env.MONGO_URL || "mongodb://127.0.0.1:27017/chat-app";
+const mongoURI = process.env.MONGO_URI || process.env.MONGO_URL || "mongodb://127.0.0.1:27017/chat-app";
 
     // 2. IMPROVEMENT: Configure Connection Pooling Options
     await mongoose.connect(mongoURI, {
