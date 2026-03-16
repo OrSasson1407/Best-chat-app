@@ -216,7 +216,17 @@ const pubClient = createClient({
   }
 });
 
+// CRITICAL FIX: Catch background errors so they don't crash Node.js
+pubClient.on("error", (err) => {
+  logger.error(`Redis pubClient Background Error: ${err.message}`);
+});
+
 const subClient = pubClient.duplicate();
+
+// CRITICAL FIX: Catch background errors so they don't crash Node.js
+subClient.on("error", (err) => {
+  logger.error(`Redis subClient Background Error: ${err.message}`);
+});
 
 /**
  * Helper to extract HttpOnly accessToken from socket cookies
