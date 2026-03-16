@@ -173,16 +173,6 @@ app.use(errorHandler);
 
 
 /* =========================================================
-   DATABASE CONNECTION
-   ========================================================= */
-
-// Connect DB and Initialize Search Engine
-connectDB().then(() => {
-  setupMeilisearch(); // STEP 5: Initialize the search indexes once DB connects
-});
-
-
-/* =========================================================
    SOCKET.IO INITIALIZATION
    ========================================================= */
 
@@ -209,7 +199,6 @@ global.chatSocket = io;
 
 /* =========================================================
    REDIS ADAPTER (SCALABILITY)
-   // FIX: Added TLS support for Upstash (rediss://) in production
    ========================================================= */
 
 const redisUrl = process.env.REDIS_URI || "redis://localhost:6379";
@@ -218,6 +207,7 @@ const isTLS = redisUrl.startsWith("rediss://");
 const pubClient = createClient({
   url: redisUrl,
   socket: {
+    family: 0, // <--- CRITICAL FIX: Forces IPv4 to prevent Render/Upstash timeouts
     tls: isTLS,
     // PRODUCTION FIX: Reconnect strategy for Redis outages
     reconnectStrategy: (retries) => {
@@ -237,8 +227,24 @@ function getCookieToken(cookieString) {
   return match ? match[2] : null;
 }
 
-Promise.all([pubClient.connect(), subClient.connect()])
+
+/* =========================================================
+   CRITICAL FIX: SYNCHRONIZED STARTUP
+   Wait for DB and Redis to connect before starting streams!
+   ========================================================= */
+
+const PORT = process.env.PORT || 5000;
+
+Promise.all([
+  connectDB(),
+  pubClient.connect(),
+  subClient.connect()
+])
 .then(() => {
+
+  logger.info("MongoDB and Redis connected successfully. Initializing services...");
+
+  setupMeilisearch(); // STEP 5: Initialize the search indexes once DB connects
 
   io.adapter(createAdapter(pubClient, subClient));
 
@@ -257,17 +263,13 @@ Promise.all([pubClient.connect(), subClient.connect()])
     }
 
     jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
-
       if (err) {
         return next(new Error("Authentication error: Invalid token"));
       }
-
       // Attach authenticated user ID to socket instance
       socket.userId = decoded.id;
-
       next();
     });
-
   });
 
   /* =========================================================
@@ -276,7 +278,7 @@ Promise.all([pubClient.connect(), subClient.connect()])
 
   socketHandler(io, pubClient);
   
-  // STEP 8 FIX: Initialize MongoDB Change Streams
+  // STEP 8 FIX: Safe to initialize MongoDB Change Streams now because the DB is connected
   changeStreams(io, pubClient);
 
   /* =========================================================
@@ -285,21 +287,19 @@ Promise.all([pubClient.connect(), subClient.connect()])
 
   startMessageScheduler(io, pubClient);
 
+  /* =========================================================
+     SERVER START
+     ========================================================= */
+
+  server.listen(PORT, () =>
+    logger.info(`Server started on Port ${PORT}`)
+  );
+
 })
 .catch((err) => {
-  logger.error(`Redis Connection Error: ${err.message}`);
+  logger.error(`Startup Connection Error: ${err.message}`);
+  process.exit(1);
 });
-
-
-/* =========================================================
-   SERVER START
-   ========================================================= */
-
-const PORT = process.env.PORT || 5000;
-
-server.listen(PORT, () =>
-  logger.info(`Server started on Port ${PORT}`)
-);
 
 
 /* =========================================================
@@ -311,30 +311,21 @@ process.on('SIGINT', async () => {
   logger.info("SIGINT signal received: Closing server & cleaning up resources...");
 
   server.close(async () => {
-
     try {
-
       const mongoose = require("mongoose");
-
       // Close MongoDB connection
       await mongoose.connection.close();
-
       // Close Redis connections
       await pubClient.quit();
       await subClient.quit();
 
       logger.info("MongoDB and Redis connections closed cleanly. Exiting.");
-
       process.exit(0);
 
     } catch (err) {
-
       logger.error(`Error during shutdown: ${err.message}`);
-
       process.exit(1);
-
     }
-
   });
 
 });
