@@ -1,12 +1,13 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { get, set, del, clear } from 'idb-keyval'; // Added 'clear'
+// CRITICAL FIX: Alias the idb-keyval imports to prevent collision with Zustand's (set, get)
+import { get as idbGet, set as idbSet, del as idbDel, clear as idbClear } from 'idb-keyval'; 
 
 // --- CUSTOM INDEXED-DB STORAGE ENGINE ---
 const idbStorage = {
-  getItem: async (name) => (await get(name)) || null,
-  setItem: async (name, value) => await set(name, value),
-  removeItem: async (name) => await del(name),
+  getItem: async (name) => (await idbGet(name)) || null,
+  setItem: async (name, value) => await idbSet(name, value),
+  removeItem: async (name) => await idbDel(name),
 };
 
 const useChatStore = create(
@@ -47,7 +48,8 @@ const useChatStore = create(
       // Fetches a specific chat's history from IndexedDB into memory
       loadOfflineMessages: async (chatId) => {
         try {
-          const cached = await get(`chat_history_${chatId}`);
+          // FIX: Use idbGet instead of Zustand's get()
+          const cached = await idbGet(`chat_history_${chatId}`);
           if (cached) {
             set((state) => ({
               offlineMessages: { ...state.offlineMessages, [chatId]: cached }
@@ -68,12 +70,14 @@ const useChatStore = create(
           offlineMessages: { ...state.offlineMessages, [chatId]: messages }
         }));
         // 2. Write directly to IDB asynchronously
-        await set(`chat_history_${chatId}`, messages);
+        // FIX: Use idbSet instead of Zustand's set() to prevent destroying the global state
+        await idbSet(`chat_history_${chatId}`, messages);
       },
 
       // --- 5. SECURE CLEANUP ---
       clearCache: async () => {
-        await clear(); // Completely wipes all IndexedDB data (including all separate chat histories)
+        // FIX: Use idbClear instead of clear()
+        await idbClear(); 
         set({ 
             offlineMessages: {}, 
             currentUser: undefined, 
