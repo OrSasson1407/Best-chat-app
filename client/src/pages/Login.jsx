@@ -64,19 +64,24 @@ export default function Login() {
 
           // --- MERGE UPDATE: E2EE LOGIC ---
           try {
-            // Generate Keys
-            const keys = await generateKeyPair();
+            // FIX: Check if the private key already exists for this user to prevent overwriting
+            const existingKey = localStorage.getItem(`privateKey_${data.user._id}`);
             
-            // Save Private Key locally (NEVER send this to the server)
-            localStorage.setItem(`privateKey_${data.user._id}`, JSON.stringify(keys.privateKey));
-            
-            // Send Public Key to the Backend for other users to encrypt messages for this user
-            await axios.post(publicKeyRoute, {
-              userId: data.user._id,
-              publicKey: JSON.stringify(keys.publicKey)
-            }, {
-              withCredentials: true // Ensure the session cookie is passed during key registration
-            });
+            if (!existingKey) {
+              // Generate Keys ONLY if they don't already exist on this device
+              const keys = await generateKeyPair();
+              
+              // Save Private Key locally (NEVER send this to the server)
+              localStorage.setItem(`privateKey_${data.user._id}`, JSON.stringify(keys.privateKey));
+              
+              // Send Public Key to the Backend for other users to encrypt messages for this user
+              await axios.post(publicKeyRoute, {
+                userId: data.user._id,
+                publicKey: JSON.stringify(keys.publicKey)
+              }, {
+                withCredentials: true // Ensure the session cookie is passed during key registration
+              });
+            }
           } catch (cryptoErr) {
             console.error("Failed to generate or register E2EE keys", cryptoErr);
             toast.error("Warning: Encryption keys could not be established.", toastOptions);
