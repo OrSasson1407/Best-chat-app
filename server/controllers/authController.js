@@ -6,7 +6,14 @@ const { registerSchema, loginSchema } = require("../utils/validation");
 // --- LEVEL 2: REDIS CACHING SETUP ---
 const { createRedisClient } = require("../config/redis");
 const cacheClient = createRedisClient();
-cacheClient.on("error", (err) => { console.warn("Auth Cache Client Error:", err.message); });`ncacheClient.connect().catch(() => {});;
+
+// CRITICAL FIX: Catch background errors so they don't crash Node.js
+cacheClient.on("error", (err) => {
+  console.warn("Auth Cache Client Error:", err.message);
+});
+
+// LAZY CONNECT FIX: Connect in background, don't block startup
+cacheClient.connect().catch(() => {});
 
 // STEP 5: Import Meilisearch User Index
 const { userIndex } = require("../utils/meilisearch");
