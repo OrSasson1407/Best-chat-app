@@ -97,12 +97,21 @@ app.get('/metrics', async (req, res) => {
 app.use(helmet());
 
 /**
- * CORS configuration
+ * CORS configuration - BULLETPROOF FIX
  */
 app.use(cors({
-  origin: process.env.CLIENT_URL || "http://localhost:3000",
+  origin: [
+    process.env.CLIENT_URL, 
+    "https://best-chat-app-frontend.onrender.com", 
+    "http://localhost:3000"
+  ].filter(Boolean), // Safely removes undefined values if env var is missing
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   credentials: true,
+  allowedHeaders: ["Origin", "X-Requested-With", "Content-Type", "Accept", "Authorization"]
 }));
+
+// Explicitly handle pre-flight OPTIONS requests for all routes
+app.options('*', cors());
 
 /**
  * Cookie parser middleware
@@ -179,8 +188,14 @@ connectDB().then(() => {
 
 const io = socket(server, {
   cors: {
-    origin: process.env.CLIENT_URL || "http://localhost:3000",
+    // FIX: Match the robust Express CORS settings for websockets
+    origin: [
+      process.env.CLIENT_URL, 
+      "https://best-chat-app-frontend.onrender.com", 
+      "http://localhost:3000"
+    ].filter(Boolean),
     credentials: true,
+    methods: ["GET", "POST"]
   },
   parser: customParser, // STEP 3: MessagePack binary serialization for smaller payloads
   // PRODUCTION FIX: Mobile connection resilience
