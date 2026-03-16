@@ -16,6 +16,7 @@
 // 3. Otherwise → localhost for development
 
 export const host = process.env.REACT_APP_API_URL || "http://localhost:5000";
+
 // =======================================================
 // AUTH & USER ROUTES
 // =======================================================
@@ -102,8 +103,8 @@ export const translateMessageRoute = `${host}/api/ai/translate`;
 // END-TO-END ENCRYPTION ROUTES (FIXED)
 // =======================================================
 
-// 🔧 IMPORTANT FIX:
-// Backend registers this under:
-// app.use("/api/e2e", verifyToken, e2eRoutes)
+// 🔧 IMPORTANT FIX: 
+// Backend registers the public key routes under the Auth Controller
+// app.use("/api/auth", authRoutes)
 
-export const publicKeyRoute = `${host}/api/e2e/public-key`;
+export const publicKeyRoute = `${host}/api/auth/public-key`;
