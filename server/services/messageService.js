@@ -10,7 +10,7 @@ const { createRedisClient } = require("../config/redis");
 
 // Initialize Redis for Hot Cache
 const cacheClient = createRedisClient();
-cacheClient.connect().catch(err => console.error("Message Cache Client Error:", err));
+cacheClient.on("error", (err) => { console.warn("Message Cache Client Error:", err.message); });`ncacheClient.connect().catch(() => {});;
 
 const extractUrls = (text) => {
   const urlRegex = /(https?:\/\/[^\s]+)/g;

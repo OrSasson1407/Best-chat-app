@@ -29,7 +29,7 @@ cacheClient.on("error", (err) => {
   console.warn("Media Worker Cache Client Background Error:", err.message);
 });
 
-cacheClient.connect().catch(err => console.warn("Media Worker Cache Client Error:", err.message));
+cacheClient.connect().catch(() => {});;
 
 const getChatCacheKey = (user1, user2) => {
   const sortedIds = [user1.toString(), user2.toString()].sort();
