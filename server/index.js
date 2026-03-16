@@ -282,9 +282,9 @@ const startupTimeout = setTimeout(() => {
 console.log("🚀 Starting MongoDB and Redis connections...");
 
 Promise.all([
-  connectDB(),
-  pubClient.connect(),
-  subClient.connect()
+  connectDB().then(() => console.log("✅ MongoDB connected")).catch(e => { console.error("❌ MongoDB failed:", e.message); throw e; }),
+  pubClient.connect().then(() => console.log("✅ pubClient connected")).catch(e => { console.error("❌ pubClient failed:", e.message); throw e; }),
+  subClient.connect().then(() => console.log("✅ subClient connected")).catch(e => { console.error("❌ subClient failed:", e.message); throw e; })
 ])
 .then(() => {
 
