@@ -29,7 +29,6 @@ import MessageItem from "./MessageItem";
 import { getSmallAvatar, formatTime } from "./chatHelpers";
 
 export default function ChatContainer({ socket, isTyping }) {
-  // --- MERGE UPDATE: Destructure loadOfflineMessages instead of the massive offlineMessages object ---
   const { currentChat, currentUser, theme, isCompact, loadOfflineMessages, cacheMessages } = useChatStore();
 
   // --- STATE MANAGEMENT ---
@@ -82,7 +81,6 @@ export default function ChatContainer({ socket, isTyping }) {
 
   const skeletonWidths = useMemo(() => ['45%', '65%', '35%', '80%', '50%'], []);
   
-  // Added withCredentials: true so that all Axios requests carry the HttpOnly session cookie
   const getAuthHeader = useCallback(() => ({ 
       headers: { "x-auth-token": currentUser.token },
       withCredentials: true 
@@ -122,7 +120,6 @@ export default function ChatContainer({ socket, isTyping }) {
 
         // --- OFFLINE CHECK ---
         if (!navigator.onLine) {
-            // Fetch directly from IndexedDB asynchronously
             const cached = await loadOfflineMessages(currentChat._id);
             if (cached && cached.length > 0) {
                 setMessages(cached);
@@ -221,7 +218,6 @@ export default function ChatContainer({ socket, isTyping }) {
 
   // --- AUTO-CACHE MESSAGES ---
   useEffect(() => {
-      // Whenever messages update, silently save them to IndexedDB so they are ready for offline use
       if (currentChat && messages.length > 0) {
           cacheMessages(currentChat._id, messages);
       }
@@ -243,8 +239,7 @@ export default function ChatContainer({ socket, isTyping }) {
               }
           });
 
-          // Update global sentiment hue: Positive=Green(140), Negative=Red(0), Neutral=Purple(250)
-          const hue = score > 0 ? '140' : score < 0 ? '0' : '250';
+          const hue = score > 0 ? '140' : score < 0 ? '250' : '250'; // Using consistent defaults for purple
           document.documentElement.style.setProperty('--sentiment-hue', hue);
       }
   }, [messages]);
@@ -364,7 +359,6 @@ export default function ChatContainer({ socket, isTyping }) {
           setShowCallModal(true);
       };
 
-      // --- ASYNC MEDIA WORKER LISTENER ---
       const handleMediaReady = ({ messageId, url, type }) => {
           setMessages((prev) => prev.map(msg => {
               if (msg.id === messageId) {
@@ -471,7 +465,7 @@ export default function ChatContainer({ socket, isTyping }) {
     const files = e.dataTransfer.files;
     if (files.length > 0) {
         toast.info(`Preparing to upload ${files[0].name}...`);
-        setDroppedFile(files[0]); // This is passed down to ChatInput
+        setDroppedFile(files[0]); 
     }
   };
 
@@ -513,8 +507,14 @@ export default function ChatContainer({ socket, isTyping }) {
             if (!currentChat.admin) {
                 try {
                     const pkResponse = await axios.get(`${publicKeyRoute}/${currentChat._id}`, getAuthHeader());
-                    const receiverPublicKey = pkResponse.data.publicKey;
-                    if (receiverPublicKey) finalMessageContent = await encryptMessage(msg, receiverPublicKey);
+                    
+                    // --- CRITICAL FIX: Extract the identityKey from the E2E bundle ---
+                    if (pkResponse.data.status && pkResponse.data.bundle) {
+                        const receiverKey = pkResponse.data.bundle.identityKey;
+                        finalMessageContent = await encryptMessage(msg, receiverKey);
+                    } else {
+                        console.warn(`Encryption skipped: ${pkResponse.data.msg}`);
+                    }
                 } catch (err) { console.error("Could not fetch public key for encryption"); }
             } else if (currentChat.admin && activeGroupAesKey) {
                 finalMessageContent = await encryptGroupMessage(msg, activeGroupAesKey);

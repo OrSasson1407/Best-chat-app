@@ -12,7 +12,7 @@ import axios from "axios";
 import { 
     host, createGroupRoute, getUserGroupsRoute, updateProfileRoute, 
     searchMessageRoute, getStoryFeedRoute, addStoryRoute, viewStoryRoute,
-    searchChannelsRoute, joinChannelRoute 
+    searchChannelsRoute, joinChannelRoute, publicKeyRoute 
 } from "../utils/APIRoutes";
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -102,7 +102,6 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
     const fetchGroupsAndStories = async () => {
       if(currentUser && currentUser.token) {
           try {
-              // FIX: Explicitly attached withCredentials to prevent cookie strip
               const [groupRes, storyRes] = await Promise.all([
                   axios.get(getUserGroupsRoute, { headers: { "x-auth-token": currentUser.token }, withCredentials: true }),
                   axios.get(getStoryFeedRoute, { headers: { "x-auth-token": currentUser.token }, withCredentials: true })
@@ -148,7 +147,6 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
       const delayDebounceFn = setTimeout(async () => {
           setIsSearchingGlobal(true);
           try {
-              // FIX: Attached withCredentials
               const { data } = await axios.post(searchMessageRoute, { userId: currentUser._id, query: searchTerm }, { headers: { "x-auth-token": currentUser.token }, withCredentials: true });
               if (data.status) setGlobalMessages(data.messages || []);
           } catch (error) { console.error("Error searching messages:", error); } 
@@ -164,7 +162,6 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
       const delayDebounceFn = setTimeout(async () => {
           setIsSearchingChannels(true);
           try {
-              // FIX: Attached withCredentials
               const { data } = await axios.get(`${searchChannelsRoute}?query=${channelSearchQuery}`, { headers: { "x-auth-token": currentUser.token }, withCredentials: true });
               if (data.status) setDiscoveredChannels(data.channels || []);
           } catch (error) { console.error(error); } 
@@ -215,7 +212,6 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
       reader.readAsDataURL(file);
       reader.onload = async () => {
           try {
-              // FIX: Attached withCredentials
               const { data } = await axios.post(addStoryRoute, { mediaUrl: reader.result, mediaType: file.type.startsWith("video") ? "video" : "image" }, { headers: { "x-auth-token": currentUser.token }, withCredentials: true });
               if (data.status) {
                   toast.success("Status updated!");
@@ -277,18 +273,22 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
         
         const keyPromises = allMembers.map(async (userId) => {
             try {
-                // FIX: Attached withCredentials
-                const pkResponse = await axios.get(`${host}/api/auth/public-key/${userId}`, { headers: { "x-auth-token": currentUser.token }, withCredentials: true });
-                const userPublicKey = pkResponse.data.publicKey;
-                if (userPublicKey) return { userId, encryptedKey: await encryptMessage(aesKeyString, userPublicKey) };
-            } catch (err) {}
+                const pkResponse = await axios.get(`${publicKeyRoute}/${userId}`, { headers: { "x-auth-token": currentUser.token }, withCredentials: true });
+                
+                // --- CRITICAL FIX: Extract the identityKey from the E2E bundle ---
+                if (pkResponse.data.status && pkResponse.data.bundle) {
+                    const userPublicKey = pkResponse.data.bundle.identityKey;
+                    return { userId, encryptedKey: await encryptMessage(aesKeyString, userPublicKey) };
+                }
+            } catch (err) {
+                console.warn(`Failed to fetch key for user ${userId}`);
+            }
             return null; 
         });
 
         const resolvedKeys = await Promise.all(keyPromises);
         const groupKeys = resolvedKeys.filter(k => k !== null);
 
-        // FIX: Attached withCredentials
         const { data } = await axios.post(createGroupRoute, { name: groupName, members: allMembers, admin: currentUser._id, groupKeys }, { headers: { "x-auth-token": currentUser.token }, withCredentials: true });
         if (data.status) {
             setGroups([...groups, data.group]); 
@@ -300,7 +300,6 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
 
   const handleJoinChannel = async (channelId) => {
       try {
-          // FIX: Attached withCredentials
           const { data } = await axios.post(joinChannelRoute, { channelId }, { headers: { "x-auth-token": currentUser.token }, withCredentials: true });
           if (data.status) {
               toast.success("Joined channel!");
@@ -313,7 +312,6 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
   const handleUpdateProfile = async () => {
       try {
           const interestsArray = profileData.interests ? profileData.interests.split(",").map(i => i.trim()).filter(i => i !== "") : [];
-          // FIX: Attached withCredentials
           const { data } = await axios.post(`${updateProfileRoute}/${currentUser._id}`, { ...profileData, interests: interestsArray }, { headers: { "x-auth-token": currentUser.token }, withCredentials: true });
           
           if(data.status) {

@@ -5,7 +5,8 @@ import { useNavigate, Link } from "react-router-dom";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { registerRoute } from "../utils/APIRoutes";
-import { generateKeyPair } from "../utils/crypto";
+// FIX: Import generateE2EBundle instead of generateKeyPair
+import { generateE2EBundle } from "../utils/crypto";
 import { FaEye, FaEyeSlash, FaSyncAlt, FaArrowRight, FaArrowLeft, FaCheck } from "react-icons/fa"; 
 
 export default function Register() {
@@ -106,7 +107,9 @@ export default function Register() {
     
     try {
       toast.info("Generating secure encryption keys... Please wait.", { autoClose: 2000, theme: "dark" });
-      const { publicKey, privateKey } = await generateKeyPair();
+      
+      // FIX: Generate the full Signal-style bundle instead of just one key
+      const { bundle, privateKeys } = await generateE2EBundle();
 
       const { data } = await axios.post(registerRoute, {
         username,
@@ -114,10 +117,8 @@ export default function Register() {
         password,
         gender,
         avatarImage: selectedAvatar,
-        // --- CRITICAL FIX: Convert the public key object to a string ---
-        publicKey: JSON.stringify(publicKey) 
+        e2eKeys: bundle // FIX: Send the bundle to the DB instead of publicKey
       }, {
-        // STEP 4 FIX: Ensure the browser stores the HttpOnly session cookies from the backend
         withCredentials: true 
       });
 
@@ -128,7 +129,6 @@ export default function Register() {
       }
       
       if (data.status === true) {
-        // --- CRITICAL SAFETY CHECK ---
         // Prevents the "Invalid Token" socket crash if backend forgets to send the token
         if (!data.token) {
            toast.error("Server Error: Backend did not return an authentication token. Check authController.js", toastOptions);
@@ -136,7 +136,11 @@ export default function Register() {
            return;
         }
 
-        localStorage.setItem(`privateKey_${data.user._id}`, JSON.stringify(privateKey));
+        // FIX: Save the identity private key so our current RSA logic still works perfectly!
+        localStorage.setItem(`privateKey_${data.user._id}`, JSON.stringify(privateKeys.identityPrivateKey));
+        
+        // Save the full E2E Keys bundle locally in case you expand the Signal protocol later
+        localStorage.setItem(`fullE2EKeys_${data.user._id}`, JSON.stringify(privateKeys));
 
         const userData = {
           ...data.user,

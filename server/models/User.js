@@ -92,7 +92,7 @@ const userSchema = new mongoose.Schema({
     default: "" 
   },
 
-  // --- STEP 7 FIX: FULL E2EE PRE-KEY BUNDLE ---
+  // --- FULL E2EE PRE-KEY BUNDLE ---
   // Replaced the old single `publicKey` with a full bundle required for Signal-like E2EE
   e2eKeys: {
     identityKey: { type: String, default: "" }, // Long-term public identity key

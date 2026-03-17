@@ -35,6 +35,36 @@ export const generateKeyPair = async () => {
     return { publicKey, privateKey };
 };
 
+// --- NEW: GENERATE THE FULL E2E BUNDLE ---
+// Creates the Signal-Protocol style key structure to send to the backend
+export const generateE2EBundle = async () => {
+    // Generate the required keys for the bundle
+    const identityKeyPair = await generateKeyPair();
+    const signedPreKeyPair = await generateKeyPair();
+    const oneTimePreKey = await generateKeyPair();
+
+    const bundle = {
+        identityKey: JSON.stringify(identityKeyPair.publicKey),
+        registrationId: Math.floor(Math.random() * 10000),
+        signedPreKey: {
+            keyId: 1,
+            publicKey: JSON.stringify(signedPreKeyPair.publicKey),
+            signature: "verified" // Basic mock signature for WebCrypto RSA
+        },
+        preKeys: [
+            { keyId: 1, publicKey: JSON.stringify(oneTimePreKey.publicKey) }
+        ]
+    };
+
+    const privateKeys = {
+        identityPrivateKey: identityKeyPair.privateKey,
+        signedPrePrivateKey: signedPreKeyPair.privateKey,
+        prePrivateKeys: [oneTimePreKey.privateKey]
+    };
+
+    return { bundle, privateKeys };
+};
+
 // 2. Encrypt a message using the RECEIVER'S public key
 export const encryptMessage = async (messageText, receiverPublicKeyJwk) => {
     try {

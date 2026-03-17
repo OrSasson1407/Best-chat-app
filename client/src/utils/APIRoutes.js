@@ -100,11 +100,12 @@ export const translateMessageRoute = `${host}/api/ai/translate`;
 
 
 // =======================================================
-// END-TO-END ENCRYPTION ROUTES (FIXED)
+// END-TO-END ENCRYPTION ROUTES (UPDATED)
 // =======================================================
 
 // 🔧 IMPORTANT FIX: 
 // Backend registers the public key routes under the Auth Controller
 // app.use("/api/auth", authRoutes)
 
-export const publicKeyRoute = `${host}/api/auth/public-key`;
+export const publicKeyRoute = `${host}/api/auth/public-key`; // For GET requests
+export const updateE2EKeysRoute = `${host}/api/auth/e2e-keys`; // For POST requests

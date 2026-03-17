@@ -36,7 +36,8 @@ module.exports.register = async (req, res, next) => {
     const { error } = registerSchema.validate(req.body);
     if (error) return res.status(400).json({ msg: error.details[0].message, status: false });
 
-    const { username, email, password, gender, avatarImage, publicKey } = req.body;
+    // FIX: Expect the full E2E bundle instead of a single string
+    const { username, email, password, gender, avatarImage, e2eKeys } = req.body;
 
     const usernameCheck = await User.findOne({ username });
     if (usernameCheck) return res.json({ msg: "Username already used", status: false });
@@ -56,7 +57,7 @@ module.exports.register = async (req, res, next) => {
       gender,
       avatarImage: finalAvatar,
       isAvatarImageSet: true,
-      publicKey: publicKey 
+      e2eKeys // FIX: Save the full Signal-protocol bundle to the DB
     });
 
     // STEP 5 FIX: Sync new user to Meilisearch
@@ -84,7 +85,7 @@ module.exports.register = async (req, res, next) => {
       httpOnly: true,
       secure: true, 
       sameSite: "None", 
-      maxAge: 15 * 60 * 1000, // 15 minutes
+      maxAge: 15 * 60 * 1000, 
     });
 
     const userResponse = user.toObject();
@@ -117,12 +118,11 @@ module.exports.login = async (req, res, next) => {
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
-    // STEP 4 FIX: Secure the access token in an HttpOnly cookie
     res.cookie("accessToken", accessToken, {
       httpOnly: true,
       secure: true, 
       sameSite: "None", 
-      maxAge: 15 * 60 * 1000, // 15 minutes
+      maxAge: 15 * 60 * 1000, 
     });
 
     const userResponse = user.toObject();
@@ -162,17 +162,8 @@ module.exports.logout = async (req, res, next) => {
         }
     }
 
-    res.clearCookie("refreshToken", {
-      httpOnly: true,
-      secure: true, 
-      sameSite: "None", 
-    });
-    
-    res.clearCookie("accessToken", {
-      httpOnly: true,
-      secure: true, 
-      sameSite: "None", 
-    });
+    res.clearCookie("refreshToken", { httpOnly: true, secure: true, sameSite: "None" });
+    res.clearCookie("accessToken", { httpOnly: true, secure: true, sameSite: "None" });
     
     return res.json({ status: true, msg: "Logged out successfully" });
   } catch (ex) {
@@ -194,17 +185,13 @@ module.exports.refreshToken = async (req, res) => {
     const accessToken = jwt.sign({ id: decoded.id }, process.env.JWT_SECRET, { expiresIn: "15m" });
     
     res.cookie("accessToken", accessToken, {
-      httpOnly: true,
-      secure: true, 
-      sameSite: "None", 
-      maxAge: 15 * 60 * 1000, 
+      httpOnly: true, secure: true, sameSite: "None", maxAge: 15 * 60 * 1000, 
     });
 
     res.json({ status: true, token: accessToken });
   });
 };
 
-// --- STEP 5 FIX: MEILISEARCH INTEGRATION FOR TYPO-TOLERANT FAST SEARCH ---
 module.exports.getAllUsers = async (req, res, next) => {
   try {
     const currentUserId = req.params.id;
@@ -215,32 +202,19 @@ module.exports.getAllUsers = async (req, res, next) => {
 
     let userIds = [];
 
-    // Hit Meilisearch instead of MongoDB Regex if there is a search query
     if (searchQuery) {
       try {
-        const searchResults = await userIndex.search(searchQuery, {
-          limit,
-          offset: skip
-        });
-        
-        // Extract IDs and filter out the current user
-        userIds = searchResults.hits
-          .map(hit => hit.id)
-          .filter(id => id !== currentUserId);
-
+        const searchResults = await userIndex.search(searchQuery, { limit, offset: skip });
+        userIds = searchResults.hits.map(hit => hit.id).filter(id => id !== currentUserId);
       } catch (meiliErr) {
         console.warn("⚠️ Meilisearch failed, falling back to MongoDB Regex:", meiliErr.message);
-        // Fallback to old regex if Meilisearch is down
         const usersBasic = await User.find({ 
-          _id: { $ne: currentUserId }, 
-          username: { $regex: searchQuery, $options: "i" } 
+          _id: { $ne: currentUserId }, username: { $regex: searchQuery, $options: "i" } 
         }).select("_id").skip(skip).limit(limit);
         userIds = usersBasic.map(u => u._id.toString());
       }
     } else {
-      // Standard paginated fetch if no query
-      const usersBasic = await User.find({ _id: { $ne: currentUserId } })
-        .select("_id").skip(skip).limit(limit);
+      const usersBasic = await User.find({ _id: { $ne: currentUserId } }).select("_id").skip(skip).limit(limit);
       userIds = usersBasic.map(u => u._id.toString());
     }
                                  
@@ -264,11 +238,8 @@ module.exports.getAllUsers = async (req, res, next) => {
     }
 
     cachedProfiles.forEach((profileStr, index) => {
-      if (profileStr) {
-        finalUsersRaw.push(JSON.parse(profileStr));
-      } else {
-        cacheMisses.push(userIds[index]);
-      }
+      if (profileStr) finalUsersRaw.push(JSON.parse(profileStr));
+      else cacheMisses.push(userIds[index]);
     });
 
     if (cacheMisses.length > 0) {
@@ -296,9 +267,7 @@ module.exports.getAllUsers = async (req, res, next) => {
     }
 
     const finalUsers = finalUsersRaw.map(u => {
-        if (u.privacySettings?.profilePhoto === "nobody") {
-            u.avatarImage = ""; 
-        }
+        if (u.privacySettings?.profilePhoto === "nobody") u.avatarImage = ""; 
         return u;
     });
 
@@ -317,39 +286,27 @@ module.exports.updateProfile = async (req, res, next) => {
     
     if (privacySettings) {
         const currentUser = await User.findById(userId);
-        updatePayload.privacySettings = {
-            ...currentUser.privacySettings,
-            ...privacySettings
-        };
+        updatePayload.privacySettings = { ...currentUser.privacySettings, ...privacySettings };
     }
 
-    const user = await User.findByIdAndUpdate(
-      userId,
-      updatePayload,
-      { new: true }
-    ).select([
+    const user = await User.findByIdAndUpdate(userId, updatePayload, { new: true }).select([
         "email", "username", "avatarImage", "gender", "_id", 
         "statusMessage", "statusIcon", "bio", "interests", "privacySettings", "chatCustomizations"
     ]);
 
-    // STEP 5 FIX: Sync potential username updates to Meilisearch
     if (user.username) {
-        try {
-            await userIndex.updateDocuments([{ id: userId, username: user.username }]);
-        } catch (e) {}
+        try { await userIndex.updateDocuments([{ id: userId, username: user.username }]); } catch (e) {}
     }
 
     const userResponse = user.toObject();
     
     try {
-      if (cacheClient.isReady) {
-        await cacheClient.setEx(`user_profile:${userId}`, 3600, JSON.stringify(userResponse));
-      }
+      if (cacheClient.isReady) await cacheClient.setEx(`user_profile:${userId}`, 3600, JSON.stringify(userResponse));
     } catch (e) {
       console.warn("⚠️ Redis unavailable, skipping cache update.");
     }
 
-return res.json({ status: true, user: userResponse, token: accessToken });
+    return res.json({ status: true, user: userResponse });
   } catch (ex) {
     next(ex);
   }
@@ -360,11 +317,9 @@ module.exports.toggleBlockUser = async (req, res, next) => {
     const { userId, blockedUserId } = req.body;
     const user = await User.findById(userId);
     
-    if (user.blockedUsers.includes(blockedUserId)) {
-        user.blockedUsers.pull(blockedUserId); 
-    } else {
-        user.blockedUsers.push(blockedUserId);
-    }
+    if (user.blockedUsers.includes(blockedUserId)) user.blockedUsers.pull(blockedUserId); 
+    else user.blockedUsers.push(blockedUserId);
+    
     await user.save();
     return res.json({ status: true, blockedUsers: user.blockedUsers });
   } catch (ex) {
@@ -382,42 +337,41 @@ module.exports.updateFcmToken = async (req, res, next) => {
   }
 };
 
-module.exports.updatePublicKey = async (req, res, next) => {
+// --- FIX: RENAMED TO updateE2EKeys to match the bundle ---
+module.exports.updateE2EKeys = async (req, res, next) => {
   try {
-    const { userId, publicKey } = req.body;
-    if (!userId || !publicKey) {
+    const { userId, e2eKeys } = req.body;
+    if (!userId || !e2eKeys) {
         return res.status(400).json({ status: false, msg: "Missing data" });
     }
-    await User.findByIdAndUpdate(userId, { publicKey });
-    return res.json({ status: true, msg: "Public Key registered for E2EE" });
+    await User.findByIdAndUpdate(userId, { e2eKeys });
+    return res.json({ status: true, msg: "E2E Keys Bundle registered" });
   } catch (ex) {
     next(ex);
   }
 };
 
-// --- FIX: ADDED NULL CHECKS TO PREVENT 500 SERVER CRASH ---
+// --- FIX: READS e2eKeys AND RETURNS AS bundle INSTEAD OF CRASHING ---
 module.exports.getPublicKey = async (req, res, next) => {
   try {
     const targetId = req.params.id;
     
-    // 1. Prevent CastError crashes if the ID string is malformed
     if (!mongoose.Types.ObjectId.isValid(targetId)) {
-        return res.status(400).json({ status: false, msg: "Invalid User ID format" });
+        return res.json({ status: false, msg: "Invalid User ID format" });
     }
 
-    const user = await User.findById(targetId).select("publicKey");
+    const user = await User.findById(targetId).select("e2eKeys");
     
-    // 2. Prevent TypeError crash if the user was deleted/doesn't exist
     if (!user) {
-        return res.status(404).json({ status: false, msg: "User not found" });
+        return res.json({ status: false, msg: "User not found" });
     }
 
-    // 3. Gracefully handle users who haven't logged in to generate keys yet
-    if (!user.publicKey) {
-        return res.status(404).json({ status: false, msg: "Public key not registered for this user yet" });
+    if (!user.e2eKeys || !user.e2eKeys.identityKey) {
+        return res.json({ status: false, msg: "E2E keys not registered for this user yet" });
     }
 
-    return res.json({ status: true, publicKey: user.publicKey });
+    // Return the full bundle under "bundle"
+    return res.json({ status: true, bundle: user.e2eKeys });
   } catch (ex) {
     next(ex);
   }
@@ -455,15 +409,12 @@ module.exports.updateChatCustomization = async (req, res, next) => {
 
     await user.save();
     
-    // Update Redis cache so the frontend gets the latest wallpaper immediately on refresh
     const userResponse = user.toObject();
     try {
       if (cacheClient.isReady) {
         await cacheClient.setEx(`user_profile:${userId}`, 3600, JSON.stringify(userResponse));
       }
-    } catch (e) {
-      console.warn("⚠️ Redis unavailable, skipping cache update.");
-    }
+    } catch (e) {}
 
     return res.json({ status: true, customizations: user.chatCustomizations });
   } catch (ex) {
