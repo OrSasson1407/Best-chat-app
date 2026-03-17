@@ -248,7 +248,9 @@ export default function ChatInput({
       try {
           const response = await axios.post(
               `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/${resourceType}/upload`, 
-              formData
+              formData,
+              // --- CRITICAL FIX: Disable global cookies for this specific 3rd-party request ---
+              { withCredentials: false } 
           );
           return response.data.secure_url;
       } catch (error) {
