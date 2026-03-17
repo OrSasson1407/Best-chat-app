@@ -349,7 +349,7 @@ module.exports.updateProfile = async (req, res, next) => {
       console.warn("⚠️ Redis unavailable, skipping cache update.");
     }
 
-    return res.json({ status: true, user: userResponse });
+return res.json({ status: true, user: userResponse, token: accessToken });
   } catch (ex) {
     next(ex);
   }

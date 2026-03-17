@@ -128,6 +128,14 @@ export default function Register() {
       }
       
       if (data.status === true) {
+        // --- CRITICAL SAFETY CHECK ---
+        // Prevents the "Invalid Token" socket crash if backend forgets to send the token
+        if (!data.token) {
+           toast.error("Server Error: Backend did not return an authentication token. Check authController.js", toastOptions);
+           setIsSubmitting(false);
+           return;
+        }
+
         localStorage.setItem(`privateKey_${data.user._id}`, JSON.stringify(privateKey));
 
         const userData = {
@@ -141,7 +149,6 @@ export default function Register() {
       }
     } catch (error) {
       if (error.response && error.response.data) {
-        // This will now show the exact validation error from the backend if it fails again
         toast.error(error.response.data.msg || "Registration failed", toastOptions);
       } else {
         toast.error("Error connecting to server", toastOptions);
@@ -151,7 +158,6 @@ export default function Register() {
     }
   };
       
-  
   const getStrengthColor = () => {
     if (passwordStrength < 40) return "#ff4e4e"; 
     if (passwordStrength < 80) return "#f0ad4e"; 
