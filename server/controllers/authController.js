@@ -26,7 +26,7 @@ const backgroundColors = "b6e3f4,c0aede,d1d4f9,ffdfbf,ffd5dc";
 
 // Helper to generate both tokens
 const generateTokens = (userId) => {
-  const accessToken = jwt.sign({ id: userId }, process.env.JWT_SECRET, { expiresIn: "15m" });
+  const accessToken = jwt.sign({ id: userId }, process.env.JWT_SECRET, { expiresIn: "7d" });
   const refreshToken = jwt.sign({ id: userId }, process.env.REFRESH_SECRET, { expiresIn: "7d" });
   return { accessToken, refreshToken };
 };

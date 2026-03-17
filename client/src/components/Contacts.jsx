@@ -102,9 +102,10 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
     const fetchGroupsAndStories = async () => {
       if(currentUser && currentUser.token) {
           try {
+              // FIX: Explicitly attached withCredentials to prevent cookie strip
               const [groupRes, storyRes] = await Promise.all([
-                  axios.get(getUserGroupsRoute, { headers: { "x-auth-token": currentUser.token } }),
-                  axios.get(getStoryFeedRoute, { headers: { "x-auth-token": currentUser.token } })
+                  axios.get(getUserGroupsRoute, { headers: { "x-auth-token": currentUser.token }, withCredentials: true }),
+                  axios.get(getStoryFeedRoute, { headers: { "x-auth-token": currentUser.token }, withCredentials: true })
               ]);
               setGroups(groupRes.data || []);
               if(storyRes.data.status) setStoryFeed(storyRes.data.feed || []);
@@ -147,7 +148,8 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
       const delayDebounceFn = setTimeout(async () => {
           setIsSearchingGlobal(true);
           try {
-              const { data } = await axios.post(searchMessageRoute, { userId: currentUser._id, query: searchTerm }, { headers: { "x-auth-token": currentUser.token } });
+              // FIX: Attached withCredentials
+              const { data } = await axios.post(searchMessageRoute, { userId: currentUser._id, query: searchTerm }, { headers: { "x-auth-token": currentUser.token }, withCredentials: true });
               if (data.status) setGlobalMessages(data.messages || []);
           } catch (error) { console.error("Error searching messages:", error); } 
           finally { setIsSearchingGlobal(false); }
@@ -162,7 +164,8 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
       const delayDebounceFn = setTimeout(async () => {
           setIsSearchingChannels(true);
           try {
-              const { data } = await axios.get(`${searchChannelsRoute}?query=${channelSearchQuery}`, { headers: { "x-auth-token": currentUser.token } });
+              // FIX: Attached withCredentials
+              const { data } = await axios.get(`${searchChannelsRoute}?query=${channelSearchQuery}`, { headers: { "x-auth-token": currentUser.token }, withCredentials: true });
               if (data.status) setDiscoveredChannels(data.channels || []);
           } catch (error) { console.error(error); } 
           finally { setIsSearchingChannels(false); }
@@ -189,7 +192,6 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
   }, [changeChat]);
 
   const handleGlobalMessageClick = (msg) => {
-      // FIX: Added safe navigations here
       let targetChat = groups.find(g => msg.users?.includes(g._id));
       let isGroupChat = !!targetChat;
 
@@ -213,10 +215,11 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
       reader.readAsDataURL(file);
       reader.onload = async () => {
           try {
-              const { data } = await axios.post(addStoryRoute, { mediaUrl: reader.result, mediaType: file.type.startsWith("video") ? "video" : "image" }, { headers: { "x-auth-token": currentUser.token } });
+              // FIX: Attached withCredentials
+              const { data } = await axios.post(addStoryRoute, { mediaUrl: reader.result, mediaType: file.type.startsWith("video") ? "video" : "image" }, { headers: { "x-auth-token": currentUser.token }, withCredentials: true });
               if (data.status) {
                   toast.success("Status updated!");
-                  const storyRes = await axios.get(getStoryFeedRoute, { headers: { "x-auth-token": currentUser.token } });
+                  const storyRes = await axios.get(getStoryFeedRoute, { headers: { "x-auth-token": currentUser.token }, withCredentials: true });
                   setStoryFeed(storyRes.data.feed || []);
               }
           } catch (err) { toast.error("Failed to upload status."); } 
@@ -229,7 +232,7 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
       setCurrentStoryIndex(0);
       const firstStory = userFeedObj?.stories?.[0];
       if (firstStory && firstStory.user?._id !== currentUser._id) {
-          try { await axios.post(`${viewStoryRoute}/${firstStory._id}`, {}, { headers: { "x-auth-token": currentUser.token } }); } 
+          try { await axios.post(`${viewStoryRoute}/${firstStory._id}`, {}, { headers: { "x-auth-token": currentUser.token }, withCredentials: true }); } 
           catch (error) { console.error("Failed to mark story as viewed"); }
       }
   };
@@ -241,7 +244,7 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
           setCurrentStoryIndex(nextIdx);
           const nextStory = viewingStoryUser.stories[nextIdx];
           if (nextStory && nextStory.user?._id !== currentUser._id) {
-              try { await axios.post(`${viewStoryRoute}/${nextStory._id}`, {}, { headers: { "x-auth-token": currentUser.token } }); } 
+              try { await axios.post(`${viewStoryRoute}/${nextStory._id}`, {}, { headers: { "x-auth-token": currentUser.token }, withCredentials: true }); } 
               catch (error) {}
           }
       } else { setViewingStoryUser(null); }
@@ -274,7 +277,8 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
         
         const keyPromises = allMembers.map(async (userId) => {
             try {
-                const pkResponse = await axios.get(`${host}/api/auth/public-key/${userId}`, { headers: { "x-auth-token": currentUser.token } });
+                // FIX: Attached withCredentials
+                const pkResponse = await axios.get(`${host}/api/auth/public-key/${userId}`, { headers: { "x-auth-token": currentUser.token }, withCredentials: true });
                 const userPublicKey = pkResponse.data.publicKey;
                 if (userPublicKey) return { userId, encryptedKey: await encryptMessage(aesKeyString, userPublicKey) };
             } catch (err) {}
@@ -284,7 +288,8 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
         const resolvedKeys = await Promise.all(keyPromises);
         const groupKeys = resolvedKeys.filter(k => k !== null);
 
-        const { data } = await axios.post(createGroupRoute, { name: groupName, members: allMembers, admin: currentUser._id, groupKeys }, { headers: { "x-auth-token": currentUser.token } });
+        // FIX: Attached withCredentials
+        const { data } = await axios.post(createGroupRoute, { name: groupName, members: allMembers, admin: currentUser._id, groupKeys }, { headers: { "x-auth-token": currentUser.token }, withCredentials: true });
         if (data.status) {
             setGroups([...groups, data.group]); 
             setShowGroupModal(false); setGroupName(""); setSelectedMembers([]);
@@ -295,7 +300,8 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
 
   const handleJoinChannel = async (channelId) => {
       try {
-          const { data } = await axios.post(joinChannelRoute, { channelId }, { headers: { "x-auth-token": currentUser.token } });
+          // FIX: Attached withCredentials
+          const { data } = await axios.post(joinChannelRoute, { channelId }, { headers: { "x-auth-token": currentUser.token }, withCredentials: true });
           if (data.status) {
               toast.success("Joined channel!");
               setShowDiscoverModal(false);
@@ -307,7 +313,8 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
   const handleUpdateProfile = async () => {
       try {
           const interestsArray = profileData.interests ? profileData.interests.split(",").map(i => i.trim()).filter(i => i !== "") : [];
-          const { data } = await axios.post(`${updateProfileRoute}/${currentUser._id}`, { ...profileData, interests: interestsArray }, { headers: { "x-auth-token": currentUser.token } });
+          // FIX: Attached withCredentials
+          const { data } = await axios.post(`${updateProfileRoute}/${currentUser._id}`, { ...profileData, interests: interestsArray }, { headers: { "x-auth-token": currentUser.token }, withCredentials: true });
           
           if(data.status) {
               sessionStorage.setItem("chat-app-user", JSON.stringify(data.user));
@@ -339,7 +346,6 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
       ...(groups || []).map(g => ({ ...g, isGroup: true, username: g.name }))
     ];
 
-    // FIX: Safely check for username before calling toLowerCase() or includes()
     if (searchTerm) all = all.filter(item => item.username?.toLowerCase()?.includes(searchTerm.toLowerCase()));
     if (activeFolder === "personal") all = all.filter(i => !i.isGroup);
     if (activeFolder === "groups") all = all.filter(i => i.isGroup);
@@ -347,7 +353,6 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
 
     // Priority Sort: Pinned -> Online -> Alphabetical
     return all.sort((a, b) => {
-      // FIX: Safely check includes to prevent undefined errors
       const aPinned = pinnedIds?.includes(a._id);
       const bPinned = pinnedIds?.includes(b._id);
       if (aPinned !== bPinned) return aPinned ? -1 : 1;
@@ -409,7 +414,6 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
                       </motion.div>
                       
                       {(storyFeed || []).map((feedItem, index) => {
-                          // FIX: Safely map through viewers
                           const hasUnread = feedItem.stories?.some(s => !s.viewers?.some(v => v.userId === currentUser._id));
                           return (
                               <motion.div 
@@ -502,7 +506,6 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
                     <div className="empty-state">No chats found.</div>
                 ) : (
                     displayedItems.map((item) => {
-                        // FIX: Safely check includes for visual states
                         const isOnline = !item.isGroup && onlineUsers?.includes(item._id);
                         const isPinned = pinnedIds?.includes(item._id);
                         const isTyping = !item.isGroup && globalTypingUsers?.includes(item._id);

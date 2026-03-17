@@ -1,12 +1,16 @@
 // client/src/App.js
-import React, { Suspense, lazy, useEffect } from "react"; // <-- ADDED useEffect
+import React, { Suspense, lazy, useEffect } from "react"; 
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import axios from "axios"; // <-- ADDED axios
+import axios from "axios"; 
 import AppLock from "./components/AppLock";
 import PageLoader from "./components/PageLoader";
 import ErrorBoundary from "./components/ErrorBoundary";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { ROUTES } from "./utils/routes";
+
+// --- NEW: GLOBAL AXIOS CONFIGURATION ---
+// Automatically attach secure HttpOnly cookies to EVERY request in the app.
+axios.defaults.withCredentials = true;
 
 // --- LAZY LOADING ---
 const Chat = lazy(() => import("./pages/Chat"));
