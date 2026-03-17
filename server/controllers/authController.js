@@ -1,7 +1,7 @@
 const User = require("../models/User");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const mongoose = require("mongoose"); // FIX: Added mongoose for ID validation
+const mongoose = require("mongoose"); 
 const { registerSchema, loginSchema } = require("../utils/validation"); 
 
 // --- LEVEL 2: REDIS CACHING SETUP ---
@@ -10,11 +10,13 @@ const cacheClient = createRedisClient();
 
 // CRITICAL FIX: Catch background errors so they don't crash Node.js
 cacheClient.on("error", (err) => {
-  console.warn("Auth Cache Client Error:", err.message);
+  console.warn("[Redis] Auth Cache Client Error:", err.message);
 });
 
 // LAZY CONNECT FIX: Connect in background, don't block startup
-cacheClient.connect().catch(() => {});
+cacheClient.connect().catch(() => {
+  console.warn("[Redis] Failed to connect on startup. Operating in degraded mode.");
+});
 
 // STEP 5: Import Meilisearch User Index
 const { userIndex } = require("../utils/meilisearch");
@@ -26,7 +28,7 @@ const backgroundColors = "b6e3f4,c0aede,d1d4f9,ffdfbf,ffd5dc";
 
 // Helper to generate both tokens
 const generateTokens = (userId) => {
-  const accessToken = jwt.sign({ id: userId }, process.env.JWT_SECRET, { expiresIn: "7d" });
+  const accessToken = jwt.sign({ id: userId }, process.env.JWT_SECRET, { expiresIn: "15m" });
   const refreshToken = jwt.sign({ id: userId }, process.env.REFRESH_SECRET, { expiresIn: "7d" });
   return { accessToken, refreshToken };
 };
@@ -68,7 +70,7 @@ module.exports.register = async (req, res, next) => {
         email: user.email // Make email searchable as well
       }]);
     } catch (e) {
-      console.error("Failed to sync user to Meilisearch", e.message);
+      console.error("[Meilisearch] Failed to sync new user:", e.message);
     }
 
     const { accessToken, refreshToken } = generateTokens(user._id);
@@ -91,8 +93,10 @@ module.exports.register = async (req, res, next) => {
     const userResponse = user.toObject();
     delete userResponse.password;
 
+    console.log(`[Auth] User registered successfully: ${username}`);
     return res.json({ status: true, user: userResponse, token: accessToken }); 
   } catch (ex) {
+    console.error("[Auth] Registration error:", ex);
     next(ex);
   }
 };
@@ -128,8 +132,10 @@ module.exports.login = async (req, res, next) => {
     const userResponse = user.toObject();
     delete userResponse.password;
 
+    console.log(`[Auth] User logged in successfully: ${username}`);
     return res.json({ status: true, user: userResponse, token: accessToken });
   } catch (ex) {
+    console.error("[Auth] Login error:", ex);
     next(ex);
   }
 };
@@ -165,8 +171,10 @@ module.exports.logout = async (req, res, next) => {
     res.clearCookie("refreshToken", { httpOnly: true, secure: true, sameSite: "None" });
     res.clearCookie("accessToken", { httpOnly: true, secure: true, sameSite: "None" });
     
+    console.log("[Auth] User logged out and tokens blacklisted.");
     return res.json({ status: true, msg: "Logged out successfully" });
   } catch (ex) {
+    console.error("[Auth] Logout error:", ex);
     next(ex);
   }
 };
@@ -207,7 +215,7 @@ module.exports.getAllUsers = async (req, res, next) => {
         const searchResults = await userIndex.search(searchQuery, { limit, offset: skip });
         userIds = searchResults.hits.map(hit => hit.id).filter(id => id !== currentUserId);
       } catch (meiliErr) {
-        console.warn("⚠️ Meilisearch failed, falling back to MongoDB Regex:", meiliErr.message);
+        console.warn("[Meilisearch] Failed, falling back to MongoDB Regex:", meiliErr.message);
         const usersBasic = await User.find({ 
           _id: { $ne: currentUserId }, username: { $regex: searchQuery, $options: "i" } 
         }).select("_id").skip(skip).limit(limit);
@@ -217,7 +225,7 @@ module.exports.getAllUsers = async (req, res, next) => {
       const usersBasic = await User.find({ _id: { $ne: currentUserId } }).select("_id").skip(skip).limit(limit);
       userIds = usersBasic.map(u => u._id.toString());
     }
-                                 
+                                     
     if (userIds.length === 0) return res.json([]);
 
     const cacheKeys = userIds.map(id => `user_profile:${id}`);
@@ -233,7 +241,7 @@ module.exports.getAllUsers = async (req, res, next) => {
         throw new Error("Redis client not connected");
       }
     } catch (redisErr) {
-      console.warn("⚠️ Redis cache unavailable, falling back to DB directly.");
+      console.warn("[Redis] Cache unavailable, falling back to DB directly.");
       cachedProfiles = new Array(userIds.length).fill(null);
     }
 
@@ -262,7 +270,9 @@ module.exports.getAllUsers = async (req, res, next) => {
             await cacheClient.mSet(msetArgs);
             missedUsers.forEach(user => cacheClient.expire(`user_profile:${user._id.toString()}`, 3600));
           }
-        } catch (redisSaveErr) {}
+        } catch (redisSaveErr) {
+            console.warn("[Redis] Failed to cache user profiles:", redisSaveErr.message);
+        }
       }
     }
 
@@ -273,6 +283,7 @@ module.exports.getAllUsers = async (req, res, next) => {
 
     return res.json(finalUsers);
   } catch (ex) {
+    console.error("[API] Failed to get all users:", ex);
     next(ex);
   }
 };
@@ -295,7 +306,8 @@ module.exports.updateProfile = async (req, res, next) => {
     ]);
 
     if (user.username) {
-        try { await userIndex.updateDocuments([{ id: userId, username: user.username }]); } catch (e) {}
+        try { await userIndex.updateDocuments([{ id: userId, username: user.username }]); } 
+        catch (e) { console.error("[Meilisearch] Failed to update user docs:", e.message); }
     }
 
     const userResponse = user.toObject();
@@ -303,7 +315,7 @@ module.exports.updateProfile = async (req, res, next) => {
     try {
       if (cacheClient.isReady) await cacheClient.setEx(`user_profile:${userId}`, 3600, JSON.stringify(userResponse));
     } catch (e) {
-      console.warn("⚠️ Redis unavailable, skipping cache update.");
+      console.warn("[Redis] Unavailable, skipping profile cache update.");
     }
 
     return res.json({ status: true, user: userResponse });
@@ -345,6 +357,7 @@ module.exports.updateE2EKeys = async (req, res, next) => {
         return res.status(400).json({ status: false, msg: "Missing data" });
     }
     await User.findByIdAndUpdate(userId, { e2eKeys });
+    console.log(`[Crypto] E2E Keys Bundle registered for user ${userId}`);
     return res.json({ status: true, msg: "E2E Keys Bundle registered" });
   } catch (ex) {
     next(ex);
@@ -373,6 +386,7 @@ module.exports.getPublicKey = async (req, res, next) => {
     // Return the full bundle under "bundle"
     return res.json({ status: true, bundle: user.e2eKeys });
   } catch (ex) {
+    console.error("[Crypto] Failed to fetch public key bundle:", ex);
     next(ex);
   }
 };

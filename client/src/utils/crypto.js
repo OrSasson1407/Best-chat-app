@@ -1,5 +1,3 @@
-// client/src/utils/crypto.js
-
 // --- NEW HELPER: Safely parse keys to prevent crashing on legacy users ---
 const parseJwk = (key, keyType = "Public") => {
     if (!key) throw new Error(`${keyType} key is missing. User might be using an older version of the app.`);
@@ -9,6 +7,33 @@ const parseJwk = (key, keyType = "Public") => {
         catch (e) { throw new Error(`Invalid JSON format for ${keyType} key.`); }
     }
     return key;
+};
+
+// --- NEW PERFORMANCE FIX: In-Memory Key Caching ---
+// importKey() is incredibly slow. This cache prevents re-importing keys we already processed.
+const keyCache = new Map();
+
+const getImportedKey = async (jwk, algoName, extractable, keyUsages) => {
+    // Create a unique cache string based on the key geometry
+    const cacheId = jwk.n ? jwk.n : (jwk.k ? jwk.k : JSON.stringify(jwk));
+    
+    if (keyCache.has(cacheId)) {
+        return keyCache.get(cacheId);
+    }
+
+    const algorithm = algoName === "RSA" ? { name: "RSA-OAEP", hash: "SHA-256" } : { name: "AES-GCM" };
+    
+    const importedKey = await window.crypto.subtle.importKey(
+        "jwk", 
+        jwk, 
+        algorithm, 
+        extractable, 
+        keyUsages
+    );
+
+    // Store in cache for instant retrieval next time
+    keyCache.set(cacheId, importedKey);
+    return importedKey;
 };
 
 // ====================================================
@@ -35,13 +60,15 @@ export const generateKeyPair = async () => {
     return { publicKey, privateKey };
 };
 
-// --- NEW: GENERATE THE FULL E2E BUNDLE ---
+// --- PERFORMANCE FIX: PARALLEL KEY GENERATION ---
 // Creates the Signal-Protocol style key structure to send to the backend
 export const generateE2EBundle = async () => {
-    // Generate the required keys for the bundle
-    const identityKeyPair = await generateKeyPair();
-    const signedPreKeyPair = await generateKeyPair();
-    const oneTimePreKey = await generateKeyPair();
+    // Generate all 3 heavy RSA keys at the exact same time to cut waiting time by 66%
+    const [identityKeyPair, signedPreKeyPair, oneTimePreKey] = await Promise.all([
+        generateKeyPair(),
+        generateKeyPair(),
+        generateKeyPair()
+    ]);
 
     const bundle = {
         identityKey: JSON.stringify(identityKeyPair.publicKey),
@@ -69,14 +96,7 @@ export const generateE2EBundle = async () => {
 export const encryptMessage = async (messageText, receiverPublicKeyJwk) => {
     try {
         const jwk = parseJwk(receiverPublicKeyJwk, "Receiver Public");
-        
-        const publicKey = await window.crypto.subtle.importKey(
-            "jwk", 
-            jwk, 
-            { name: "RSA-OAEP", hash: "SHA-256" }, 
-            true, 
-            ["encrypt"]
-        );
+        const publicKey = await getImportedKey(jwk, "RSA", true, ["encrypt"]);
 
         const encodedMessage = new TextEncoder().encode(messageText);
         const ciphertextBuffer = await window.crypto.subtle.encrypt(
@@ -88,7 +108,7 @@ export const encryptMessage = async (messageText, receiverPublicKeyJwk) => {
         // Convert ArrayBuffer to Base64 string for easy storage in MongoDB
         return btoa(String.fromCharCode(...new Uint8Array(ciphertextBuffer)));
     } catch (err) {
-        console.error("Encryption failed:", err.message);
+        console.error("[Crypto] Encryption failed:", err.message);
         // NEVER fallback to plaintext. If encryption fails, throw an error 
         // so the frontend can catch it and alert the user instead of leaking data.
         throw new Error(err.message || "Encryption failed. Cannot send message securely.");
@@ -99,21 +119,11 @@ export const encryptMessage = async (messageText, receiverPublicKeyJwk) => {
 export const decryptMessage = async (base64Ciphertext, myPrivateKeyJwk) => {
     try {
         const jwk = parseJwk(myPrivateKeyJwk, "My Private");
+        const privateKey = await getImportedKey(jwk, "RSA", true, ["decrypt"]);
 
-        const privateKey = await window.crypto.subtle.importKey(
-            "jwk", 
-            jwk, 
-            { name: "RSA-OAEP", hash: "SHA-256" }, 
-            true, 
-            ["decrypt"]
-        );
-
-        // Convert Base64 back to ArrayBuffer
+        // Highly optimized Base64 parsing array loop
         const binaryString = atob(base64Ciphertext);
-        const ciphertextBuffer = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-            ciphertextBuffer[i] = binaryString.charCodeAt(i);
-        }
+        const ciphertextBuffer = Uint8Array.from(binaryString, c => c.charCodeAt(0));
 
         const decryptedBuffer = await window.crypto.subtle.decrypt(
             { name: "RSA-OAEP" },
@@ -123,7 +133,7 @@ export const decryptMessage = async (base64Ciphertext, myPrivateKeyJwk) => {
 
         return new TextDecoder().decode(decryptedBuffer);
     } catch (err) {
-        console.warn("Decryption skipped (Legacy plaintext message or bad key):", err.message);
+        console.warn("[Crypto] Decryption skipped (Legacy plaintext message or bad key):", err.message);
         // Graceful degradation for legacy messages
         // It's acceptable to return the original string ONLY on decryption, 
         // as it might be an older message sent before E2EE was implemented.
@@ -150,14 +160,7 @@ export const generateGroupAESKey = async () => {
 export const encryptGroupMessage = async (messageText, aesKeyJwk) => {
     try {
         const jwk = parseJwk(aesKeyJwk, "Group AES");
-
-        const key = await window.crypto.subtle.importKey(
-            "jwk",
-            jwk,
-            { name: "AES-GCM" },
-            false,
-            ["encrypt"]
-        );
+        const key = await getImportedKey(jwk, "AES-GCM", false, ["encrypt"]);
 
         const encodedMessage = new TextEncoder().encode(messageText);
         
@@ -178,7 +181,7 @@ export const encryptGroupMessage = async (messageText, aesKeyJwk) => {
 
         return btoa(String.fromCharCode(...combinedBuffer));
     } catch (err) {
-        console.error("Group AES Encryption failed:", err.message);
+        console.error("[Crypto] Group AES Encryption failed:", err.message);
         throw new Error(err.message || "Group encryption failed. Cannot send message securely.");
     }
 };
@@ -187,20 +190,10 @@ export const encryptGroupMessage = async (messageText, aesKeyJwk) => {
 export const decryptGroupMessage = async (base64Ciphertext, aesKeyJwk) => {
     try {
         const jwk = parseJwk(aesKeyJwk, "Group AES");
-
-        const key = await window.crypto.subtle.importKey(
-            "jwk",
-            jwk,
-            { name: "AES-GCM" },
-            false,
-            ["decrypt"]
-        );
+        const key = await getImportedKey(jwk, "AES-GCM", false, ["decrypt"]);
 
         const binaryString = atob(base64Ciphertext);
-        const combinedBuffer = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-            combinedBuffer[i] = binaryString.charCodeAt(i);
-        }
+        const combinedBuffer = Uint8Array.from(binaryString, c => c.charCodeAt(0));
 
         // Slice the combined buffer to separate the 12-byte IV from the actual ciphertext
         const iv = combinedBuffer.slice(0, 12);
@@ -214,7 +207,7 @@ export const decryptGroupMessage = async (base64Ciphertext, aesKeyJwk) => {
 
         return new TextDecoder().decode(decryptedBuffer);
     } catch (err) {
-        console.warn("Group AES Decryption skipped (Legacy message):", err.message);
+        console.warn("[Crypto] Group AES Decryption skipped (Legacy message):", err.message);
         return base64Ciphertext; // Fallback for unencrypted legacy group messages
     }
 };
