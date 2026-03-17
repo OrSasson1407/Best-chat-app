@@ -4,19 +4,19 @@ import styled from "styled-components";
 import { useNavigate, Link } from "react-router-dom";
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
-// MERGE UPDATE: Make sure publicKeyRoute is imported
-import { loginRoute, publicKeyRoute } from "../utils/APIRoutes"; 
-import { generateKeyPair } from "../utils/crypto";
+
+// MERGE UPDATE: Swap to the new E2E Key Route and Generator
+import { loginRoute, updateE2EKeysRoute } from "../utils/APIRoutes"; 
+import { generateE2EBundle } from "../utils/crypto";
 
 export default function Login() {
   const navigate = useNavigate();
   const [values, setValues] = useState({ username: "", password: "" });
+  
+  // Removed position, autoClose, and theme from here since we define them globally in ToastContainer
   const toastOptions = {
-    position: "bottom-right",
-    autoClose: 8000,
     pauseOnHover: true,
     draggable: true,
-    theme: "dark",
   };
 
   useEffect(() => {
@@ -32,7 +32,7 @@ export default function Login() {
   const validateForm = () => {
     const { username, password } = values;
     if (username === "" || password === "") {
-      toast.error("Username and Password are required.", toastOptions);
+      toast.error("Please enter your username and password.", toastOptions);
       return false;
     }
     return true;
@@ -43,7 +43,6 @@ export default function Login() {
     if (validateForm()) {
       const { username, password } = values;
       try {
-        // STEP 4 FIX: Added withCredentials to allow the browser to store secure HttpOnly cookies
         const { data } = await axios.post(loginRoute, {
           username,
           password,
@@ -52,49 +51,55 @@ export default function Login() {
         });
 
         if (data.status === false) {
-          toast.error(data.msg, toastOptions);
+          console.warn(`[Auth] Login rejected: ${data.msg}`);
+          toast.error(data.msg || "Invalid credentials. Please try again.", toastOptions);
         }
+        
         if (data.status === true) {
-          // Combined the user and token into a single object for storage
           const userData = {
             ...data.user,
             token: data.token,
           };
           sessionStorage.setItem("chat-app-user", JSON.stringify(userData));
 
-          // --- MERGE UPDATE: E2EE LOGIC ---
+          // --- MERGE UPDATE: UPDATED SIGNAL E2EE LOGIC ---
           try {
-            // FIX: Check if the private key already exists for this user to prevent overwriting
             const existingKey = localStorage.getItem(`privateKey_${data.user._id}`);
             
             if (!existingKey) {
-              // Generate Keys ONLY if they don't already exist on this device
-              const keys = await generateKeyPair();
+              console.log("[Crypto] Local keys not found. Generating new E2E bundle for this device...");
               
-              // Save Private Key locally (NEVER send this to the server)
-              localStorage.setItem(`privateKey_${data.user._id}`, JSON.stringify(keys.privateKey));
+              // FIX: Generate the full Signal-style bundle instead of just one key
+              const { bundle, privateKeys } = await generateE2EBundle();
               
-              // Send Public Key to the Backend for other users to encrypt messages for this user
-              await axios.post(publicKeyRoute, {
+              localStorage.setItem(`privateKey_${data.user._id}`, JSON.stringify(privateKeys.identityPrivateKey));
+              localStorage.setItem(`fullE2EKeys_${data.user._id}`, JSON.stringify(privateKeys));
+              
+              // Send the new bundle to the Backend
+              await axios.post(updateE2EKeysRoute, {
                 userId: data.user._id,
-                publicKey: JSON.stringify(keys.publicKey)
+                e2eKeys: bundle
               }, {
-                withCredentials: true // Ensure the session cookie is passed during key registration
+                withCredentials: true 
               });
+              console.log("[Crypto] Device keys successfully synced with server.");
             }
           } catch (cryptoErr) {
-            console.error("Failed to generate or register E2EE keys", cryptoErr);
-            toast.error("Warning: Encryption keys could not be established.", toastOptions);
+            console.error("[Crypto] Failed to generate or register E2EE keys", cryptoErr);
+            // Softer error for the user
+            toast.error("Secure connection could not be fully established.", toastOptions);
           }
           // --------------------------------
 
+          toast.success(`Welcome back, ${data.user.username}!`, toastOptions);
           navigate("/");
         }
       } catch (error) {
+        console.error("[API] Login request failed:", error);
         if (error.response && error.response.data) {
-          toast.error(error.response.data.msg, toastOptions);
+          toast.error(error.response.data.msg || "Login failed. Please try again.", toastOptions);
         } else {
-          toast.error("Error logging in", toastOptions);
+          toast.error("Check your internet connection and try again.", toastOptions);
         }
       }
     }
@@ -126,7 +131,20 @@ export default function Login() {
           </span>
         </form>
       </FormContainer>
-      <ToastContainer />
+      
+      {/* PREMIUM IOS TOAST CONTAINER */}
+      <ToastContainer 
+          position="top-center" 
+          autoClose={3000} 
+          hideProgressBar={true} 
+          newestOnTop={true} 
+          closeOnClick 
+          rtl={false} 
+          pauseOnFocusLoss 
+          draggable 
+          pauseOnHover 
+          theme="dark"
+      />
     </>
   );
 }

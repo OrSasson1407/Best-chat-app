@@ -118,11 +118,12 @@ const MessageItem = React.memo(({
             if (data.status) {
                 setTranslatedText(data.translatedText);
             } else {
-                toast.error("Failed to translate message");
+                console.warn("[AI] Translation API returned a false status.");
+                toast.error("Could not translate message.");
             }
         } catch (error) {
-            console.error("Translation Error:", error);
-            toast.error("Translation failed. Ensure AI API key is set.");
+            console.error("[AI] Translation Error:", error);
+            toast.error("Translation failed. Please try again.");
         } finally {
             setIsTranslating(false);
         }

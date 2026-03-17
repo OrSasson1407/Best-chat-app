@@ -123,10 +123,10 @@ export default function ChatContainer({ socket, isTyping }) {
             const cached = await loadOfflineMessages(currentChat._id);
             if (cached && cached.length > 0) {
                 setMessages(cached);
-                toast.info("Offline mode: Showing cached messages.");
+                toast.info("Showing cached offline messages.");
             } else {
                 setMessages([]);
-                toast.warning("Offline mode: No cached messages available.");
+                toast.warning("No offline messages available.");
             }
             setIsFetchingHistory(false);
             return;
@@ -152,7 +152,7 @@ export default function ChatContainer({ socket, isTyping }) {
                             decryptedAesKey = JSON.parse(decryptedJwkString);
                             setActiveGroupAesKey(decryptedAesKey);
                         } catch (err) {
-                            console.error("Failed to decrypt Group AES Key");
+                            console.error("[Crypto] Failed to decrypt Group AES Key", err);
                         }
                     }
                 }
@@ -206,8 +206,8 @@ export default function ChatContainer({ socket, isTyping }) {
             });
 
         } catch (error) {
-            console.error("Error fetching messages:", error);
-            if (error.response?.status === 401) toast.error("Session expired. Please login again.");
+            console.error("[API] Error fetching messages:", error);
+            if (error.response?.status === 401) toast.error("Session expired. Please log in again.");
         } finally {
             setIsFetchingHistory(false);
         }
@@ -259,7 +259,8 @@ export default function ChatContainer({ socket, isTyping }) {
                       else if (activeSideTab === 'files') setChatMedia(prev => ({ ...prev, files: data.media }));
                   }
               } catch (err) {
-                  toast.error("Failed to load side panel data");
+                  // Silently log to dev console, don't interrupt user
+                  console.error("[API] Failed to fetch media/links for side panel.", err);
               } finally {
                   setIsFetchingMedia(false);
               }
@@ -444,7 +445,7 @@ export default function ChatContainer({ socket, isTyping }) {
               setHasMore(false);
           }
       } catch (error) {
-          console.error("Failed to fetch older messages", error);
+          console.error("[API] Failed to fetch older messages", error);
       } finally {
           setIsLoadingMore(false);
       }
@@ -464,7 +465,7 @@ export default function ChatContainer({ socket, isTyping }) {
     setIsDragging(false);
     const files = e.dataTransfer.files;
     if (files.length > 0) {
-        toast.info(`Preparing to upload ${files[0].name}...`);
+        toast.info(`Preparing to send ${files[0].name}...`);
         setDroppedFile(files[0]); 
     }
   };
@@ -473,9 +474,10 @@ export default function ChatContainer({ socket, isTyping }) {
     setWallpaper(colorOrUrl);
     try {
       await axios.post(updateChatCustomizationRoute, { userId: currentUser._id, chatId: currentChat._id, wallpaper: colorOrUrl }, getAuthHeader());
-      toast.success("Chat wallpaper updated!");
+      toast.success("Chat wallpaper updated.");
     } catch (e) {
-      toast.error("Failed to update wallpaper");
+      console.error("[UI] Failed to update wallpaper", e);
+      toast.error("Failed to update wallpaper.");
     }
   };
 
@@ -489,7 +491,7 @@ export default function ChatContainer({ socket, isTyping }) {
           const { data } = await axios.post(getQuickRepliesRoute, { message: text }, getAuthHeader());
           if (data.status && Array.isArray(data.replies)) setQuickReplies(data.replies);
       } catch (err) {
-          console.error("Failed to generate AI replies");
+          console.error("[AI] Failed to generate AI replies", err);
           setQuickReplies([]);
       } finally {
           setIsGeneratingReplies(false);
@@ -508,14 +510,15 @@ export default function ChatContainer({ socket, isTyping }) {
                 try {
                     const pkResponse = await axios.get(`${publicKeyRoute}/${currentChat._id}`, getAuthHeader());
                     
-                    // --- CRITICAL FIX: Extract the identityKey from the E2E bundle ---
                     if (pkResponse.data.status && pkResponse.data.bundle) {
                         const receiverKey = pkResponse.data.bundle.identityKey;
                         finalMessageContent = await encryptMessage(msg, receiverKey);
                     } else {
-                        console.warn(`Encryption skipped: ${pkResponse.data.msg}`);
+                        console.warn(`[Crypto] Encryption skipped: ${pkResponse.data.msg}`);
                     }
-                } catch (err) { console.error("Could not fetch public key for encryption"); }
+                } catch (err) { 
+                    console.error("[Crypto] Could not fetch public key for encryption", err); 
+                }
             } else if (currentChat.admin && activeGroupAesKey) {
                 finalMessageContent = await encryptGroupMessage(msg, activeGroupAesKey);
             }
@@ -557,8 +560,12 @@ export default function ChatContainer({ socket, isTyping }) {
         });
 
     } catch (error) {
-        if (error.response && error.response.status === 403) toast.error(error.response.data.msg || "You are blocked.");
-        else toast.error("Failed to send message");
+        if (error.response && error.response.status === 403) {
+            toast.error("You cannot message this user.");
+        } else {
+            console.error("[API] Failed to send message", error);
+            toast.error("Failed to send message. Please try again.");
+        }
         setMessages((prev) => prev.filter(m => m.id !== newMessageId));
     }
   }, [currentChat, currentUser, activeGroupAesKey, replyingTo, getAuthHeader, socket]);
@@ -569,7 +576,10 @@ export default function ChatContainer({ socket, isTyping }) {
           socket.current.emit("edit-msg", { messageId, newText, to: currentChat._id, isGroup: !!currentChat.admin });
           setMessages((prev) => prev.map(msg => msg.id === messageId ? { ...msg, message: newText, isEdited: true } : msg));
           setEditingMessage(null);
-      } catch (error) { toast.error("Failed to edit message"); }
+      } catch (error) { 
+          console.error("[API] Failed to edit message", error);
+          toast.error("Failed to edit message."); 
+      }
   }, [currentChat, getAuthHeader, socket]);
 
   const handleDeleteMsg = useCallback(async (messageId, fromSelf) => {
@@ -586,10 +596,13 @@ export default function ChatContainer({ socket, isTyping }) {
               if (confirmDeleteForMe) {
                   await axios.post(deleteMessageForMeRoute, { messageId, userId: currentUser._id }, getAuthHeader());
                   setMessages((prev) => prev.filter(msg => msg.id !== messageId));
-                  toast.success("Message deleted for you");
+                  toast.success("Message deleted.");
               }
           }
-      } catch (error) { toast.error("Failed to delete message"); }
+      } catch (error) { 
+          console.error("[API] Failed to delete message", error);
+          toast.error("Failed to delete message."); 
+      }
   }, [currentChat, currentUser, getAuthHeader, socket]);
 
   const handleReaction = useCallback(async (messageId, emoji) => {
@@ -597,7 +610,9 @@ export default function ChatContainer({ socket, isTyping }) {
           const res = await axios.post(reactMessageRoute, { messageId, emoji, userId: currentUser._id, username: currentUser.username }, getAuthHeader());
           setMessages(prev => prev.map(msg => msg.id === messageId ? { ...msg, reactions: res.data.reactions } : msg));
           socket.current.emit("send-reaction", { messageId, reactions: res.data.reactions, to: currentChat._id, isGroup: !!currentChat.admin });
-      } catch (e) { console.error("Failed to react", e); }
+      } catch (e) { 
+          console.error("[API] Failed to react to message", e); 
+      }
   }, [currentChat, currentUser, getAuthHeader, socket]);
 
   const handleOpenViewOnce = useCallback(async (msgId) => {
@@ -613,8 +628,11 @@ export default function ChatContainer({ socket, isTyping }) {
       if (userId) {
           try {
             await axios.post(addGroupMemberRoute, { groupId: currentChat._id, userId }, getAuthHeader());
-            toast.success("Member added successfully");
-          } catch (e) { toast.error("Failed to add member"); }
+            toast.success("Member added successfully.");
+          } catch (e) { 
+              console.error("[API] Failed to add member", e);
+              toast.error("Failed to add member."); 
+          }
       }
   };
 
@@ -622,8 +640,11 @@ export default function ChatContainer({ socket, isTyping }) {
       try {
           await axios.post(blockUserRoute, { userId: currentUser._id, blockedUserId: currentChat._id }, getAuthHeader());
           setIsBlocked(!isBlocked);
-          toast.success(isBlocked ? "User Unblocked" : "User Blocked");
-      } catch (e) { toast.error("Failed to update block status"); }
+          toast.success(isBlocked ? "User unblocked." : "User blocked.");
+      } catch (e) { 
+          console.error("[API] Failed to update block status", e);
+          toast.error("Failed to update block status."); 
+      }
   };
 
   const filteredMessages = useMemo(() => {

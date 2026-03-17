@@ -108,7 +108,9 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
               ]);
               setGroups(groupRes.data || []);
               if(storyRes.data.status) setStoryFeed(storyRes.data.feed || []);
-          } catch (error) { console.error("Error fetching data:", error); } 
+          } catch (error) { 
+              console.error("[API] Error fetching contacts data:", error); 
+          } 
           finally { setIsLoading(false); }
       }
     };
@@ -149,7 +151,9 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
           try {
               const { data } = await axios.post(searchMessageRoute, { userId: currentUser._id, query: searchTerm }, { headers: { "x-auth-token": currentUser.token }, withCredentials: true });
               if (data.status) setGlobalMessages(data.messages || []);
-          } catch (error) { console.error("Error searching messages:", error); } 
+          } catch (error) { 
+              console.error("[API] Error searching messages:", error); 
+          } 
           finally { setIsSearchingGlobal(false); }
       }, 600);
       return () => clearTimeout(delayDebounceFn);
@@ -164,7 +168,9 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
           try {
               const { data } = await axios.get(`${searchChannelsRoute}?query=${channelSearchQuery}`, { headers: { "x-auth-token": currentUser.token }, withCredentials: true });
               if (data.status) setDiscoveredChannels(data.channels || []);
-          } catch (error) { console.error(error); } 
+          } catch (error) { 
+              console.error("[API] Error searching channels:", error); 
+          } 
           finally { setIsSearchingChannels(false); }
       }, 500);
       return () => clearTimeout(delayDebounceFn);
@@ -175,10 +181,17 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
     e.stopPropagation(); 
     setPinnedIds((prev) => {
         const currentPins = prev || [];
-        if (currentPins.includes(id)) { toast.info("Chat unpinned"); return currentPins.filter(pid => pid !== id); } 
+        if (currentPins.includes(id)) { 
+            toast.info("Chat unpinned."); 
+            return currentPins.filter(pid => pid !== id); 
+        } 
         else {
-            if (currentPins.length >= 5) { toast.warning("Maximum 5 pins allowed"); return currentPins; }
-            toast.success("Chat pinned to top"); return [...currentPins, id];
+            if (currentPins.length >= 5) { 
+                toast.warning("You can only pin up to 5 chats."); 
+                return currentPins; 
+            }
+            toast.success("Chat pinned."); 
+            return [...currentPins, id];
         }
     });
   }, []);
@@ -200,7 +213,9 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
       if (targetChat) {
           changeCurrentChat(targetChat, isGroupChat);
           setSearchTerm(""); 
-      } else { toast.error("Chat not found. It may have been deleted."); }
+      } else { 
+          toast.error("Chat not found. It may have been deleted."); 
+      }
   };
 
   const handleStoryUpload = async (e) => {
@@ -214,11 +229,14 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
           try {
               const { data } = await axios.post(addStoryRoute, { mediaUrl: reader.result, mediaType: file.type.startsWith("video") ? "video" : "image" }, { headers: { "x-auth-token": currentUser.token }, withCredentials: true });
               if (data.status) {
-                  toast.success("Status updated!");
+                  toast.success("Status updated.");
                   const storyRes = await axios.get(getStoryFeedRoute, { headers: { "x-auth-token": currentUser.token }, withCredentials: true });
                   setStoryFeed(storyRes.data.feed || []);
               }
-          } catch (err) { toast.error("Failed to upload status."); } 
+          } catch (err) { 
+              console.error("[Media] Failed to upload status:", err);
+              toast.error("Status upload failed. Please try again."); 
+          } 
           finally { setIsUploadingStory(false); }
       };
   };
@@ -229,7 +247,7 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
       const firstStory = userFeedObj?.stories?.[0];
       if (firstStory && firstStory.user?._id !== currentUser._id) {
           try { await axios.post(`${viewStoryRoute}/${firstStory._id}`, {}, { headers: { "x-auth-token": currentUser.token }, withCredentials: true }); } 
-          catch (error) { console.error("Failed to mark story as viewed"); }
+          catch (error) { console.error("[API] Failed to mark story as viewed", error); }
       }
   };
 
@@ -241,7 +259,7 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
           const nextStory = viewingStoryUser.stories[nextIdx];
           if (nextStory && nextStory.user?._id !== currentUser._id) {
               try { await axios.post(`${viewStoryRoute}/${nextStory._id}`, {}, { headers: { "x-auth-token": currentUser.token }, withCredentials: true }); } 
-              catch (error) {}
+              catch (error) { console.error("[API] Failed to mark story as viewed", error); }
           }
       } else { setViewingStoryUser(null); }
   };
@@ -262,11 +280,13 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
   };
 
   const handleCreateGroup = async () => {
-    if (groupName.length < 3) return toast.error("Group name must be > 3 characters");
-    if (selectedMembers.length < 1) return toast.error("Select at least 1 member");
+    if (groupName.length < 3) return toast.error("Group name must be at least 3 characters.");
+    if (selectedMembers.length < 1) return toast.error("Please select at least 1 member.");
+    
     try {
         const allMembers = [...selectedMembers, currentUser._id];
-        toast.info("Generating secure keys...", { autoClose: 2000 });
+        
+        console.log(`[Crypto] Generating AES Group Key for ${allMembers.length} members...`);
 
         const aesKeyJwk = await generateGroupAESKey();
         const aesKeyString = JSON.stringify(aesKeyJwk); 
@@ -275,13 +295,12 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
             try {
                 const pkResponse = await axios.get(`${publicKeyRoute}/${userId}`, { headers: { "x-auth-token": currentUser.token }, withCredentials: true });
                 
-                // --- CRITICAL FIX: Extract the identityKey from the E2E bundle ---
                 if (pkResponse.data.status && pkResponse.data.bundle) {
                     const userPublicKey = pkResponse.data.bundle.identityKey;
                     return { userId, encryptedKey: await encryptMessage(aesKeyString, userPublicKey) };
                 }
             } catch (err) {
-                console.warn(`Failed to fetch key for user ${userId}`);
+                console.warn(`[Crypto] Failed to fetch key for user ${userId}`);
             }
             return null; 
         });
@@ -293,20 +312,25 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
         if (data.status) {
             setGroups([...groups, data.group]); 
             setShowGroupModal(false); setGroupName(""); setSelectedMembers([]);
-            toast.success("Group created successfully!");
+            toast.success("Group created successfully.");
         }
-    } catch (error) { toast.error("Failed to create group"); }
+    } catch (error) { 
+        console.error("[API] Failed to create group", error);
+        toast.error("Failed to create group. Please try again."); 
+    }
   };
 
   const handleJoinChannel = async (channelId) => {
       try {
           const { data } = await axios.post(joinChannelRoute, { channelId }, { headers: { "x-auth-token": currentUser.token }, withCredentials: true });
           if (data.status) {
-              toast.success("Joined channel!");
+              toast.success("Joined channel.");
               setShowDiscoverModal(false);
               setGroups(prev => [...prev, data.channel]);
           }
-      } catch (error) { toast.error(error.response?.data?.msg || "Failed to join."); }
+      } catch (error) { 
+          toast.error(error.response?.data?.msg || "Failed to join channel."); 
+      }
   };
 
   const handleUpdateProfile = async () => {
@@ -316,11 +340,14 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
           
           if(data.status) {
               sessionStorage.setItem("chat-app-user", JSON.stringify(data.user));
-              toast.success("Profile updated!");
+              toast.success("Profile updated.");
               setShowProfileModal(false);
               setTimeout(() => window.location.reload(), 1000); 
           }
-      } catch (error) { toast.error("Failed to update profile."); }
+      } catch (error) { 
+          console.error("[API] Failed to update profile.", error);
+          toast.error("Failed to update profile."); 
+      }
   };
 
   const getAvatarUrl = (user) => {
@@ -725,11 +752,19 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
                                   <p>Require a 4-digit PIN to open the app.</p>
                               </div>
                               <div className={`ios-switch ${hasPin ? 'on' : 'off'}`} onClick={() => {
-                                  if (hasPin) { localStorage.removeItem("app-pin-code"); setHasPin(false); toast.info("App Lock Disabled"); } 
+                                  if (hasPin) { 
+                                      localStorage.removeItem("app-pin-code"); 
+                                      setHasPin(false); 
+                                      toast.info("App Lock disabled."); 
+                                  } 
                                   else {
                                       const newPin = prompt("Enter a 4-digit PIN:");
-                                      if (newPin && newPin.length === 4 && !isNaN(newPin)) { localStorage.setItem("app-pin-code", newPin); setHasPin(true); toast.success("App Lock Enabled!"); } 
-                                      else if (newPin) toast.error("Invalid PIN. Must be 4 numbers.");
+                                      if (newPin && newPin.length === 4 && !isNaN(newPin)) { 
+                                          localStorage.setItem("app-pin-code", newPin); 
+                                          setHasPin(true); 
+                                          toast.success("App Lock enabled."); 
+                                      } 
+                                      else if (newPin) toast.error("Invalid PIN. Please enter 4 numbers.");
                                   }
                               }}>
                                   <div className="knob" />
@@ -758,7 +793,19 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
                   </ModalOverlay>
               )}
           </AnimatePresence>
-          <ToastContainer position="bottom-left" theme={theme === 'light' ? 'light' : 'dark'} />
+          {/* UPDATED TOAST CONTAINER FOR IOS STYLE */}
+          <ToastContainer 
+              position="top-center" 
+              autoClose={3000} 
+              hideProgressBar={true} 
+              newestOnTop={true} 
+              closeOnClick 
+              rtl={false} 
+              pauseOnFocusLoss 
+              draggable 
+              pauseOnHover 
+              theme={theme === 'light' ? 'light' : 'dark'} 
+          />
         </Container>
       )}
     </>

@@ -33,8 +33,7 @@ export default function Register() {
   const [passwordStrength, setPasswordStrength] = useState(0);
 
   const toastOptions = {
-    position: "bottom-right",
-    autoClose: 5000,
+    // Removed old position and autoClose as they are now handled globally by ToastContainer props
     pauseOnHover: true,
     draggable: true,
     theme: "dark",
@@ -83,11 +82,11 @@ export default function Register() {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
     if (username.length < 3) {
-      return toast.error("Username should be greater than 3 characters.", toastOptions);
+      return toast.error("Username must be at least 3 characters.", toastOptions);
     } else if (email === "" || !emailRegex.test(email)) {
       return toast.error("Please enter a valid email address.", toastOptions);
     } else if (password.length < 8) {
-      return toast.error("Password should be equal or greater than 8 characters.", toastOptions);
+      return toast.error("Password must be at least 8 characters.", toastOptions);
     } else if (password !== confirmPassword) {
       return toast.error("Passwords do not match.", toastOptions);
     }
@@ -99,14 +98,15 @@ export default function Register() {
   const handleSubmit = async (event) => {
     event.preventDefault();
     if (!acceptedTerms) {
-        return toast.warning("You must accept the Terms of Service to register.", toastOptions);
+        return toast.warning("Please accept the Terms of Service to continue.", toastOptions);
     }
 
     setIsSubmitting(true);
     const { email, username, password, gender } = values;
     
     try {
-      toast.info("Generating secure encryption keys... Please wait.", { autoClose: 2000, theme: "dark" });
+      // FIX: Silently log to the developer console instead of showing a popup to the user
+      console.log("[Dev Log] Generating secure E2E keys for new user...");
       
       // FIX: Generate the full Signal-style bundle instead of just one key
       const { bundle, privateKeys } = await generateE2EBundle();
@@ -131,7 +131,8 @@ export default function Register() {
       if (data.status === true) {
         // Prevents the "Invalid Token" socket crash if backend forgets to send the token
         if (!data.token) {
-           toast.error("Server Error: Backend did not return an authentication token. Check authController.js", toastOptions);
+           console.error("[Auth Error] Backend did not return an authentication token. Check authController.js");
+           toast.error("Registration failed. Please try again later.", toastOptions);
            setIsSubmitting(false);
            return;
         }
@@ -148,14 +149,14 @@ export default function Register() {
         };
         sessionStorage.setItem("chat-app-user", JSON.stringify(userData));
         
-        toast.success("Registration successful! Entering Snappy...", toastOptions);
+        toast.success("Welcome to Snappy!", toastOptions);
         navigate("/");
       }
     } catch (error) {
       if (error.response && error.response.data) {
-        toast.error(error.response.data.msg || "Registration failed", toastOptions);
+        toast.error(error.response.data.msg || "Registration failed. Please try again.", toastOptions);
       } else {
-        toast.error("Error connecting to server", toastOptions);
+        toast.error("Check your internet connection and try again.", toastOptions);
       }
     } finally {
       setIsSubmitting(false);
@@ -278,7 +279,20 @@ export default function Register() {
           <span className="login-link">Already have an account? <Link to="/login">Login.</Link></span>
         </form>
       </FormContainer>
-      <ToastContainer />
+      
+      {/* UPDATED TOAST CONTAINER FOR IOS STYLE */}
+      <ToastContainer 
+          position="top-center" 
+          autoClose={3000} 
+          hideProgressBar={true} 
+          newestOnTop={true} 
+          closeOnClick 
+          rtl={false} 
+          pauseOnFocusLoss 
+          draggable 
+          pauseOnHover 
+          theme="dark"
+      />
     </>
   );
 }

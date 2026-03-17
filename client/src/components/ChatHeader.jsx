@@ -1,5 +1,5 @@
 import React from "react";
-import { motion, AnimatePresence } from "framer-motion"; // <-- Added for fluid search bar
+import { motion, AnimatePresence } from "framer-motion";
 import { FaUserPlus, FaShieldAlt, FaInfoCircle, FaSearch, FaUserSlash, FaMicrophoneAlt } from "react-icons/fa";
 import { formatLastSeen } from "./chatHelpers";
 

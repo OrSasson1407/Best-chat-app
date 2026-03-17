@@ -9,6 +9,7 @@ import {
     BsStopCircleFill, BsCodeSlash, BsClockHistory, BsTerminal 
 } from "react-icons/bs";
 import { FaBomb, FaFire, FaCalendarAlt, FaLink, FaSpinner, FaLock, FaMagic } from "react-icons/fa";
+import { toast } from "react-toastify"; // NEW: Imported toast for our new iOS styling
 
 // --- MERGE UPDATE: IMPORT ZUSTAND STORE ---
 import useChatStore from "../store/chatStore";
@@ -254,7 +255,11 @@ export default function ChatInput({
           );
           return response.data.secure_url;
       } catch (error) {
-          console.error("Cloudinary Upload Error:", error);
+          if (error.response?.status === 400) {
+              console.error("[Media] Cloudinary 400 Error: Verify the 'chat_app_preset' is set to UNSIGNED in the Cloudinary Dashboard.");
+          } else {
+              console.error("[Media] Cloudinary Upload Error:", error);
+          }
           return null;
       }
   };
@@ -275,7 +280,7 @@ export default function ChatInput({
               const options = { maxSizeMB: 1, maxWidthOrHeight: 1920, useWebWorker: true };
               fileToUpload = await imageCompression(mediaPreview.rawFile, options);
           } catch (error) {
-              console.error("Image compression error, falling back to original:", error);
+              console.error("[Media] Image compression error, falling back to original:", error);
           }
       } else {
           resType = "raw"; 
@@ -298,7 +303,8 @@ export default function ChatInput({
               setTimeout(() => sendChat(), 200); 
           }
       } else {
-          alert("Failed to upload media. Please ensure you created the 'chat_app_preset' Unsigned Preset in Cloudinary.");
+          // Replaced ugly alert with an elegant toast message
+          toast.error("Media upload failed. Please try again.");
       }
   };
 
@@ -354,15 +360,15 @@ export default function ChatInput({
             handleSendMsg(cloudUrl, "audio", replyingTo?.id, { timer: timerDuration }); 
             setReplyingTo(null);
         } else {
-            alert("Failed to upload audio message.");
+            toast.error("Failed to send audio message.");
         }
       };
 
       mediaRecorder.start();
       setIsRecording(true);
     } catch (error) {
-      console.error("Error accessing microphone:", error);
-      alert("Microphone access denied. Please allow permissions in your browser.");
+      console.error("[Media] Error accessing microphone:", error);
+      toast.warning("Microphone access denied. Please allow permissions in your browser settings.");
     }
   };
 

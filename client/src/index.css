@@ -74,6 +74,7 @@ body {
   background: var(--glass-bg);
   border: 1px solid var(--glass-border);
   backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
   box-shadow: var(--glass-shadow);
   transition: all var(--transition-speed) ease;
 }
@@ -112,7 +113,7 @@ body {
   animation: glass-shine 0.8s ease-in-out;
 }
 
-/* --- NEW: Cyberpunk Holographic Utilities --- */
+/* --- Cyberpunk Holographic Utilities --- */
 .cyberpunk-glitch {
   position: relative;
   text-shadow: 0.05em 0 0 rgba(255, 0, 85, 0.75),
@@ -129,3 +130,63 @@ body {
   99% { text-shadow: 0.025em 0.05em 0 #ff0055, 0.05em 0 0 #00ff88; }
   100% { text-shadow: -0.025em 0 0 #ff0055, -0.025em -0.025em 0 #00ff88; }
 }
+
+
+/* =======================================================================
+   PREMIUM iOS TOAST NOTIFICATIONS (react-toastify overrides)
+   ======================================================================= */
+
+/* Container placement and spacing */
+.Toastify__toast-container {
+    width: auto !important;
+    max-width: 400px;
+    padding: 20px;
+}
+
+/* The actual toast card */
+.Toastify__toast {
+    background: var(--bg-panel) !important;
+    backdrop-filter: blur(25px) !important;
+    -webkit-backdrop-filter: blur(25px) !important;
+    border: 1px solid var(--glass-border) !important;
+    border-radius: 18px !important; /* iOS squircle style */
+    box-shadow: 0 15px 35px rgba(0, 0, 0, 0.2) !important;
+    color: var(--text-main) !important;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+    font-size: 0.9rem !important;
+    font-weight: 500 !important;
+    padding: 14px 18px !important;
+    margin-bottom: 12px !important;
+    min-height: 50px !important;
+}
+
+/* Clean up the inner body spacing */
+.Toastify__toast-body {
+    margin: 0 !important;
+    padding: 0 !important;
+    align-items: center !important;
+}
+
+/* Hide the progress bar entirely for a cleaner look */
+.Toastify__progress-bar {
+    display: none !important;
+}
+
+/* Close button styling */
+.Toastify__close-button {
+    color: var(--text-dim) !important;
+    opacity: 0.7 !important;
+    transition: 0.2s !important;
+    align-self: center !important;
+}
+
+.Toastify__close-button:hover {
+    color: var(--text-main) !important;
+    opacity: 1 !important;
+}
+
+/* Custom Icon Colors based on Toast Type */
+.Toastify__toast--success .Toastify__toast-icon svg { fill: #10b981 !important; }
+.Toastify__toast--error .Toastify__toast-icon svg { fill: #ef4444 !important; }
+.Toastify__toast--warning .Toastify__toast-icon svg { fill: #f59e0b !important; }
+.Toastify__toast--info .Toastify__toast-icon svg { fill: #3b82f6 !important; }

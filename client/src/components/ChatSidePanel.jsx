@@ -69,14 +69,16 @@ export default function ChatSidePanel({
             }
 
             if (res.data.status) {
-                toast.success("Action applied successfully.");
+                toast.success("Member updated.");
             } else {
                 setCurrentChat(previousChat); 
-                toast.error("Action failed to apply on server.");
+                console.error("[API] Member action failed on server.");
+                toast.error("Failed to update member.");
             }
         } catch (error) {
             setCurrentChat(previousChat); 
-            toast.error(error.response?.data?.msg || "Network error. Action reverted.");
+            console.error("[API] Error applying member action:", error);
+            toast.error(error.response?.data?.msg || "Action failed. Please try again.");
         } finally {
             setLoadingAction(false);
         }
