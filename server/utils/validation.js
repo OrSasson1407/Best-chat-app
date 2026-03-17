@@ -23,7 +23,6 @@
 
 const Joi = require("joi");
 
-
 /* =====================================================
    USER REGISTRATION VALIDATION
    ===================================================== */
@@ -102,10 +101,10 @@ const registerSchema = Joi.object({
     .optional(),
 
   /**
-   * Public encryption key
+   * Full E2EE Pre-Key Bundle (Signal Protocol)
+   * FIXED: Replaced publicKey string with the e2eKeys object bundle
    */
-  publicKey: Joi.string()
-    .required(),
+  e2eKeys: Joi.object().required(),
 
 }).options({ stripUnknown: true }); // FIXED: Automatically removes fields like 'confirmPassword' instead of crashing
 
