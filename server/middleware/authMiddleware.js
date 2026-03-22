@@ -45,12 +45,14 @@ const protect = async (req, res, next) => {
 
   /**
    * Step 1: Extract token
-   * CRITICAL FIX: Completely ignore cookies to support strict per-tab user isolation.
-   * Rely exclusively on the Authorization Header or x-auth-token.
+   * CRITICAL FIX: Extract the very last segment of the Authorization string
+   * This gracefully handles "Bearer Bearer eyJ..." mistakes from the frontend.
    */
   let token = req.header("Authorization");
-  if (token && token.startsWith("Bearer ")) {
-    token = token.replace("Bearer ", "").trim();
+  
+  if (token) {
+    // If header is "Bearer Bearer eyJ...", splitting by space and popping gets just the JWT string
+    token = token.split(" ").pop().trim();
   } else {
     // Fallback for older routes using x-auth-token
     token = req.header("x-auth-token");

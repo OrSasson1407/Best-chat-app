@@ -8,12 +8,15 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { ROUTES } from "./utils/routes";
 
-
-// ✅ ADDED: Inject the specific tab's token into EVERY request header
+// ✅ ADDED/UPDATED: Inject the specific tab's token into EVERY request header securely
 axios.interceptors.request.use((config) => {
   const token = sessionStorage.getItem("chat-app-token");
   if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+    // CRITICAL FIX: Strip existing "Bearer" prefixes if they accidentally got saved in storage
+    const cleanToken = token.replace(/(Bearer\s*)+/ig, "").trim();
+    
+    // Attach the single, clean header
+    config.headers.Authorization = `Bearer ${cleanToken}`;
   }
   return config;
 }, (error) => {
