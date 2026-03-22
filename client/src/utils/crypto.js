@@ -60,36 +60,44 @@ export const generateKeyPair = async () => {
     return { publicKey, privateKey };
 };
 
-// --- PERFORMANCE FIX: PARALLEL KEY GENERATION ---
+// --- PERFORMANCE FIX: SEQUENTIAL KEY GENERATION ---
 // Creates the Signal-Protocol style key structure to send to the backend
 export const generateE2EBundle = async () => {
-    // Generate all 3 heavy RSA keys at the exact same time to cut waiting time by 66%
-    const [identityKeyPair, signedPreKeyPair, oneTimePreKey] = await Promise.all([
-        generateKeyPair(),
-        generateKeyPair(),
-        generateKeyPair()
-    ]);
+    try {
+        console.log("[Crypto] Generating Identity Key (1/3)...");
+        const identityKeyPair = await generateKeyPair();
+        
+        console.log("[Crypto] Generating Signed Pre-Key (2/3)...");
+        const signedPreKeyPair = await generateKeyPair();
+        
+        console.log("[Crypto] Generating One-Time Pre-Key (3/3)...");
+        const oneTimePreKey = await generateKeyPair();
 
-    const bundle = {
-        identityKey: JSON.stringify(identityKeyPair.publicKey),
-        registrationId: Math.floor(Math.random() * 10000),
-        signedPreKey: {
-            keyId: 1,
-            publicKey: JSON.stringify(signedPreKeyPair.publicKey),
-            signature: "verified" // Basic mock signature for WebCrypto RSA
-        },
-        preKeys: [
-            { keyId: 1, publicKey: JSON.stringify(oneTimePreKey.publicKey) }
-        ]
-    };
+        const bundle = {
+            identityKey: JSON.stringify(identityKeyPair.publicKey),
+            registrationId: Math.floor(Math.random() * 10000),
+            signedPreKey: {
+                keyId: 1,
+                publicKey: JSON.stringify(signedPreKeyPair.publicKey),
+                signature: "verified"
+            },
+            preKeys: [
+                { keyId: 1, publicKey: JSON.stringify(oneTimePreKey.publicKey) }
+            ]
+        };
 
-    const privateKeys = {
-        identityPrivateKey: identityKeyPair.privateKey,
-        signedPrePrivateKey: signedPreKeyPair.privateKey,
-        prePrivateKeys: [oneTimePreKey.privateKey]
-    };
+        const privateKeys = {
+            identityPrivateKey: identityKeyPair.privateKey,
+            signedPrePrivateKey: signedPreKeyPair.privateKey,
+            prePrivateKeys: [oneTimePreKey.privateKey]
+        };
 
-    return { bundle, privateKeys };
+        console.log("[Crypto] All keys generated successfully!");
+        return { bundle, privateKeys };
+    } catch (err) {
+        console.error("[Crypto] Fatal error during key generation:", err);
+        throw new Error("Failed to generate encryption keys.");
+    }
 };
 
 // 2. Encrypt a message using the RECEIVER'S public key
@@ -109,8 +117,6 @@ export const encryptMessage = async (messageText, receiverPublicKeyJwk) => {
         return btoa(String.fromCharCode(...new Uint8Array(ciphertextBuffer)));
     } catch (err) {
         console.error("[Crypto] Encryption failed:", err.message);
-        // NEVER fallback to plaintext. If encryption fails, throw an error 
-        // so the frontend can catch it and alert the user instead of leaking data.
         throw new Error(err.message || "Encryption failed. Cannot send message securely.");
     }
 };
@@ -134,9 +140,6 @@ export const decryptMessage = async (base64Ciphertext, myPrivateKeyJwk) => {
         return new TextDecoder().decode(decryptedBuffer);
     } catch (err) {
         console.warn("[Crypto] Decryption skipped (Legacy plaintext message or bad key):", err.message);
-        // Graceful degradation for legacy messages
-        // It's acceptable to return the original string ONLY on decryption, 
-        // as it might be an older message sent before E2EE was implemented.
         return base64Ciphertext; 
     }
 };
@@ -152,7 +155,6 @@ export const generateGroupAESKey = async () => {
         true,
         ["encrypt", "decrypt"]
     );
-    // Export it to JWK so we can easily stringify and encrypt it with RSA later
     return await window.crypto.subtle.exportKey("jwk", key); 
 };
 
@@ -163,8 +165,6 @@ export const encryptGroupMessage = async (messageText, aesKeyJwk) => {
         const key = await getImportedKey(jwk, "AES-GCM", false, ["encrypt"]);
 
         const encodedMessage = new TextEncoder().encode(messageText);
-        
-        // AES-GCM requires a random Initialization Vector (IV) for every single message
         const iv = window.crypto.getRandomValues(new Uint8Array(12)); 
         
         const ciphertextBuffer = await window.crypto.subtle.encrypt(
@@ -173,8 +173,6 @@ export const encryptGroupMessage = async (messageText, aesKeyJwk) => {
             encodedMessage
         );
 
-        // We must store the IV WITH the ciphertext so the receiver can decrypt it.
-        // We do this by prepending the 12-byte IV to the front of the ciphertext.
         const combinedBuffer = new Uint8Array(iv.length + ciphertextBuffer.byteLength);
         combinedBuffer.set(iv, 0);
         combinedBuffer.set(new Uint8Array(ciphertextBuffer), iv.length);
@@ -195,7 +193,6 @@ export const decryptGroupMessage = async (base64Ciphertext, aesKeyJwk) => {
         const binaryString = atob(base64Ciphertext);
         const combinedBuffer = Uint8Array.from(binaryString, c => c.charCodeAt(0));
 
-        // Slice the combined buffer to separate the 12-byte IV from the actual ciphertext
         const iv = combinedBuffer.slice(0, 12);
         const ciphertextBuffer = combinedBuffer.slice(12);
 
@@ -208,6 +205,6 @@ export const decryptGroupMessage = async (base64Ciphertext, aesKeyJwk) => {
         return new TextDecoder().decode(decryptedBuffer);
     } catch (err) {
         console.warn("[Crypto] Group AES Decryption skipped (Legacy message):", err.message);
-        return base64Ciphertext; // Fallback for unencrypted legacy group messages
+        return base64Ciphertext;
     }
 };

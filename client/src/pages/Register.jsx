@@ -5,7 +5,6 @@ import { useNavigate, Link } from "react-router-dom";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { registerRoute } from "../utils/APIRoutes";
-// FIX: Import generateE2EBundle instead of generateKeyPair
 import { generateE2EBundle } from "../utils/crypto";
 import { FaEye, FaEyeSlash, FaSyncAlt, FaArrowRight, FaArrowLeft, FaCheck } from "react-icons/fa"; 
 
@@ -33,7 +32,6 @@ export default function Register() {
   const [passwordStrength, setPasswordStrength] = useState(0);
 
   const toastOptions = {
-    // Removed old position and autoClose as they are now handled globally by ToastContainer props
     pauseOnHover: true,
     draggable: true,
     theme: "dark",
@@ -105,21 +103,20 @@ export default function Register() {
     const { email, username, password, gender } = values;
     
     try {
-      // FIX: Silently log to the developer console instead of showing a popup to the user
       console.log("[Dev Log] Generating secure E2E keys for new user...");
       
-      // FIX: Generate the full Signal-style bundle instead of just one key
       const { bundle, privateKeys } = await generateE2EBundle();
 
+      console.log("[Dev Log] Keys generated. Sending to backend...");
+
+      // FIX: Removed withCredentials, using strictly JSON body with the new Auth setup
       const { data } = await axios.post(registerRoute, {
         username,
         email,
         password,
         gender,
         avatarImage: selectedAvatar,
-        e2eKeys: bundle // FIX: Send the bundle to the DB instead of publicKey
-      }, {
-        withCredentials: true 
+        e2eKeys: bundle 
       });
 
       if (data.status === false) {
@@ -129,30 +126,31 @@ export default function Register() {
       }
       
       if (data.status === true) {
-        // Prevents the "Invalid Token" socket crash if backend forgets to send the token
         if (!data.token) {
-           console.error("[Auth Error] Backend did not return an authentication token. Check authController.js");
+           console.error("[Auth Error] Backend did not return an authentication token.");
            toast.error("Registration failed. Please try again later.", toastOptions);
            setIsSubmitting(false);
            return;
         }
 
-        // FIX: Save the identity private key so our current RSA logic still works perfectly!
+        // Save the keys to localStorage so the client can decrypt messages
         localStorage.setItem(`privateKey_${data.user._id}`, JSON.stringify(privateKeys.identityPrivateKey));
-        
-        // Save the full E2E Keys bundle locally in case you expand the Signal protocol later
         localStorage.setItem(`fullE2EKeys_${data.user._id}`, JSON.stringify(privateKeys));
 
         const userData = {
           ...data.user,
           token: data.token,
         };
+        
+        // Use sessionStorage to respect our new multi-tab architecture
+        sessionStorage.setItem("chat-app-token", data.token);
         sessionStorage.setItem("chat-app-user", JSON.stringify(userData));
         
         toast.success("Welcome to Snappy!", toastOptions);
         navigate("/");
       }
     } catch (error) {
+      console.error("Registration Request Failed:", error);
       if (error.response && error.response.data) {
         toast.error(error.response.data.msg || "Registration failed. Please try again.", toastOptions);
       } else {
@@ -177,7 +175,6 @@ export default function Register() {
             <h1>Snappy</h1>
           </div>
 
-          {/* WIZARD PROGRESS TRACKER */}
           <div className="wizard-progress">
               <div className={`step-indicator ${step >= 1 ? "active" : ""}`}>1</div>
               <div className={`progress-line ${step === 2 ? "active" : ""}`}></div>
@@ -188,7 +185,6 @@ export default function Register() {
               <span className={step === 2 ? "active-text" : ""}>Profile</span>
           </div>
 
-          {/* ----- STEP 1: ACCOUNT DETAILS ----- */}
           {step === 1 && (
             <div className="form-step slide-in">
                 <input type="text" placeholder="Username" name="username" value={values.username} onChange={handleChange} disabled={isSubmitting} />
@@ -220,7 +216,6 @@ export default function Register() {
             </div>
           )}
 
-          {/* ----- STEP 2: PROFILE & TERMS ----- */}
           {step === 2 && (
             <div className="form-step slide-in">
                 <div className="gender-select">
@@ -253,7 +248,6 @@ export default function Register() {
                   </div>
                 </div>
 
-                {/* TERMS CHECKBOX */}
                 <label className="terms-checkbox">
                     <input 
                         type="checkbox" 
@@ -270,7 +264,7 @@ export default function Register() {
                         <FaArrowLeft /> Back
                     </button>
                     <button type="submit" className="action-btn submit-btn" disabled={isSubmitting || !acceptedTerms}>
-                        {isSubmitting ? "Creating..." : "Create Account"}
+                        {isSubmitting ? "Creating Keys..." : "Create Account"}
                     </button>
                 </div>
             </div>
@@ -280,7 +274,6 @@ export default function Register() {
         </form>
       </FormContainer>
       
-      {/* UPDATED TOAST CONTAINER FOR IOS STYLE */}
       <ToastContainer 
           position="top-center" 
           autoClose={3000} 
