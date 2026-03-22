@@ -10,14 +10,16 @@ import {
     deleteMessageForMeRoute, editMessageRoute, blockUserRoute, getChatMediaRoute,
     updateChatCustomizationRoute,
     getQuickRepliesRoute,
-    publicKeyRoute
+    publicKeyRoute,
+    summarizeChatRoute, // NEW: AI Summarizer
+    searchMessageRoute  // NEW: Global Search
 } from "../utils/APIRoutes";
 import { encryptMessage, decryptMessage, encryptGroupMessage, decryptGroupMessage } from "../utils/crypto"; 
 import { v4 as uuidv4 } from "uuid";
 import { toast } from "react-toastify";
 import { 
-    FaThumbtack, FaSpinner, FaCloudUploadAlt, FaTimes, FaCheckDouble, FaArrowDown, FaMagic 
-} from "react-icons/fa";
+    FaThumbtack, FaSpinner, FaCloudUploadAlt, FaTimes, FaCheckDouble, FaArrowDown, FaMagic, FaGlobe 
+} from "react-icons/fa"; // Added FaGlobe
 
 import { Container, DropOverlay, ScrollButton, Lightbox } from "./ChatContainer.styles"; 
 import CallModal from "./CallModal"; 
@@ -72,6 +74,13 @@ export default function ChatContainer({ socket, isTyping }) {
   const [customTheme, setCustomTheme] = useState("#4e0eff");
   const [quickReplies, setQuickReplies] = useState([]);
   const [isGeneratingReplies, setIsGeneratingReplies] = useState(false);
+
+  // --- NEW: AI Summarizer & Global Search States ---
+  const [chatSummary, setChatSummary] = useState(null);
+  const [isSummarizing, setIsSummarizing] = useState(false);
+  const [showGlobalSearchModal, setShowGlobalSearchModal] = useState(false);
+  const [globalSearchResults, setGlobalSearchResults] = useState([]);
+  const [isGlobalSearching, setIsGlobalSearching] = useState(false);
 
   // Refs
   const virtuosoRef = useRef(null);
@@ -409,6 +418,49 @@ export default function ChatContainer({ socket, isTyping }) {
   }, [arrivalMessage]);
 
   // --- ACTIONS & HANDLERS ---
+
+  // NEW: Feature 1 - Execute Global Search
+  const executeGlobalSearch = async (query) => {
+      if (!query.trim()) return;
+      setIsGlobalSearching(true);
+      try {
+          const { data } = await axios.post(searchMessageRoute, { userId: currentUser._id, query }, getAuthHeader());
+          if (data.status) {
+              setGlobalSearchResults(data.messages);
+          } else {
+              setGlobalSearchResults([]);
+          }
+      } catch (error) {
+          console.error("Global search failed:", error);
+          toast.error("Failed to search messages.");
+      } finally {
+          setIsGlobalSearching(false);
+      }
+  };
+
+  // NEW: Feature 2 - Handle AI Summarization
+  const handleSummarize = async () => {
+      setIsSummarizing(true);
+      try {
+          const { data } = await axios.post(summarizeChatRoute, {
+              from: currentUser._id,
+              to: currentChat._id,
+              limit: 50 // Summarize last 50 messages
+          }, getAuthHeader());
+
+          if (data.status) {
+              setChatSummary(data.summary);
+          } else {
+              toast.info(data.msg); // E.g., "Not enough messages"
+          }
+      } catch (error) {
+          console.error("Summary error", error);
+          toast.error("Failed to summarize chat.");
+      } finally {
+          setIsSummarizing(false);
+      }
+  };
+
   const loadMoreMessages = useCallback(async () => {
     if (hasMore && !isLoadingMore) {
       setIsLoadingMore(true);
@@ -528,7 +580,8 @@ export default function ChatContainer({ socket, isTyping }) {
             from: currentUser._id, to: currentChat._id, message: finalMessageContent, 
             type, replyTo: replyToId, isForwarded: extraData.isForwarded || false,
             isViewOnce: extraData.isViewOnce || false, pollData: extraData.pollData || null,
-            timer: extraData.timer || null, fileName: extraData.fileName || null, fileSize: extraData.fileSize || null  
+            timer: extraData.timer || null, fileName: extraData.fileName || null, fileSize: extraData.fileSize || null,
+            scheduledAt: extraData.scheduledAt || null // Needed for Scheduled Messages
         };
 
         const fileMetadataObj = extraData.fileName ? { fileName: extraData.fileName, fileSize: extraData.fileSize } : null;
@@ -683,6 +736,60 @@ export default function ChatContainer({ socket, isTyping }) {
             }}
           >
             <AnimatePresence>
+                {/* --- FEATURE 2 MODAL: AI Summary --- */}
+                {chatSummary && (
+                    <Lightbox as={motion.div} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setChatSummary(null)}>
+                        <motion.div className="receipt-modal" style={{ maxWidth: '500px' }} onClick={e => e.stopPropagation()}>
+                            <button className="close-btn-small" onClick={() => setChatSummary(null)}><FaTimes /></button>
+                            <h3><FaMagic color={adaptiveAccent} style={{ marginRight: '8px' }}/> Chat Summary</h3>
+                            <div style={{ padding: '1rem', lineHeight: '1.6', color: 'var(--text-main)', fontSize: '0.95rem' }}>
+                                <div style={{ whiteSpace: 'pre-wrap' }}>{chatSummary}</div>
+                            </div>
+                        </motion.div>
+                    </Lightbox>
+                )}
+
+                {/* --- FEATURE 1 MODAL: Global Fuzzy Search --- */}
+                {showGlobalSearchModal && (
+                    <Lightbox as={motion.div} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowGlobalSearchModal(false)}>
+                        <motion.div className="receipt-modal" style={{ width: '600px', maxWidth: '95%' }} onClick={e => e.stopPropagation()}>
+                            <button className="close-btn-small" onClick={() => setShowGlobalSearchModal(false)}><FaTimes /></button>
+                            <h3><FaGlobe color={adaptiveAccent} style={{ marginRight: '8px' }}/> Global Search</h3>
+                            
+                            <input
+                                autoFocus
+                                type="text"
+                                placeholder="Search all your chats..."
+                                style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid var(--glass-border)', background: 'var(--input-bg)', color: 'var(--text-main)', marginBottom: '15px', fontSize: '1rem', outline: 'none' }}
+                                onKeyDown={(e) => {
+                                    if(e.key === 'Enter') executeGlobalSearch(e.target.value);
+                                }}
+                            />
+                            
+                            <div style={{ maxHeight: '400px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                {isGlobalSearching ? (
+                                    <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-dim)' }}>
+                                        <FaSpinner className="fa-spin" size={24} /> <br/> Searching everywhere...
+                                    </div>
+                                ) : globalSearchResults.length > 0 ? (
+                                    globalSearchResults.map((res, i) => (
+                                        <div key={i} style={{ padding: '10px', background: 'var(--input-bg)', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
+                                            <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)', marginBottom: '4px' }}>
+                                                {formatTime(res.createdAt)}
+                                            </div>
+                                            <div style={{ color: 'var(--text-main)', fontSize: '0.95rem' }}>{res.text || res.message?.text}</div>
+                                        </div>
+                                    ))
+                                ) : (
+                                    <div style={{ textAlign: 'center', color: 'var(--text-dim)', fontStyle: 'italic' }}>
+                                        Press Enter to search across all chats.
+                                    </div>
+                                )}
+                            </div>
+                        </motion.div>
+                    </Lightbox>
+                )}
+
                 {isDragging && (
                   <DropOverlay 
                       as={motion.div}
@@ -784,6 +891,8 @@ export default function ChatContainer({ socket, isTyping }) {
                 setShowSidePanel={setShowSidePanel} setActiveSideTab={setActiveSideTab} 
                 handleToggleBlock={handleToggleBlock} handleAddMember={handleAddMember} 
                 setIncomingCallData={setIncomingCallData} setShowCallModal={setShowCallModal}
+                handleSummarize={handleSummarize} isSummarizing={isSummarizing}
+                setShowGlobalSearchModal={setShowGlobalSearchModal}
             />
             
             <AnimatePresence>
