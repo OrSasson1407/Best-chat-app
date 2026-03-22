@@ -71,8 +71,14 @@ export default function Chat() {
   // 2. Setup STABLE Socket Connection
   useEffect(() => {
     if (currentUser && currentUser._id && !socket.current) {
+      
+      // CRITICAL FIX: Strip Bearer prefix if it exists in sessionStorage before passing to socket
+      const cleanToken = currentUser.token.startsWith("Bearer ") 
+        ? currentUser.token.replace("Bearer ", "").trim() 
+        : currentUser.token;
+
       socket.current = io(host, {
-        auth: { token: currentUser.token }, // ✅ Token is passed here instead of cookies
+        auth: { token: cleanToken }, // ✅ Token is explicitly passed as a clean string here
         // ❌ REMOVED: withCredentials: true (We don't want cookies sharing across tabs)
         parser: customParser 
       });
@@ -140,7 +146,6 @@ export default function Chat() {
     async function fetchContacts() {
       if (currentUser && currentUser._id) {
         try {
-          // ❌ REMOVED: headers: { "x-auth-token" } and withCredentials
           // Our new App.js Request Interceptor adds the Bearer token automatically!
           const response = await axios.get(`${allUsersRoute}/${currentUser._id}`);
           setContacts(response.data);
@@ -163,7 +168,6 @@ export default function Chat() {
         const token = await requestForToken();
         if (token) {
            try {
-              // ❌ REMOVED: headers: { "x-auth-token" } and withCredentials
               // Interceptor handles it!
               await axios.post(updateFcmTokenRoute, {
                  userId: currentUser._id,
@@ -195,7 +199,6 @@ export default function Chat() {
 
   const handleLogout = useCallback(async () => {
     try {
-      // ❌ REMOVED: withCredentials
       await axios.get(`${host}/api/auth/logout`); 
     } catch (err) {
       console.error("Logout API failed:", err);

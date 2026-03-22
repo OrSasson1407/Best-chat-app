@@ -200,11 +200,16 @@ Promise.all([
      STRICT SOCKET AUTHENTICATION
      ========================================================= */
   io.use((socket, next) => {
-    // CRITICAL FIX: Only accept the token explicitly passed in the auth payload
-    const token = socket.handshake.auth.token;
+    // We use 'let' so we can modify the token if it has the Bearer prefix
+    let token = socket.handshake.auth.token;
 
     if (!token) {
       return next(new Error("Authentication error: No token provided"));
+    }
+
+    // CRITICAL FIX: Strip the "Bearer " prefix if it was included in the auth payload
+    if (token.startsWith("Bearer ")) {
+      token = token.replace("Bearer ", "").trim();
     }
 
     jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
