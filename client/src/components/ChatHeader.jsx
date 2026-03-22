@@ -1,13 +1,18 @@
 import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { FaUserPlus, FaShieldAlt, FaInfoCircle, FaSearch, FaUserSlash, FaMicrophoneAlt } from "react-icons/fa";
+import { 
+    FaUserPlus, FaShieldAlt, FaInfoCircle, FaSearch, 
+    FaUserSlash, FaMicrophoneAlt, FaMagic, FaGlobe, FaSpinner 
+} from "react-icons/fa";
 import { formatLastSeen } from "./chatHelpers";
 
 export default function ChatHeader({
     currentChat, currentUser, isBlocked, isOnline, lastSeen,
     showSearch, searchQuery, setSearchQuery, setShowSearch,
     showSidePanel, setShowSidePanel, setActiveSideTab,
-    handleToggleBlock, handleAddMember, setIncomingCallData, setShowCallModal
+    handleToggleBlock, handleAddMember, setIncomingCallData, setShowCallModal,
+    // NEW PROPS FOR AI & GLOBAL SEARCH
+    handleSummarize, isSummarizing, setShowGlobalSearchModal 
 }) {
     return (
         <div className="chat-header">
@@ -35,7 +40,25 @@ export default function ChatHeader({
                 </div>
 
                 <div className="admin-controls">
-                    {/* --- ANIMATED SEARCH BAR --- */}
+                    {/* --- FEATURE 2: AI Summarize Button --- */}
+                    <button 
+                        className="huddle-btn" 
+                        onClick={handleSummarize} 
+                        disabled={isSummarizing} 
+                        style={{ background: 'var(--msg-sent)', color: 'white' }}
+                    >
+                        {isSummarizing ? <FaSpinner className="fa-spin" style={{ marginRight: '5px' }} /> : <FaMagic style={{ marginRight: '5px' }} />} 
+                        {isSummarizing ? "Thinking..." : "Summarize"}
+                    </button>
+
+                    {/* --- FEATURE 1: Global Search Trigger --- */}
+                    <FaGlobe 
+                        className="action-icon" 
+                        title="Global Chat Search" 
+                        onClick={() => setShowGlobalSearchModal(true)} 
+                    />
+
+                    {/* --- ANIMATED LOCAL SEARCH BAR --- */}
                     <AnimatePresence>
                         {showSearch && (
                             <motion.input 
@@ -44,7 +67,7 @@ export default function ChatHeader({
                                 exit={{ width: 0, opacity: 0, padding: "0" }}
                                 transition={{ type: "spring", stiffness: 300, damping: 25 }}
                                 type="text" 
-                                placeholder="Search chat..." 
+                                placeholder="Search this chat..." 
                                 value={searchQuery} 
                                 onChange={(e) => setSearchQuery(e.target.value)} 
                                 className="chat-search-input" 
@@ -55,7 +78,7 @@ export default function ChatHeader({
                     
                     <FaSearch 
                         className="action-icon" 
-                        title="Search messages" 
+                        title="Search local messages" 
                         onClick={() => setShowSearch(!showSearch)} 
                     />
                     

@@ -97,6 +97,8 @@ export const viewStoryRoute = `${host}/api/stories/view`;
 
 export const getQuickRepliesRoute = `${host}/api/ai/quick-replies`;
 export const translateMessageRoute = `${host}/api/ai/translate`;
+// NEW: AI Summarizer Route
+export const summarizeChatRoute = `${host}/api/ai/summarize`; 
 
 
 // =======================================================

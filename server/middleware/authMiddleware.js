@@ -5,13 +5,13 @@
  * sent by the client to protect private API routes.
  *
  * Responsibilities:
- * - Extract JWT from cookies (Primary) or request headers (Fallback)
+ * - Extract JWT from request headers (Authorization Bearer or x-auth-token)
  * - Verify token authenticity and check Redis blacklist
  * - Decode the token payload
  * - Attach user information to the request object
  *
  * Security Notes:
- * - Access tokens are now expected in HttpOnly cookies to prevent XSS.
+ * - Cookies have been REMOVED from this check to allow per-tab user isolation.
  * - Token expiration is handled by JWT itself.
  * - If expired, client should call the refresh endpoint.
  */
@@ -33,7 +33,6 @@ cacheClient.on("error", (err) => {
 // All usage is guarded by cacheClient.isReady so no requests will fail if Redis is slow to connect.
 cacheClient.connect().catch(() => {});
 
-
 /**
  * Main Middleware function to verify JWT Access Token
  * CHANGED: Now async to support Redis blacklist checking
@@ -46,12 +45,16 @@ const protect = async (req, res, next) => {
 
   /**
    * Step 1: Extract token
-   * IMPROVEMENT: Prioritize HttpOnly Cookie, fallback to x-auth-token OR standard Authorization Bearer header
+   * CRITICAL FIX: Completely ignore cookies to support strict per-tab user isolation.
+   * Rely exclusively on the Authorization Header or x-auth-token.
    */
-  const token = (req.cookies && req.cookies.accessToken) 
-    ? req.cookies.accessToken 
-    : req.header("x-auth-token") || req.header("Authorization")?.replace("Bearer ", "");
-
+  let token = req.header("Authorization");
+  if (token && token.startsWith("Bearer ")) {
+    token = token.replace("Bearer ", "").trim();
+  } else {
+    // Fallback for older routes using x-auth-token
+    token = req.header("x-auth-token");
+  }
 
   /**
    * Step 2: Ensure token exists
@@ -62,7 +65,6 @@ const protect = async (req, res, next) => {
       code: "NO_TOKEN"
     });
   }
-
 
   try {
 
@@ -93,7 +95,6 @@ const protect = async (req, res, next) => {
       process.env.JWT_SECRET
     );
 
-
     /**
      * Step 4: Attach decoded payload to request
      *
@@ -104,7 +105,6 @@ const protect = async (req, res, next) => {
      * req.user.id
      */
     req.user = decoded;
-
 
     /**
      * Continue request lifecycle

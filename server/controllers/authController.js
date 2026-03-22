@@ -4,29 +4,23 @@ const jwt = require("jsonwebtoken");
 const mongoose = require("mongoose"); 
 const { registerSchema, loginSchema } = require("../utils/validation"); 
 
-// --- LEVEL 2: REDIS CACHING SETUP ---
 const { createRedisClient } = require("../config/redis");
 const cacheClient = createRedisClient();
 
-// CRITICAL FIX: Catch background errors so they don't crash Node.js
 cacheClient.on("error", (err) => {
   console.warn("[Redis] Auth Cache Client Error:", err.message);
 });
 
-// LAZY CONNECT FIX: Connect in background, don't block startup
 cacheClient.connect().catch(() => {
   console.warn("[Redis] Failed to connect on startup. Operating in degraded mode.");
 });
 
-// STEP 5: Import Meilisearch User Index
 const { userIndex } = require("../utils/meilisearch");
 
-// Safe API constants for Fallback avatar generation
 const femaleTops = "longHairBob,longHairBun,longHairCurly,longHairCurvy,longHairStraight,longHairNotTooLong";
 const maleTops = "shortHairDreads01,shortHairDreads02,shortHairFrizzle,shortHairShaggy,shortHairShortCurly,shortHairShortFlat,shortHairShortRound,shortHairShortWaved,shortHairSides";
 const backgroundColors = "b6e3f4,c0aede,d1d4f9,ffdfbf,ffd5dc";
 
-// Helper to generate both tokens
 const generateTokens = (userId) => {
   const accessToken = jwt.sign({ id: userId }, process.env.JWT_SECRET, { expiresIn: "15m" });
   const refreshToken = jwt.sign({ id: userId }, process.env.REFRESH_SECRET, { expiresIn: "7d" });
@@ -38,7 +32,6 @@ module.exports.register = async (req, res, next) => {
     const { error } = registerSchema.validate(req.body);
     if (error) return res.status(400).json({ msg: error.details[0].message, status: false });
 
-    // FIX: Expect the full E2E bundle instead of a single string
     const { username, email, password, gender, avatarImage, e2eKeys } = req.body;
 
     const usernameCheck = await User.findOne({ username });
@@ -59,15 +52,14 @@ module.exports.register = async (req, res, next) => {
       gender,
       avatarImage: finalAvatar,
       isAvatarImageSet: true,
-      e2eKeys // FIX: Save the full Signal-protocol bundle to the DB
+      e2eKeys 
     });
 
-    // STEP 5 FIX: Sync new user to Meilisearch
     try {
       await userIndex.addDocuments([{
         id: user._id.toString(),
         username: user.username,
-        email: user.email // Make email searchable as well
+        email: user.email 
       }]);
     } catch (e) {
       console.error("[Meilisearch] Failed to sync new user:", e.message);
@@ -75,26 +67,18 @@ module.exports.register = async (req, res, next) => {
 
     const { accessToken, refreshToken } = generateTokens(user._id);
 
-    res.cookie("refreshToken", refreshToken, {
-      httpOnly: true,
-      secure: true, 
-      sameSite: "None", 
-      maxAge: 7 * 24 * 60 * 60 * 1000, 
-    });
-
-    // STEP 4 FIX: Secure the access token in an HttpOnly cookie
-    res.cookie("accessToken", accessToken, {
-      httpOnly: true,
-      secure: true, 
-      sameSite: "None", 
-      maxAge: 15 * 60 * 1000, 
-    });
-
     const userResponse = user.toObject();
     delete userResponse.password;
 
     console.log(`[Auth] User registered successfully: ${username}`);
-    return res.json({ status: true, user: userResponse, token: accessToken }); 
+    
+    // CRITICAL FIX: Return both tokens in JSON payload, NO COOKIES.
+    return res.json({ 
+      status: true, 
+      user: userResponse, 
+      token: accessToken, 
+      refreshToken: refreshToken 
+    }); 
   } catch (ex) {
     console.error("[Auth] Registration error:", ex);
     next(ex);
@@ -115,25 +99,18 @@ module.exports.login = async (req, res, next) => {
 
     const { accessToken, refreshToken } = generateTokens(user._id);
 
-    res.cookie("refreshToken", refreshToken, {
-      httpOnly: true,
-      secure: true, 
-      sameSite: "None", 
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
-
-    res.cookie("accessToken", accessToken, {
-      httpOnly: true,
-      secure: true, 
-      sameSite: "None", 
-      maxAge: 15 * 60 * 1000, 
-    });
-
     const userResponse = user.toObject();
     delete userResponse.password;
 
     console.log(`[Auth] User logged in successfully: ${username}`);
-    return res.json({ status: true, user: userResponse, token: accessToken });
+    
+    // CRITICAL FIX: Return both tokens in JSON payload, NO COOKIES.
+    return res.json({ 
+      status: true, 
+      user: userResponse, 
+      token: accessToken,
+      refreshToken: refreshToken
+    });
   } catch (ex) {
     console.error("[Auth] Login error:", ex);
     next(ex);
@@ -142,10 +119,15 @@ module.exports.login = async (req, res, next) => {
 
 module.exports.logout = async (req, res, next) => {
   try {
-    const refreshToken = req.cookies.refreshToken;
-    const accessToken = req.cookies.accessToken;
+    // CRITICAL FIX: Read token from the Authorization header injected by React, not cookies
+    let accessToken = req.header("Authorization");
+    if (accessToken && accessToken.startsWith("Bearer ")) {
+      accessToken = accessToken.replace("Bearer ", "").trim();
+    }
     
-    // --- SECURITY ENHANCEMENT: REDIS BLACKLISTING ---
+    const refreshToken = req.body.refreshToken; // Read from body if provided
+    
+    // REDIS BLACKLISTING 
     if (cacheClient.isReady) {
         if (refreshToken) {
             const decoded = jwt.decode(refreshToken);
@@ -168,9 +150,6 @@ module.exports.logout = async (req, res, next) => {
         }
     }
 
-    res.clearCookie("refreshToken", { httpOnly: true, secure: true, sameSite: "None" });
-    res.clearCookie("accessToken", { httpOnly: true, secure: true, sameSite: "None" });
-    
     console.log("[Auth] User logged out and tokens blacklisted.");
     return res.json({ status: true, msg: "Logged out successfully" });
   } catch (ex) {
@@ -180,7 +159,8 @@ module.exports.logout = async (req, res, next) => {
 };
 
 module.exports.refreshToken = async (req, res) => {
-  const refreshToken = req.cookies.refreshToken;
+  // CRITICAL FIX: Read the refresh token from the JSON body instead of cookies
+  const refreshToken = req.body.refreshToken;
   if (!refreshToken) return res.sendStatus(401);
 
   if (cacheClient.isReady) {
@@ -192,10 +172,7 @@ module.exports.refreshToken = async (req, res) => {
     if (err) return res.sendStatus(403);
     const accessToken = jwt.sign({ id: decoded.id }, process.env.JWT_SECRET, { expiresIn: "15m" });
     
-    res.cookie("accessToken", accessToken, {
-      httpOnly: true, secure: true, sameSite: "None", maxAge: 15 * 60 * 1000, 
-    });
-
+    // Return the new access token in the JSON response
     res.json({ status: true, token: accessToken });
   });
 };
@@ -225,7 +202,7 @@ module.exports.getAllUsers = async (req, res, next) => {
       const usersBasic = await User.find({ _id: { $ne: currentUserId } }).select("_id").skip(skip).limit(limit);
       userIds = usersBasic.map(u => u._id.toString());
     }
-                                     
+                                         
     if (userIds.length === 0) return res.json([]);
 
     const cacheKeys = userIds.map(id => `user_profile:${id}`);
@@ -349,7 +326,6 @@ module.exports.updateFcmToken = async (req, res, next) => {
   }
 };
 
-// --- FIX: RENAMED TO updateE2EKeys to match the bundle ---
 module.exports.updateE2EKeys = async (req, res, next) => {
   try {
     const { userId, e2eKeys } = req.body;
@@ -364,7 +340,6 @@ module.exports.updateE2EKeys = async (req, res, next) => {
   }
 };
 
-// --- FIX: READS e2eKeys AND RETURNS AS bundle INSTEAD OF CRASHING ---
 module.exports.getPublicKey = async (req, res, next) => {
   try {
     const targetId = req.params.id;
@@ -383,7 +358,6 @@ module.exports.getPublicKey = async (req, res, next) => {
         return res.json({ status: false, msg: "E2E keys not registered for this user yet" });
     }
 
-    // Return the full bundle under "bundle"
     return res.json({ status: true, bundle: user.e2eKeys });
   } catch (ex) {
     console.error("[Crypto] Failed to fetch public key bundle:", ex);
@@ -391,7 +365,6 @@ module.exports.getPublicKey = async (req, res, next) => {
   }
 };
 
-// --- FETCH USER BY ID FOR QR SCANNER ---
 module.exports.getUserById = async (req, res, next) => {
   try {
     const user = await User.findById(req.params.id).select([
@@ -405,7 +378,6 @@ module.exports.getUserById = async (req, res, next) => {
   }
 };
 
-// --- MERGE UPDATE: CHAT CUSTOMIZATION (WALLPAPERS & THEMES) ---
 module.exports.updateChatCustomization = async (req, res, next) => {
   try {
     const { userId, chatId, wallpaper, themeColor } = req.body;

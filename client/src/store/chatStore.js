@@ -74,6 +74,45 @@ const useChatStore = create(
         await idbSet(`chat_history_${chatId}`, messages);
       },
 
+      // =================================================================
+      // --- 4.5. TRIPLE HANDSHAKE MERGE: OPTIMISTIC UI STATE ACTIONS ---
+      // =================================================================
+
+      // 1. Instantly push a pending message into the UI state (Clock Icon)
+      addMessage: async (chatId, message) => {
+        const state = get();
+        const currentMessages = state.offlineMessages[chatId] || [];
+        const newMessages = [...currentMessages, message];
+        
+        // Update memory immediately
+        set({
+            offlineMessages: { ...state.offlineMessages, [chatId]: newMessages }
+        });
+        
+        // Update IDB in the background so it survives a refresh
+        await idbSet(`chat_history_${chatId}`, newMessages);
+      },
+
+      // 2. Replace the localId with the real dbId when the server acknowledges (One Checkmark)
+      updateMessageStatus: async (chatId, localId, dbId, status) => {
+        const state = get();
+        const currentMessages = state.offlineMessages[chatId] || [];
+        
+        const newMessages = currentMessages.map((msg) => 
+            msg.localId === localId 
+                ? { ...msg, _id: dbId, status: status } 
+                : msg
+        );
+
+        set({
+            offlineMessages: { ...state.offlineMessages, [chatId]: newMessages }
+        });
+        
+        await idbSet(`chat_history_${chatId}`, newMessages);
+      },
+
+      // =================================================================
+
       // --- 5. SECURE CLEANUP ---
       clearCache: async () => {
         // FIX: Use idbClear instead of clear()

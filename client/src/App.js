@@ -8,18 +8,24 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { ROUTES } from "./utils/routes";
 
-// --- NEW: GLOBAL AXIOS CONFIGURATION ---
-// Automatically attach secure HttpOnly cookies to EVERY request in the app.
-axios.defaults.withCredentials = true;
+
+// ✅ ADDED: Inject the specific tab's token into EVERY request header
+axios.interceptors.request.use((config) => {
+  const token = sessionStorage.getItem("chat-app-token");
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+}, (error) => {
+  return Promise.reject(error);
+});
 
 // --- LAZY LOADING ---
 const Chat = lazy(() => import("./pages/Chat"));
 const Login = lazy(() => import("./pages/Login"));
 const Register = lazy(() => import("./pages/Register"));
 
-// רכיב עזר לנתיבים פתוחים: מונע ממשתמש מחובר לגשת בטעות לעמודי התחברות והרשמה
 const PublicRoute = ({ children }) => {
-  // תוקן: קריאה מ-sessionStorage עם המפתח המדויק
   const isAuthenticated = sessionStorage.getItem("chat-app-user");
   if (isAuthenticated) {
     return <Navigate to={ROUTES.HOME} replace />;
@@ -29,17 +35,18 @@ const PublicRoute = ({ children }) => {
 
 export default function App() {
 
-  // --- NEW: GLOBAL AXIOS 401 INTERCEPTOR ---
+  // --- GLOBAL AXIOS 401 INTERCEPTOR ---
   useEffect(() => {
     const interceptor = axios.interceptors.response.use(
       (response) => response, 
       (error) => {
         // If the backend says the token is invalid/expired (401)
         if (error.response && error.response.status === 401) {
-          console.warn("Session expired. Logging out globally...");
+          console.warn("Session expired. Logging out this tab globally...");
           
-          // 1. Destroy the dead token
+          // 1. Destroy the dead token and user data from this tab
           sessionStorage.removeItem("chat-app-user");
+          sessionStorage.removeItem("chat-app-token"); // Ensure token is cleared!
           
           // 2. Force the browser to go to the login screen
           if (window.location.pathname !== ROUTES.LOGIN) {
@@ -56,41 +63,13 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      {/* שכבת הגנה כללית של האפליקציה */}
       <AppLock>
-        {/* תפיסת שגיאות קריטיות בטעינת הרכיבים */}
         <ErrorBoundary>
-          {/* מציג את טעינת העמוד בזמן שהרכיבים יורדים ברקע */}
           <Suspense fallback={<PageLoader />}>
             <Routes>
-              
-              <Route 
-                path={ROUTES.REGISTER} 
-                element={
-                  <PublicRoute>
-                    <Register />
-                  </PublicRoute>
-                } 
-              />
-              
-              <Route 
-                path={ROUTES.LOGIN} 
-                element={
-                  <PublicRoute>
-                    <Login />
-                  </PublicRoute>
-                } 
-              />
-              
-              <Route 
-                path={ROUTES.HOME} 
-                element={
-                  <ProtectedRoute>
-                    <Chat />
-                  </ProtectedRoute>
-                } 
-              />
-              
+              <Route path={ROUTES.REGISTER} element={<PublicRoute><Register /></PublicRoute>} />
+              <Route path={ROUTES.LOGIN} element={<PublicRoute><Login /></PublicRoute>} />
+              <Route path={ROUTES.HOME} element={<ProtectedRoute><Chat /></ProtectedRoute>} />
             </Routes>
           </Suspense>
         </ErrorBoundary>

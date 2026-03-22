@@ -1,7 +1,10 @@
 const Message = require("../models/Message"); 
 const messageService = require("../services/messageService");
 const urlMetadata = require('url-metadata'); // Needed for editMessage rich link previews
-const { scheduledMessageQueue } = require("../workers/messageScheduler"); // ADDED: BullMQ integration
+const { scheduledMessageQueue } = require("../workers/messageScheduler"); // BullMQ integration
+
+// STEP 1 FIX: Import Meilisearch Message Index
+const { messageIndex } = require("../utils/meilisearch");
 
 // Helper to detect URLs in text for link previews
 const extractUrls = (text) => {
@@ -9,15 +12,49 @@ const extractUrls = (text) => {
     return text.match(urlRegex);
 };
 
-// --- FEATURE: Search Messages ---
+/* =========================================================
+   FEATURE: Global "Fuzzy" Message Search (Meilisearch)
+   ========================================================= */
 module.exports.searchMessages = async (req, res, next) => {
   try {
     const { userId, query } = req.body;
-    // Uses the MongoDB text index on message.text
-    const messages = await Message.find({
-      users: { $in: [userId] },
-      $text: { $search: query }
-    }).sort({ score: { $meta: "textScore" } }).limit(20);
+
+    if (!query || query.trim() === "") {
+        return res.json({ status: true, messages: [] });
+    }
+
+    let messageIds = [];
+
+    try {
+      // 1. Attempt ultra-fast fuzzy search via Meilisearch
+      // We filter by 'users' so people can only search their own chats
+      const searchResults = await messageIndex.search(query, {
+        filter: `users = '${userId}'`, 
+        limit: 30,
+      });
+
+      messageIds = searchResults.hits.map(hit => hit.id);
+    } catch (meiliErr) {
+      console.warn("[Meilisearch] Message search failed, falling back to MongoDB:", meiliErr.message);
+    }
+
+    let messages = [];
+
+    if (messageIds.length > 0) {
+      // 2A. If Meilisearch worked, fetch the full documents from DB (to get reactions, metadata, etc.)
+      const unsortedMessages = await Message.find({ _id: { $in: messageIds } });
+      
+      // Map them back into the exact relevance order returned by Meilisearch
+      messages = messageIds
+        .map(id => unsortedMessages.find(m => m._id.toString() === id.toString()))
+        .filter(Boolean); // Remove nulls
+    } else {
+      // 2B. Fallback to MongoDB traditional text search if Meili is down or returns 0 results
+      messages = await Message.find({
+        users: { $in: [userId] },
+        $text: { $search: query }
+      }).sort({ score: { $meta: "textScore" } }).limit(20);
+    }
     
     return res.json({ status: true, messages });
   } catch (ex) {
@@ -25,7 +62,9 @@ module.exports.searchMessages = async (req, res, next) => {
   }
 };
 
-// --- PHASE 3: In-App Media Gallery Fetcher (Updated with Filtering) ---
+/* =========================================================
+   In-App Media Gallery Fetcher
+   ========================================================= */
 module.exports.getChatMedia = async (req, res, next) => {
   try {
     const { from, to, filterType } = req.body; 
@@ -40,15 +79,13 @@ module.exports.getChatMedia = async (req, res, next) => {
     const query = { 
         users: { $all: [from, to] },
         type: { $in: typesToFetch },
-        isDeleted: false, // Don't show deleted media in the gallery
-        deletedFor: { $ne: from } // Hide media if user deleted it for themselves
+        isDeleted: false, 
+        deletedFor: { $ne: from } 
     };
 
-    // Use _id for sorting instead of createdAt for better performance and consistency
     const messages = await Message.find(query).sort({ _id: -1 });
 
     const mediaList = messages.map((msg) => {
-      // FIX: Use .some() and .toString() to prevent Mongoose ObjectId comparison bugs
       const hasViewedBy = msg.viewedBy && msg.viewedBy.some(id => id.toString() === from.toString());
       const hasViewed = msg.viewed || hasViewedBy;
       const isHiddenViewOnce = msg.isViewOnce && hasViewed && msg.sender.toString() !== from.toString();
@@ -62,25 +99,22 @@ module.exports.getChatMedia = async (req, res, next) => {
         isViewOnce: msg.isViewOnce,
         viewed: hasViewed,
         linkMetadata: msg.linkMetadata,
-        fileMetadata: msg.fileMetadata // Expose to Gallery
+        fileMetadata: msg.fileMetadata 
       };
-    }).filter(msg => msg.message !== "💣 Media Expired"); // Completely hide expired view-once media
+    }).filter(msg => msg.message !== "💣 Media Expired"); 
 
-    res.json({
-        status: true,
-        media: mediaList
-    });
+    res.json({ status: true, media: mediaList });
   } catch (ex) {
     next(ex);
   }
 };
 
-// --- FEATURE: Infinite Scrolling & Phase 2 Scheduled Message Filter ---
+/* =========================================================
+   Infinite Scrolling Pagination
+   ========================================================= */
 module.exports.getMessages = async (req, res, next) => {
   try {
     const { from, to, cursor, limit = 50 } = req.body; 
-    
-    // Delegate the complex querying and formatting to the Service Layer
     const result = await messageService.fetchMessages(from, to, cursor, limit);
     res.json(result);
   } catch (ex) {
@@ -88,14 +122,15 @@ module.exports.getMessages = async (req, res, next) => {
   }
 };
 
-// --- Add Message (Delegated to Service Layer + BullMQ Scheduler) ---
+/* =========================================================
+   Add Message (Delegated to Service Layer + BullMQ + Meili)
+   ========================================================= */
 module.exports.addMessage = async (req, res, next) => {
   try {
-    // Delegate Cloudinary uploads, URL metadata, saving, and Notifications to the Service Layer
     const data = await messageService.processAndSaveMessage(req.body);
     
     if (data) {
-        // IMPROVEMENT: If the message is scheduled for the future, send it to the BullMQ worker
+        // BullMQ: Schedule message for the future
         if (data.scheduledAt && data.status === "pending") {
             const delayMs = new Date(data.scheduledAt).getTime() - Date.now();
             if (delayMs > 0) {
@@ -103,6 +138,19 @@ module.exports.addMessage = async (req, res, next) => {
                     { messageId: data._id }, 
                     { delay: delayMs }
                 );
+            }
+        } else if (data.type === 'text') {
+            // MEILISEARCH: Sync standard text messages instantly to the search index
+            try {
+                await messageIndex.addDocuments([{
+                    id: data._id.toString(),
+                    text: data.message.text,
+                    users: data.users.map(u => u.toString()), // Array of users allowed to see this
+                    sender: data.sender.toString(),
+                    createdAt: new Date(data.createdAt).getTime()
+                }]);
+            } catch (err) {
+                console.warn("[Meilisearch] Failed to index new message:", err.message);
             }
         }
 
@@ -124,19 +172,15 @@ module.exports.reactToMessage = async (req, res, next) => {
     const message = await Message.findById(messageId);
     if (!message) return res.status(404).json({ msg: "Message not found" });
 
-    // FIX: Check if user already reacted. If they did, update the emoji instead of pushing duplicates.
     const userReactionIndex = message.reactions.findIndex(r => r.by.toString() === userId.toString());
     
     if (userReactionIndex > -1) {
         if (message.reactions[userReactionIndex].emoji === emoji) {
-            // Same emoji clicked again -> Remove reaction (toggle off)
             message.reactions.splice(userReactionIndex, 1);
         } else {
-            // Different emoji clicked -> Update reaction
             message.reactions[userReactionIndex].emoji = emoji;
         }
     } else {
-        // New reaction
         message.reactions.push({ emoji, by: userId, username });
     }
 
@@ -147,14 +191,15 @@ module.exports.reactToMessage = async (req, res, next) => {
   }
 };
 
-// Delete for Everyone
+/* =========================================================
+   Delete Message for Everyone
+   ========================================================= */
 module.exports.deleteMessage = async (req, res, next) => {
   try {
     const { messageId } = req.body;
     const message = await Message.findById(messageId);
     if (!message) return res.status(404).json({ msg: "Message not found" });
 
-    // FIX: Safe check for user ID depending on how your auth middleware maps it
     const requestingUserId = req.user?.id || req.body.userId;
     if (message.sender.toString() !== requestingUserId.toString()) {
         return res.status(403).json({ msg: "Unauthorized action: You can only delete your own messages." });
@@ -164,9 +209,16 @@ module.exports.deleteMessage = async (req, res, next) => {
     message.message.text = "🚫 This message was deleted";
     message.reactions = []; 
     message.linkMetadata = null;
-    message.fileMetadata = null; // clear on delete
+    message.fileMetadata = null; 
     message.pollData = null;
     await message.save();
+
+    // MEILISEARCH: Remove deleted messages from the global search index
+    try {
+        await messageIndex.deleteDocument(messageId.toString());
+    } catch (err) {
+        console.warn("[Meilisearch] Failed to delete message from index:", err.message);
+    }
 
     return res.json({ msg: "Message deleted successfully." });
   } catch (ex) {
@@ -174,17 +226,17 @@ module.exports.deleteMessage = async (req, res, next) => {
   }
 };
 
-// --- Delete for Me Controller ---
+/* =========================================================
+   Delete for Me
+   ========================================================= */
 module.exports.deleteMessageForMe = async (req, res, next) => {
   try {
     const { messageId, userId } = req.body;
     const message = await Message.findById(messageId);
     if (!message) return res.status(404).json({ msg: "Message not found" });
 
-    // Initialize array if it doesn't exist in the older schema records
     if (!message.deletedFor) message.deletedFor = [];
     
-    // FIX: Use .some() instead of .includes() for ObjectIds
     if (!message.deletedFor.some(id => id.toString() === userId.toString())) {
         message.deletedFor.push(userId);
         await message.save();
@@ -196,13 +248,15 @@ module.exports.deleteMessageForMe = async (req, res, next) => {
   }
 };
 
+/* =========================================================
+   Edit Message
+   ========================================================= */
 module.exports.editMessage = async (req, res, next) => {
   try {
     const { messageId, newText } = req.body;
     const message = await Message.findById(messageId);
     if (!message) return res.status(404).json({ msg: "Message not found" });
 
-    // FIX: Safe check for user ID
     const requestingUserId = req.user?.id || req.body.userId;
     if (message.sender.toString() !== requestingUserId.toString()) {
         return res.status(403).json({ msg: "Unauthorized action: You can only edit your own messages." });
@@ -233,6 +287,13 @@ module.exports.editMessage = async (req, res, next) => {
 
     await message.save();
 
+    // MEILISEARCH: Update the edited text in the search engine
+    try {
+        await messageIndex.updateDocuments([{ id: messageId.toString(), text: newText }]);
+    } catch (err) {
+        console.warn("[Meilisearch] Failed to update edited message in index:", err.message);
+    }
+
     return res.json({ msg: "Message edited successfully." });
   } catch (ex) {
     next(ex);
@@ -250,12 +311,11 @@ module.exports.votePoll = async (req, res, next) => {
 
         if (!message.pollData.multipleAnswers) {
             message.pollData.options.forEach(opt => {
-                opt.votes = opt.votes.filter(id => id.toString() !== userId.toString()); // FIX: .toString()
+                opt.votes = opt.votes.filter(id => id.toString() !== userId.toString());
             });
         }
 
         const option = message.pollData.options.id(optionId);
-        // FIX: Use .some() instead of .includes() for ObjectIds
         if (option && !option.votes.some(id => id.toString() === userId.toString())) {
             option.votes.push(userId);
         }
@@ -267,7 +327,6 @@ module.exports.votePoll = async (req, res, next) => {
     }
 };
 
-// Phase 2: Enhanced View-Once logic for groups
 module.exports.triggerViewOnce = async (req, res, next) => {
     try {
         const { messageId, userId } = req.body;
@@ -276,7 +335,6 @@ module.exports.triggerViewOnce = async (req, res, next) => {
         if(!message) return res.status(404).json({ msg: "Message not found" });
 
         message.viewed = true;
-        // FIX: Use .some() instead of .includes() for ObjectIds
         if (userId && !message.viewedBy.some(id => id.toString() === userId.toString())) {
             message.viewedBy.push(userId);
         }
@@ -295,11 +353,10 @@ module.exports.toggleStarMessage = async (req, res, next) => {
         
         if(!message) return res.status(404).json({ msg: "Message not found" });
 
-        // FIX: Use .some() instead of .includes() for ObjectIds
         const isStarred = message.starredBy && message.starredBy.some(id => id.toString() === userId.toString());
         
         if (isStarred) {
-            message.starredBy = message.starredBy.filter(id => id.toString() !== userId.toString()); // FIX: .toString()
+            message.starredBy = message.starredBy.filter(id => id.toString() !== userId.toString());
         } else {
             if (!message.starredBy) message.starredBy = [];
             message.starredBy.push(userId);

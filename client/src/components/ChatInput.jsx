@@ -9,7 +9,10 @@ import {
     BsStopCircleFill, BsCodeSlash, BsClockHistory, BsTerminal 
 } from "react-icons/bs";
 import { FaBomb, FaFire, FaCalendarAlt, FaLink, FaSpinner, FaLock, FaMagic } from "react-icons/fa";
-import { toast } from "react-toastify"; // NEW: Imported toast for our new iOS styling
+import { toast } from "react-toastify"; 
+
+// --- TRIPLE HANDSHAKE MERGE: IMPORT UUID ---
+import { v4 as uuidv4 } from 'uuid';
 
 // --- MERGE UPDATE: IMPORT ZUSTAND STORE ---
 import useChatStore from "../store/chatStore";
@@ -28,10 +31,9 @@ const COMMANDS = [
 export default function ChatInput({ 
     handleSendMsg, handleTyping, replyingTo, setReplyingTo, 
     editingMessage, setEditingMessage, handleEditMsgSubmit,
-    droppedFile, onClearDrop // <-- NEW: Props for Drag-and-Drop handling
+    droppedFile, onClearDrop
 }) {
   
-  // --- MERGE UPDATE: GET THEME & CURRENT CHAT ---
   const { currentChat, currentUser, theme } = useChatStore();
 
   const [msg, setMsg] = useState("");
@@ -50,7 +52,6 @@ export default function ChatInput({
   
   const [detectedUrl, setDetectedUrl] = useState(null);
 
-  // --- NEW: Slash Commands & Audio Analyzer State ---
   const [showCommands, setShowCommands] = useState(false);
   const [audioLevels, setAudioLevels] = useState(Array(15).fill(10));
   
@@ -59,7 +60,6 @@ export default function ChatInput({
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
 
-  // --- NEW: Audio Context Refs ---
   const audioContextRef = useRef(null);
   const analyzerRef = useRef(null);
   const animationFrameRef = useRef(null);
@@ -69,10 +69,8 @@ export default function ChatInput({
   const isMod = currentChat?.moderators?.includes(currentUser?._id);
   const canPost = !isChannel || isAdmin || isMod;
 
-  // Has content check for styling the Send button
   const hasContent = msg.trim().length > 0 || mediaPreview !== null;
 
-  // Process file dropped from ChatContainer
   useEffect(() => {
       if (droppedFile && canPost) {
           processFile(droppedFile);
@@ -101,7 +99,6 @@ export default function ChatInput({
       }
   }, [msg]);
 
-  // Click outside listener to close menus
   useEffect(() => {
       const handleClickOutside = (e) => {
           if (!e.target.closest('.button-container')) {
@@ -114,7 +111,6 @@ export default function ChatInput({
       return () => document.removeEventListener('click', handleClickOutside);
   }, []);
 
-  // --- NEW: Clean up Audio Context on unmount ---
   useEffect(() => {
       return () => {
           if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
@@ -135,7 +131,6 @@ export default function ChatInput({
       }
   };
 
-  // --- NEW: Execute Slash Command ---
   const executeCommand = (cmdStr) => {
       if (cmdStr === "/code") setIsCodeMode(true);
       if (cmdStr === "/bomb") setTimerDuration(3600);
@@ -152,9 +147,12 @@ export default function ChatInput({
           handleEditMsgSubmit(editingMessage.id, msg);
           setEditingMessage(null);
       } else {
+          // --- TRIPLE HANDSHAKE MERGE: Phase 2 (Optimistic Text) ---
+          const localId = uuidv4();
           handleSendMsg(msg, isCodeMode ? "code" : (detectedUrl ? "link" : "text"), replyingTo?.id, {
               timer: timerDuration,
-              scheduledAt: scheduleDate || null
+              scheduledAt: scheduleDate || null,
+              localId // Inject the localId so ChatContainer can render it immediately
           }); 
       }
       setMsg("");
@@ -166,7 +164,7 @@ export default function ChatInput({
       setScheduleDate(""); 
       setShowScheduleMenu(false);
       setDetectedUrl(null);
-      setShowCommands(false); // Close command palette if open
+      setShowCommands(false); 
     }
   };
 
@@ -175,21 +173,17 @@ export default function ChatInput({
       setMsg(val);
       handleTyping(val.length > 0);
       
-      // --- NEW: Trigger Slash Commands ---
       if (val.startsWith("/")) setShowCommands(true);
       else setShowCommands(false);
 
-      // Auto-expand logic
       e.target.style.height = 'auto';
-      const newHeight = Math.min(e.target.scrollHeight, 150); // Max height 150px
+      const newHeight = Math.min(e.target.scrollHeight, 150); 
       e.target.style.height = `${newHeight}px`;
   };
 
   const handleKeyDown = (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
-          e.preventDefault(); // Prevent new line
-          
-          // --- NEW: Intercept Enter for Commands ---
+          e.preventDefault(); 
           if (showCommands && COMMANDS.some(c => msg.startsWith(c.cmd))) {
               executeCommand(msg.trim());
           } else {
@@ -250,7 +244,6 @@ export default function ChatInput({
           const response = await axios.post(
               `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/${resourceType}/upload`, 
               formData,
-              // --- CRITICAL FIX: Disable global cookies for this specific 3rd-party request ---
               { withCredentials: false } 
           );
           return response.data.secure_url;
@@ -290,10 +283,13 @@ export default function ChatInput({
       setIsUploading(false);
 
       if (cloudUrl) {
+          // --- TRIPLE HANDSHAKE MERGE: Phase 2 (Optimistic Media) ---
+          const localId = uuidv4();
           handleSendMsg(cloudUrl, mediaPreview.type, replyingTo?.id, {
               isViewOnce: isViewOnceMedia,
               fileName: mediaPreview.fileName,
-              fileSize: formatFileSize(fileToUpload.size) 
+              fileSize: formatFileSize(fileToUpload.size),
+              localId // Inject the localId
           });
           
           setMediaPreview(null);
@@ -303,12 +299,10 @@ export default function ChatInput({
               setTimeout(() => sendChat(), 200); 
           }
       } else {
-          // Replaced ugly alert with an elegant toast message
           toast.error("Media upload failed. Please try again.");
       }
   };
 
-  // --- MERGE UPDATE: Advanced Web Audio API Recording ---
   const startRecording = async () => {
     if (!canPost) return;
     try {
@@ -317,7 +311,6 @@ export default function ChatInput({
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
 
-      // Set up Audio Analyzer
       const AudioContext = window.AudioContext || window.webkitAudioContext;
       audioContextRef.current = new AudioContext();
       analyzerRef.current = audioContextRef.current.createAnalyser();
@@ -330,7 +323,6 @@ export default function ChatInput({
       const updateWaveform = () => {
           if (!analyzerRef.current) return;
           analyzerRef.current.getByteFrequencyData(dataArray);
-          // Sample 15 points across the frequency array for visualization
           const step = Math.floor(bufferLength / 15);
           const newLevels = Array.from({length: 15}).map((_, i) => Math.max(10, dataArray[i * step] / 2));
           setAudioLevels(newLevels);
@@ -343,7 +335,6 @@ export default function ChatInput({
       };
 
       mediaRecorder.onstop = async () => {
-        // Stop animation
         if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
         if (audioContextRef.current) {
             audioContextRef.current.close().catch(()=>console.log("Audio context already closed"));
@@ -357,7 +348,9 @@ export default function ChatInput({
         setIsUploading(false);
 
         if (cloudUrl) {
-            handleSendMsg(cloudUrl, "audio", replyingTo?.id, { timer: timerDuration }); 
+            // --- TRIPLE HANDSHAKE MERGE: Phase 2 (Optimistic Audio) ---
+            const localId = uuidv4();
+            handleSendMsg(cloudUrl, "audio", replyingTo?.id, { timer: timerDuration, localId }); 
             setReplyingTo(null);
         } else {
             toast.error("Failed to send audio message.");
@@ -400,7 +393,6 @@ export default function ChatInput({
   return (
     <Wrapper>
       
-      {/* --- NEW: Slash Command Palette --- */}
       {showCommands && (
           <CommandPalette>
               <div className="cmd-header"><BsTerminal /> Slash Commands</div>
@@ -595,7 +587,6 @@ const pulse = keyframes`
   100% { transform: scale(1); }
 `;
 
-// Only used as fallback now, dynamic waveform uses JS heights
 const wave = keyframes`
   0%, 100% { height: 8px; }
   50% { height: 24px; }

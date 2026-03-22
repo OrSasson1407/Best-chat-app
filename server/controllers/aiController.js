@@ -1,6 +1,9 @@
 // server/controllers/aiController.js
 const { OpenAI } = require("openai");
 
+// Import the Message model to fetch the chat history for the summarizer
+const Message = require("../models/Message");
+
 // Initialize OpenAI (Make sure to add OPENAI_API_KEY to your .env file)
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -64,5 +67,60 @@ module.exports.translateMessage = async (req, res, next) => {
   } catch (error) {
     console.error("AI Translation Error:", error);
     return res.status(500).json({ status: false, msg: "Failed to translate message" });
+  }
+};
+
+// --- FEATURE 2: AI Chat Summarizer ---
+module.exports.summarizeChat = async (req, res, next) => {
+  try {
+    const { from, to, limit = 50 } = req.body;
+
+    if (!from || !to) {
+        return res.status(400).json({ status: false, msg: "Missing chat parameters" });
+    }
+
+    // 1. Fetch the last 'X' messages from this specific conversation
+    const messages = await Message.find({ 
+        users: { $all: [from, to] },
+        isDeleted: false,
+        type: "text" // Only summarize text, skip images/files/polls
+    })
+    .sort({ _id: -1 })
+    .limit(limit)
+    .populate("sender", "username"); // Get the usernames so the AI knows who is talking
+
+    if (!messages || messages.length < 5) {
+        return res.json({ status: false, msg: "Not enough messages to summarize. Read them yourself! 😉" });
+    }
+
+    // 2. Format the messages into a readable transcript for the AI
+    // We reverse it so it reads in chronological order (oldest to newest)
+    const transcript = messages.reverse().map(msg => {
+        const senderName = msg.sender?.username || "Unknown User";
+        return `${senderName}: ${msg.message.text}`;
+    }).join("\n");
+
+    // 3. Send the transcript to OpenAI
+    const response = await openai.chat.completions.create({
+      model: "gpt-3.5-turbo",
+      messages: [
+        { 
+            role: "system", 
+            content: "You are a smart chat assistant. Summarize the following conversation transcript in exactly 3 short, punchy bullet points. Focus on key decisions, events, or important shared information. Ignore basic greetings." 
+        },
+        { 
+            role: "user", 
+            content: `Here is the conversation:\n\n${transcript}` 
+        }
+      ],
+      temperature: 0.5, // Lower temperature for more factual summaries
+    });
+
+    const summary = response.choices[0].message.content.trim();
+
+    return res.status(200).json({ status: true, summary });
+  } catch (error) {
+    console.error("AI Chat Summary Error:", error);
+    return res.status(500).json({ status: false, msg: "Failed to summarize chat" });
   }
 };

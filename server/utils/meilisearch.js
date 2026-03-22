@@ -4,7 +4,7 @@ const meiliClient = new MeiliSearch({
   host: process.env.MEILISEARCH_HOST || "http://127.0.0.1:7700",
   apiKey: process.env.MEILISEARCH_API_KEY || "", // Leave empty for local dev without a master key
 });
-
+await messageIndex.updateFilterableAttributes(['users']);
 const userIndex = meiliClient.index("users");
 
 // Initialize Search Settings

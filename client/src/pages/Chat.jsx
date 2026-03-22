@@ -1,60 +1,49 @@
+// client/src/pages/Chat.jsx
 import React, { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { io } from "socket.io-client";
-
-// STEP 3 FIX: Import the binary payload parser
 import customParser from "socket.io-msgpack-parser";
-
 import styled, { keyframes, css } from "styled-components";
 import { allUsersRoute, host, updateFcmTokenRoute } from "../utils/APIRoutes"; 
 import Contacts from "../components/Contacts";
 import Welcome from "../components/Welcome";
 import ChatContainer from "../components/ChatContainer";
 
-// --- ZUSTAND GLOBAL STORE ---
 import useChatStore from "../store/chatStore";
 import { ToastContainer, toast } from "react-toastify";
-
-// --- FIREBASE UTILITIES ---
 import { requestForToken, onMessageListener } from "../firebase"; 
 
 export default function Chat() {
   const navigate = useNavigate();
   const socket = useRef();
   
-  // --- GLOBAL STATE ---
   const {
     currentUser, setCurrentUser,
     currentChat, setCurrentChat,
     setOnlineUsers,
     setGlobalTypingUsers,
-    theme,           // Get current theme
-    setTheme,        // Function to update theme
+    theme, setTheme,
     isCompact
   } = useChatStore();
 
-  // --- LOCAL COMPONENT STATE ---
   const [contacts, setContacts] = useState([]); 
   const [isLoaded, setIsLoaded] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  // --- NEW: Time-based Mesh Gradient Colors ---
   const timeBasedColors = useMemo(() => {
     const hour = new Date().getHours();
-    if (hour >= 5 && hour < 12) return ["#ff9a9e", "#fecfef"]; // Morning (Warm/Pink)
-    if (hour >= 12 && hour < 17) return ["#a1c4fd", "#c2e9fb"]; // Afternoon (Cool/Blue)
-    if (hour >= 17 && hour < 21) return ["#f6d365", "#fda085"]; // Evening (Sunset)
-    return ["#30cfd0", "#330867"]; // Night (Deep Purple/Teal)
+    if (hour >= 5 && hour < 12) return ["#ff9a9e", "#fecfef"];
+    if (hour >= 12 && hour < 17) return ["#a1c4fd", "#c2e9fb"];
+    if (hour >= 17 && hour < 21) return ["#f6d365", "#fda085"];
+    return ["#30cfd0", "#330867"];
   }, []);
 
-  // --- NEW: Apply Theme to HTML Document globally ---
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
   }, [theme]);
 
-  // --- NEW: Theme Toggle Handler ---
   const toggleTheme = () => {
     setTheme(theme === 'light' ? 'glass' : 'light'); 
   };
@@ -63,10 +52,16 @@ export default function Chat() {
   useEffect(() => {
     async function checkAuth() {
       const storedData = sessionStorage.getItem("chat-app-user");
-      if (!storedData) {
+      // Grab token to ensure they actually logged in correctly
+      const storedToken = sessionStorage.getItem("chat-app-token"); 
+      
+      if (!storedData || !storedToken) {
         navigate("/login");
       } else {
-        setCurrentUser(JSON.parse(storedData));
+        const parsedUser = JSON.parse(storedData);
+        // Ensure token is attached to currentUser object if needed by socket
+        parsedUser.token = storedToken; 
+        setCurrentUser(parsedUser);
         setIsLoaded(true);
       }
     }
@@ -77,9 +72,9 @@ export default function Chat() {
   useEffect(() => {
     if (currentUser && currentUser._id && !socket.current) {
       socket.current = io(host, {
-        auth: { token: currentUser.token }, // Fallback for older connections
-        withCredentials: true, // STEP 4 FIX: Include cookies in WebSocket handshake
-        parser: customParser   // STEP 3 FIX: Decode MessagePack binary streams
+        auth: { token: currentUser.token }, // ✅ Token is passed here instead of cookies
+        // ❌ REMOVED: withCredentials: true (We don't want cookies sharing across tabs)
+        parser: customParser 
       });
 
       socket.current.on("connect", () => {
@@ -135,7 +130,6 @@ export default function Chat() {
       socket.current.on("typing-status", handleTypingStatus);
 
       return () => {
-        // FIX: Added optional chaining to prevent crash on unmount if socket is already null
         socket.current?.off("typing-status", handleTypingStatus);
       };
     }
@@ -146,10 +140,9 @@ export default function Chat() {
     async function fetchContacts() {
       if (currentUser && currentUser._id) {
         try {
-          const response = await axios.get(`${allUsersRoute}/${currentUser._id}`, {
-            headers: { "x-auth-token": currentUser.token },
-            withCredentials: true // STEP 4 FIX: Pass secure cookies along with the fallback header
-          });
+          // ❌ REMOVED: headers: { "x-auth-token" } and withCredentials
+          // Our new App.js Request Interceptor adds the Bearer token automatically!
+          const response = await axios.get(`${allUsersRoute}/${currentUser._id}`);
           setContacts(response.data);
         } catch (error) {
           console.error("Error fetching contacts:", error);
@@ -170,12 +163,11 @@ export default function Chat() {
         const token = await requestForToken();
         if (token) {
            try {
+              // ❌ REMOVED: headers: { "x-auth-token" } and withCredentials
+              // Interceptor handles it!
               await axios.post(updateFcmTokenRoute, {
                  userId: currentUser._id,
                  fcmToken: token
-              }, { 
-                 headers: { "x-auth-token": currentUser.token },
-                 withCredentials: true // STEP 4 FIX
               });
            } catch (err) {
               console.error("Failed to save FCM token to DB", err);
@@ -203,7 +195,8 @@ export default function Chat() {
 
   const handleLogout = useCallback(async () => {
     try {
-      await axios.get(`${host}/api/auth/logout`, { withCredentials: true }); 
+      // ❌ REMOVED: withCredentials
+      await axios.get(`${host}/api/auth/logout`); 
     } catch (err) {
       console.error("Logout API failed:", err);
     } finally {
@@ -227,12 +220,10 @@ export default function Chat() {
       $isMobileMenuOpen={isMobileMenuOpen}
       $timeColors={timeBasedColors}
     >
-      {/* --- NEW: Theme Toggle Button --- */}
       <button className="theme-toggle" onClick={toggleTheme}>
         {theme === 'light' ? '🌙 Dark Mode' : '☀️ Light Mode'}
       </button>
 
-      {/* --- Mesh Gradient Orbs (Hidden in Light Mode for clean visibility) --- */}
       {theme !== 'light' && (
         <div className="mesh-gradient">
           <div className="orb orb-1"></div>
@@ -241,14 +232,9 @@ export default function Chat() {
         </div>
       )}
 
-      {/* --- Cyberpunk Scanlines Overlay --- */}
       {theme === 'cyberpunk' && <div className="scanlines"></div>}
       
-      {/* Mobile Menu Toggle */}
-      <button 
-        className="mobile-toggle" 
-        onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-      >
+      <button className="mobile-toggle" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
         {isMobileMenuOpen ? "✕" : "☰"}
       </button>
 
@@ -266,10 +252,7 @@ export default function Chat() {
             <Welcome />
           ) : (
             currentChat && (
-              <ChatContainer 
-                socket={socket} 
-                isTyping={isTyping} 
-              />
+              <ChatContainer socket={socket} isTyping={isTyping} />
             )
           )}
         </div>
@@ -280,7 +263,6 @@ export default function Chat() {
 }
 
 // --- Styles & Animations ---
-
 const pulseGlow = keyframes`
   0% { filter: blur(100px) brightness(1); }
   50% { filter: blur(120px) brightness(1.5); }
@@ -299,8 +281,6 @@ const scanlineAnim = keyframes`
   100% { transform: translateY(100%); }
 `;
 
-// Helper to keep only localized specialty theme overrides.
-// Light/Glass defaults are now fully controlled dynamically via index.css variables!
 const getThemeStyles = (themeType) => {
   if (themeType === 'midnight') {
     return css`
@@ -336,7 +316,6 @@ const Container = styled.div`
   position: relative;
   transition: background-color 0.5s ease;
   
-  /* Apply Time-Based Background Gradient OR Solid Color for Light Mode */
   background: ${({ $themeType, $timeColors }) => 
     $themeType === 'light' 
       ? 'var(--bg-color)' 
@@ -418,9 +397,8 @@ const Container = styled.div`
     display: grid;
     grid-template-columns: 25% 75%;
     overflow: hidden;
-    z-index: 3; /* Lifted above scanlines */
+    z-index: 3; 
     
-    /* Tied to global CSS variables from index.css */
     background: var(--glass-bg);
     border: 1px solid var(--glass-border);
     backdrop-filter: var(--glass-blur);
@@ -441,7 +419,6 @@ const Container = styled.div`
     }
   }
 
-  /* Responsive Logic */
   @media screen and (max-width: 1080px) {
     .glass-container {
       width: 95vw;
@@ -466,7 +443,7 @@ const Container = styled.div`
       width: 80%;
       height: 100%;
       z-index: 5;
-      background: var(--bg-layout); /* Updated to use CSS variable */
+      background: var(--bg-layout); 
       transition: 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
       border-right: 1px solid var(--glass-border);
       
