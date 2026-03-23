@@ -572,7 +572,15 @@ export default function ChatContainer({ socket, isTyping }) {
                     console.error("[Crypto] Could not fetch public key for encryption", err); 
                 }
             } else if (currentChat.admin && activeGroupAesKey) {
-                finalMessageContent = await encryptGroupMessage(msg, activeGroupAesKey);
+                // ✅ FIX: wrap in try/catch — if group encryption throws, fallback to
+                //         plaintext instead of leaving finalMessageContent undefined,
+                //         which causes message.startsWith() to crash on backend (400).
+                try {
+                    finalMessageContent = await encryptGroupMessage(msg, activeGroupAesKey);
+                } catch (err) {
+                    console.error('[Crypto] Group encryption failed, sending as plaintext:', err);
+                    finalMessageContent = msg;
+                }
             }
         }
 

@@ -3,20 +3,16 @@ const User = require("../models/User");
 const urlMetadata = require('url-metadata');
 const { notificationQueue } = require("../workers/notificationWorker"); 
 
-// STEP 6 FIX: Import the new async media worker queue
 const { mediaQueue } = require("../workers/mediaWorker"); 
 
 const { createRedisClient } = require("../config/redis");
 
-// Initialize Redis for Hot Cache
 const cacheClient = createRedisClient();
 
-// CRITICAL FIX: Catch background errors so they don't crash Node.js
 cacheClient.on("error", (err) => {
   console.warn("Message Cache Client Error:", err.message);
 });
 
-// LAZY CONNECT FIX: Connect in background, don't block startup
 cacheClient.connect().catch(() => {});
 
 const extractUrls = (text) => {
@@ -26,7 +22,6 @@ const extractUrls = (text) => {
 
 class MessageService {
 
-  // Helper to generate a unique cache key for a conversation
   getChatCacheKey(user1, user2) {
     const sortedIds = [user1.toString(), user2.toString()].sort();
     return `chat_history:${sortedIds[0]}:${sortedIds[1]}`;
@@ -34,6 +29,15 @@ class MessageService {
 
   async processAndSaveMessage(payload) {
     const { from, to, message, type, replyTo, isForwarded, isViewOnce, pollData, timer, scheduledAt, fileName, fileSize } = payload;
+
+    // ✅ FIX: Guard against null/empty/non-string message BEFORE any processing.
+    //         Without this, message.startsWith("data:") below throws a TypeError
+    //         which gets swallowed by the controller and returns a misleading 400.
+    //         This happens when group encryption throws and the frontend sends null.
+    if (!message || typeof message !== "string" || message.trim() === "") {
+      console.error("[MessageService] Rejected: message field is null, empty, or not a string.", { from, to, type });
+      return null;
+    }
 
     const receiver = await User.findById(to);
     if (receiver && receiver.blockedUsers && receiver.blockedUsers.includes(from)) {
@@ -44,7 +48,6 @@ class MessageService {
     let fileMetadata = null;
     let finalType = type || "text";
 
-    // Handle Link Metadata immediately (it is fast enough to do synchronously)
     if (finalType === "text" || finalType === "link") {
         const urls = extractUrls(message);
         if (urls && urls.length > 0) {
@@ -68,14 +71,12 @@ class MessageService {
 
     const isSent = scheduledAt ? new Date(scheduledAt) <= new Date() : true;
     
-    // STEP 6 FIX: Determine if the message is a media upload
     const isMedia = ["image", "video", "audio", "file"].includes(finalType) && message.startsWith("data:");
 
-    // STEP 6 FIX: Determine Status. Media bypasses "sent" initially to become "processing"
     let initialStatus = isMedia ? "processing" : (isSent ? "sent" : "pending");
 
     const data = await Message.create({
-      message: { text: message }, // For media, this temporarily stores the base64 string
+      message: { text: message },
       users: [from, to],
       sender: from,
       type: finalType,
@@ -93,22 +94,17 @@ class MessageService {
       deletedFor: [] 
     });
 
-    // --- STEP 6 FIX: ASYNC MEDIA PIPELINE TRIGGER ---
     if (isMedia) {
       await mediaQueue.add("process_media", {
         messageId: data._id,
         from, to, type: finalType, fileName, fileSize
       });
-      // Return immediately so the sender's UI is not blocked. 
-      // The background worker handles the Cloudinary upload and updates Redis later.
       return data; 
     }
 
-    // --- HOT CACHE & NOTIFICATIONS (Only executes synchronously for standard text/links) ---
     if (cacheClient.isReady && isSent) {
       const cacheKey = this.getChatCacheKey(from, to);
       
-      // Fetch populated replyTo data if it exists so the cache matches the frontend's expected structure
       let populatedReplyTo = null;
       if (replyTo) {
         const replyMsg = await Message.findById(replyTo).select("message.text sender type isDeleted");
@@ -148,11 +144,10 @@ class MessageService {
       });
 
       await cacheClient.lPush(cacheKey, messageToCache);
-      await cacheClient.lTrim(cacheKey, 0, 49); // Keep latest 50
-      await cacheClient.expire(cacheKey, 86400); // Expire idle chats after 24h
+      await cacheClient.lTrim(cacheKey, 0, 49);
+      await cacheClient.expire(cacheKey, 86400);
     }
 
-    // Handle FCM Notifications
     if (isSent && receiver && receiver.fcmToken && !global.onlineUsers?.has(to)) {
        try {
          const senderUser = await User.findById(from);
@@ -173,19 +168,14 @@ class MessageService {
   async fetchMessages(from, to, cursor, limit) {
     const cacheKey = this.getChatCacheKey(from, to);
 
-    // STEP 2 FIX: REDIS CACHE STRATEGY
     if (!cursor && cacheClient.isReady) {
       const cachedData = await cacheClient.lRange(cacheKey, 0, limit - 1);
       
-      // ONLY use the cache if it can fulfill the entire requested limit.
-      // If the cache only has 3 messages but the limit is 20, we fallback to MongoDB
-      // to guarantee the user sees a full screen of history.
       if (cachedData && cachedData.length === limit) {
         const parsedCache = cachedData.map(msgStr => {
           const msg = JSON.parse(msgStr);
           msg.fromSelf = msg.sender.toString() === from.toString(); 
           
-          // Apply ViewOnce / Deleted masking
           const isHiddenViewOnce = msg.isViewOnce && msg.viewed && !msg.fromSelf;
           if (isHiddenViewOnce) msg.message = "💣 Media Expired";
           if (msg.isDeleted) msg.message = "🚫 This message was deleted";
@@ -193,18 +183,16 @@ class MessageService {
           return msg;
         });
 
-        // Safely reverse without mutating the original reference mapped array
         const reversedCache = [...parsedCache].reverse();
 
         return {
           messages: reversedCache,
-          hasMore: true, // We know there are likely more messages in the DB if cache is full
-          nextCursor: reversedCache[0].id // Oldest message in this batch acts as the next cursor
+          hasMore: true,
+          nextCursor: reversedCache[0].id
         };
       }
     }
 
-    // FALLBACK TO MONGODB
     let query = { 
         users: { $all: [from, to] },
         deletedFor: { $ne: from }, 
