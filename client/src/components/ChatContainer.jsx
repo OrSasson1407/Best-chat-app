@@ -19,7 +19,7 @@ import { v4 as uuidv4 } from "uuid";
 import { toast } from "react-toastify";
 import { 
     FaThumbtack, FaSpinner, FaCloudUploadAlt, FaTimes, FaCheckDouble, FaArrowDown, FaMagic, FaGlobe 
-} from "react-icons/fa"; // Added FaGlobe
+} from "react-icons/fa";
 
 import { Container, DropOverlay, ScrollButton, Lightbox } from "./ChatContainer.styles"; 
 import CallModal from "./CallModal"; 
@@ -589,7 +589,8 @@ export default function ChatContainer({ socket, isTyping }) {
             type, replyTo: replyToId, isForwarded: extraData.isForwarded || false,
             isViewOnce: extraData.isViewOnce || false, pollData: extraData.pollData || null,
             timer: extraData.timer || null, fileName: extraData.fileName || null, fileSize: extraData.fileSize || null,
-            scheduledAt: extraData.scheduledAt || null // Needed for Scheduled Messages
+            scheduledAt: extraData.scheduledAt || null, // Needed for Scheduled Messages
+            localId: extraData.localId || newMessageId // FIX: Added localId for optimistic UI tracking
         };
 
         const fileMetadataObj = extraData.fileName ? { fileName: extraData.fileName, fileSize: extraData.fileSize } : null;

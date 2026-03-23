@@ -28,7 +28,8 @@ class MessageService {
   }
 
   async processAndSaveMessage(payload) {
-    const { from, to, message, type, replyTo, isForwarded, isViewOnce, pollData, timer, scheduledAt, fileName, fileSize } = payload;
+    // FIX: Extract localId from the payload
+    const { from, to, message, type, replyTo, isForwarded, isViewOnce, pollData, timer, scheduledAt, fileName, fileSize, localId } = payload;
 
     // ✅ FIX: Guard against null/empty/non-string message BEFORE any processing.
     //         Without this, message.startsWith("data:") below throws a TypeError
@@ -80,6 +81,7 @@ class MessageService {
       users: [from, to],
       sender: from,
       type: finalType,
+      localId: localId || null, // FIX: Save localId to the DB to track optimistic UI updates
       replyTo: replyTo || null,
       status: initialStatus,
       isForwarded: isForwarded || false,

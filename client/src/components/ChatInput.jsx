@@ -142,6 +142,14 @@ export default function ChatInput({
 
   const sendChat = (event) => {
     event?.preventDefault();
+
+    // ✅ FIX: Intercept the 'Enter' key when a media preview is open.
+    // Without this, pressing Enter tries to send a blank text message instead of uploading the media.
+    if (mediaPreview && canPost && !isUploading) {
+        confirmSendMedia();
+        return;
+    }
+
     if (hasContent && canPost && !isUploading) {
       if (editingMessage) {
           handleEditMsgSubmit(editingMessage.id, msg);
