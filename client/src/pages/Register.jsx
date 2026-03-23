@@ -6,11 +6,11 @@ import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { registerRoute } from "../utils/APIRoutes";
 import { generateE2EBundle } from "../utils/crypto";
-import { FaEye, FaEyeSlash, FaSyncAlt, FaArrowRight, FaArrowLeft, FaCheck } from "react-icons/fa"; 
+import { FaEye, FaEyeSlash, FaSyncAlt, FaArrowRight, FaArrowLeft, FaCheck } from "react-icons/fa";
 
 export default function Register() {
   const navigate = useNavigate();
-  
+
   // WIZARD STATES
   const [step, setStep] = useState(1);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
@@ -20,13 +20,13 @@ export default function Register() {
     email: "",
     password: "",
     confirmPassword: "",
-    gender: "male"
+    gender: "male",
   });
 
   const [avatars, setAvatars] = useState([]);
   const [selectedAvatar, setSelectedAvatar] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false); 
-  
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [passwordStrength, setPasswordStrength] = useState(0);
@@ -49,9 +49,8 @@ export default function Register() {
       const randomSeed = Math.random().toString(36).substring(7);
       return `https://api.dicebear.com/9.x/${collection}/svg?seed=${randomSeed}`;
     });
-    
     setAvatars(newAvatars);
-    setSelectedAvatar(newAvatars[0]); 
+    setSelectedAvatar(newAvatars[0]);
   };
 
   useEffect(() => {
@@ -65,16 +64,15 @@ export default function Register() {
 
     if (name === "password") {
       let score = 0;
-      if (value.length > 7) score += 25; 
-      if (value.length > 10) score += 25; 
-      if (/[A-Z]/.test(value)) score += 15; 
-      if (/[0-9]/.test(value)) score += 15; 
-      if (/[^A-Za-z0-9]/.test(value)) score += 20; 
+      if (value.length > 7) score += 25;
+      if (value.length > 10) score += 25;
+      if (/[A-Z]/.test(value)) score += 15;
+      if (/[0-9]/.test(value)) score += 15;
+      if (/[^A-Za-z0-9]/.test(value)) score += 20;
       setPasswordStrength(Math.min(100, score));
     }
   };
 
-  // VALIDATION FOR STEP 1
   const handleNextStep = () => {
     const { password, confirmPassword, username, email } = values;
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -88,70 +86,65 @@ export default function Register() {
     } else if (password !== confirmPassword) {
       return toast.error("Passwords do not match.", toastOptions);
     }
-    
-    // If everything is valid, proceed to Profile Customization
     setStep(2);
   };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
     if (!acceptedTerms) {
-        return toast.warning("Please accept the Terms of Service to continue.", toastOptions);
+      return toast.warning("Please accept the Terms of Service to continue.", toastOptions);
     }
 
     setIsSubmitting(true);
     const { email, username, password, gender } = values;
-    
+
     try {
       console.log("[Dev Log] Generating secure E2E keys for new user...");
-      
       const { bundle, privateKeys } = await generateE2EBundle();
-
       console.log("[Dev Log] Keys generated. Sending to backend...");
 
-      // FIX: Removed withCredentials, using strictly JSON body with the new Auth setup
       const { data } = await axios.post(registerRoute, {
         username,
         email,
         password,
         gender,
         avatarImage: selectedAvatar,
-        e2eKeys: bundle 
+        e2eKeys: bundle,
       });
 
       if (data.status === false) {
         toast.error(data.msg, toastOptions);
-        setIsSubmitting(false);
         return;
       }
-      
+
       if (data.status === true) {
         if (!data.token) {
-           console.error("[Auth Error] Backend did not return an authentication token.");
-           toast.error("Registration failed. Please try again later.", toastOptions);
-           setIsSubmitting(false);
-           return;
+          console.error("[Auth Error] Backend did not return an authentication token.");
+          toast.error("Registration failed. Please try again later.", toastOptions);
+          return;
         }
 
-        // Save the keys to localStorage so the client can decrypt messages
+        // Save E2E private keys locally
         localStorage.setItem(`privateKey_${data.user._id}`, JSON.stringify(privateKeys.identityPrivateKey));
         localStorage.setItem(`fullE2EKeys_${data.user._id}`, JSON.stringify(privateKeys));
 
-        const userData = {
-          ...data.user,
-          token: data.token,
-        };
-        
-        // Use sessionStorage to respect our new multi-tab architecture
+        // ✅ FIX: Save access token separately so App.js request interceptor can read it
         sessionStorage.setItem("chat-app-token", data.token);
+
+        // ✅ FIX: Save refresh token so App.js can silently renew expired access tokens
+        //         (was missing — caused logout every 15 min after registration too)
+        sessionStorage.setItem("chat-app-refresh-token", data.refreshToken);
+
+        // Save user object (also embed token for socket auth)
+        const userData = { ...data.user, token: data.token };
         sessionStorage.setItem("chat-app-user", JSON.stringify(userData));
-        
+
         toast.success("Welcome to Snappy!", toastOptions);
         navigate("/");
       }
     } catch (error) {
       console.error("Registration Request Failed:", error);
-      if (error.response && error.response.data) {
+      if (error.response?.data) {
         toast.error(error.response.data.msg || "Registration failed. Please try again.", toastOptions);
       } else {
         toast.error("Check your internet connection and try again.", toastOptions);
@@ -160,11 +153,11 @@ export default function Register() {
       setIsSubmitting(false);
     }
   };
-      
+
   const getStrengthColor = () => {
-    if (passwordStrength < 40) return "#ff4e4e"; 
-    if (passwordStrength < 80) return "#f0ad4e"; 
-    return "#00ff88"; 
+    if (passwordStrength < 40) return "#ff4e4e";
+    if (passwordStrength < 80) return "#f0ad4e";
+    return "#00ff88";
   };
 
   return (
@@ -176,115 +169,121 @@ export default function Register() {
           </div>
 
           <div className="wizard-progress">
-              <div className={`step-indicator ${step >= 1 ? "active" : ""}`}>1</div>
-              <div className={`progress-line ${step === 2 ? "active" : ""}`}></div>
-              <div className={`step-indicator ${step === 2 ? "active" : ""}`}>2</div>
+            <div className={`step-indicator ${step >= 1 ? "active" : ""}`}>1</div>
+            <div className={`progress-line ${step === 2 ? "active" : ""}`}></div>
+            <div className={`step-indicator ${step === 2 ? "active" : ""}`}>2</div>
           </div>
           <div className="wizard-labels">
-              <span className={step >= 1 ? "active-text" : ""}>Account</span>
-              <span className={step === 2 ? "active-text" : ""}>Profile</span>
+            <span className={step >= 1 ? "active-text" : ""}>Account</span>
+            <span className={step === 2 ? "active-text" : ""}>Profile</span>
           </div>
 
           {step === 1 && (
             <div className="form-step slide-in">
-                <input type="text" placeholder="Username" name="username" value={values.username} onChange={handleChange} disabled={isSubmitting} />
-                <input type="email" placeholder="Email" name="email" value={values.email} onChange={handleChange} disabled={isSubmitting} />
-                
-                <div className="input-wrapper">
-                  <input type={showPassword ? "text" : "password"} placeholder="Password" name="password" value={values.password} onChange={handleChange} disabled={isSubmitting} />
-                  <div className="icon-toggle" onClick={() => setShowPassword(!showPassword)}>
-                    {showPassword ? <FaEyeSlash /> : <FaEye />}
-                  </div>
+              <input type="text" placeholder="Username" name="username" value={values.username} onChange={handleChange} disabled={isSubmitting} />
+              <input type="email" placeholder="Email" name="email" value={values.email} onChange={handleChange} disabled={isSubmitting} />
+
+              <div className="input-wrapper">
+                <input type={showPassword ? "text" : "password"} placeholder="Password" name="password" value={values.password} onChange={handleChange} disabled={isSubmitting} />
+                <div className="icon-toggle" onClick={() => setShowPassword(!showPassword)}>
+                  {showPassword ? <FaEyeSlash /> : <FaEye />}
                 </div>
+              </div>
 
-                {values.password.length > 0 && (
-                  <div className="strength-meter">
-                    <div className="strength-bar" style={{ width: `${passwordStrength}%`, backgroundColor: getStrengthColor() }} />
-                  </div>
-                )}
-
-                <div className="input-wrapper">
-                  <input type={showConfirmPassword ? "text" : "password"} placeholder="Confirm Password" name="confirmPassword" value={values.confirmPassword} onChange={handleChange} disabled={isSubmitting} />
-                  <div className="icon-toggle" onClick={() => setShowConfirmPassword(!showConfirmPassword)}>
-                    {showConfirmPassword ? <FaEyeSlash /> : <FaEye />}
-                  </div>
+              {values.password.length > 0 && (
+                <div className="strength-meter">
+                  <div className="strength-bar" style={{ width: `${passwordStrength}%`, backgroundColor: getStrengthColor() }} />
                 </div>
+              )}
 
-                <button type="button" className="action-btn next-btn" onClick={handleNextStep}>
-                    Next Step <FaArrowRight />
-                </button>
+              <div className="input-wrapper">
+                <input type={showConfirmPassword ? "text" : "password"} placeholder="Confirm Password" name="confirmPassword" value={values.confirmPassword} onChange={handleChange} disabled={isSubmitting} />
+                <div className="icon-toggle" onClick={() => setShowConfirmPassword(!showConfirmPassword)}>
+                  {showConfirmPassword ? <FaEyeSlash /> : <FaEye />}
+                </div>
+              </div>
+
+              <button type="button" className="action-btn next-btn" onClick={handleNextStep}>
+                Next Step <FaArrowRight />
+              </button>
             </div>
           )}
 
           {step === 2 && (
             <div className="form-step slide-in">
-                <div className="gender-select">
-                  <label>Gender:</label>
-                  <select name="gender" value={values.gender} onChange={handleChange} disabled={isSubmitting}>
-                    <option value="male">Male</option>
-                    <option value="female">Female</option>
-                  </select>
+              <div className="gender-select">
+                <label>Gender:</label>
+                <select name="gender" value={values.gender} onChange={handleChange} disabled={isSubmitting}>
+                  <option value="male">Male</option>
+                  <option value="female">Female</option>
+                </select>
+              </div>
+
+              <div className="avatar-section">
+                <div className="avatar-header">
+                  <p>Select your Avatar:</p>
+                  <button type="button" className="shuffle-btn" onClick={generateAvatars} disabled={isSubmitting} title="Generate new avatars">
+                    <FaSyncAlt /> Shuffle
+                  </button>
                 </div>
 
-                <div className="avatar-section">
-                  <div className="avatar-header">
-                    <p>Select your Avatar:</p>
-                    <button type="button" className="shuffle-btn" onClick={generateAvatars} disabled={isSubmitting} title="Generate new avatars">
-                      <FaSyncAlt /> Shuffle
-                    </button>
-                  </div>
-                  
-                  <div className="avatars-list">
-                    {avatars.map((avatar, index) => (
-                      <div 
-                        key={index} 
-                        className={`avatar-option ${selectedAvatar === avatar ? "selected" : ""} ${isSubmitting ? "disabled" : ""}`}
-                        onClick={() => !isSubmitting && setSelectedAvatar(avatar)}
-                      >
-                        <img src={avatar} alt={`avatar-${index}`} />
-                        {selectedAvatar === avatar && <div className="check-badge"><FaCheck size={10}/></div>}
-                      </div>
-                    ))}
-                  </div>
+                <div className="avatars-list">
+                  {avatars.map((avatar, index) => (
+                    <div
+                      key={index}
+                      className={`avatar-option ${selectedAvatar === avatar ? "selected" : ""} ${isSubmitting ? "disabled" : ""}`}
+                      onClick={() => !isSubmitting && setSelectedAvatar(avatar)}
+                    >
+                      <img src={avatar} alt={`avatar-${index}`} />
+                      {selectedAvatar === avatar && (
+                        <div className="check-badge">
+                          <FaCheck size={10} />
+                        </div>
+                      )}
+                    </div>
+                  ))}
                 </div>
+              </div>
 
-                <label className="terms-checkbox">
-                    <input 
-                        type="checkbox" 
-                        checked={acceptedTerms} 
-                        onChange={(e) => setAcceptedTerms(e.target.checked)}
-                        disabled={isSubmitting}
-                    />
-                    <span className="checkmark"></span>
-                    <p>I agree to the <Link to="/terms">Terms of Service</Link> and E2EE policy.</p>
-                </label>
+              <label className="terms-checkbox">
+                <input
+                  type="checkbox"
+                  checked={acceptedTerms}
+                  onChange={(e) => setAcceptedTerms(e.target.checked)}
+                  disabled={isSubmitting}
+                />
+                <span className="checkmark"></span>
+                <p>I agree to the <Link to="/terms">Terms of Service</Link> and E2EE policy.</p>
+              </label>
 
-                <div className="button-group">
-                    <button type="button" className="action-btn back-btn" onClick={() => setStep(1)} disabled={isSubmitting}>
-                        <FaArrowLeft /> Back
-                    </button>
-                    <button type="submit" className="action-btn submit-btn" disabled={isSubmitting || !acceptedTerms}>
-                        {isSubmitting ? "Creating Keys..." : "Create Account"}
-                    </button>
-                </div>
+              <div className="button-group">
+                <button type="button" className="action-btn back-btn" onClick={() => setStep(1)} disabled={isSubmitting}>
+                  <FaArrowLeft /> Back
+                </button>
+                <button type="submit" className="action-btn submit-btn" disabled={isSubmitting || !acceptedTerms}>
+                  {isSubmitting ? "Creating Keys..." : "Create Account"}
+                </button>
+              </div>
             </div>
           )}
-          
-          <span className="login-link">Already have an account? <Link to="/login">Login.</Link></span>
+
+          <span className="login-link">
+            Already have an account? <Link to="/login">Login.</Link>
+          </span>
         </form>
       </FormContainer>
-      
-      <ToastContainer 
-          position="top-center" 
-          autoClose={3000} 
-          hideProgressBar={true} 
-          newestOnTop={true} 
-          closeOnClick 
-          rtl={false} 
-          pauseOnFocusLoss 
-          draggable 
-          pauseOnHover 
-          theme="dark"
+
+      <ToastContainer
+        position="top-center"
+        autoClose={3000}
+        hideProgressBar={true}
+        newestOnTop={true}
+        closeOnClick
+        rtl={false}
+        pauseOnFocusLoss
+        draggable
+        pauseOnHover
+        theme="dark"
       />
     </>
   );
@@ -313,7 +312,6 @@ const FormContainer = styled.div`
       overflow: hidden;
   }
 
-  /* WIZARD TRACKER STYLES */
   .wizard-progress {
       display: flex; align-items: center; justify-content: center; margin-top: 0.5rem;
       .step-indicator {
@@ -402,7 +400,6 @@ const FormContainer = styled.div`
       } 
   }
 
-  /* TERMS CHECKBOX UI */
   .terms-checkbox {
       display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 0.85rem; color: #bbb; margin-top: 5px;
       input { display: none; }
@@ -416,7 +413,6 @@ const FormContainer = styled.div`
       a { color: #4e0eff; text-decoration: none; font-weight: bold; &:hover{ text-decoration: underline; }}
   }
 
-  /* BUTTONS */
   .action-btn { 
       padding: 1rem; border: none; font-weight: bold; cursor: pointer; border-radius: 0.4rem; 
       font-size: 1rem; transition: 0.3s; display: flex; justify-content: center; align-items: center; gap: 0.5rem;

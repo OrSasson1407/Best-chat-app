@@ -12,9 +12,7 @@
 
 // Priority:
 // 1. Use REACT_APP_API_URL if defined (.env file)
-// 2. If production but env missing → fallback to Render URL
-// 3. Otherwise → localhost for development
-
+// 2. Otherwise → localhost for development
 export const host = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
 // =======================================================
@@ -24,6 +22,7 @@ export const host = process.env.REACT_APP_API_URL || "http://localhost:5000";
 export const loginRoute = `${host}/api/auth/login`;
 export const registerRoute = `${host}/api/auth/register`;
 export const logoutRoute = `${host}/api/auth/logout`;
+export const refreshTokenRoute = `${host}/api/auth/refresh`; // ✅ FIX: was missing — needed for silent token renewal
 export const allUsersRoute = `${host}/api/auth/allusers`;
 export const setAvatarRoute = `${host}/api/auth/setavatar`;
 export const updateProfileRoute = `${host}/api/auth/updateprofile`;
@@ -97,17 +96,12 @@ export const viewStoryRoute = `${host}/api/stories/view`;
 
 export const getQuickRepliesRoute = `${host}/api/ai/quick-replies`;
 export const translateMessageRoute = `${host}/api/ai/translate`;
-// NEW: AI Summarizer Route
-export const summarizeChatRoute = `${host}/api/ai/summarize`; 
+export const summarizeChatRoute = `${host}/api/ai/summarize`;
 
 
 // =======================================================
-// END-TO-END ENCRYPTION ROUTES (UPDATED)
+// END-TO-END ENCRYPTION ROUTES
 // =======================================================
 
-// 🔧 IMPORTANT FIX: 
-// Backend registers the public key routes under the Auth Controller
-// app.use("/api/auth", authRoutes)
-
-export const publicKeyRoute = `${host}/api/auth/public-key`; // For GET requests
-export const updateE2EKeysRoute = `${host}/api/auth/e2e-keys`; // For POST requests
+export const publicKeyRoute = `${host}/api/auth/public-key`;
+export const updateE2EKeysRoute = `${host}/api/auth/e2e-keys`;
