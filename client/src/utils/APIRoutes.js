@@ -66,9 +66,9 @@ export const removeGroupMemberRoute = `${host}/api/groups/removemember`;
 // CHANNEL ROUTES
 // =======================================================
 
-export const createChannelRoute = `${host}/api/groups/channel/create`;
-export const searchChannelsRoute = `${host}/api/groups/channel/search`;
-export const joinChannelRoute = `${host}/api/groups/channel/join`;
+export const createChannelRoute = `${host}/api/groups/createChannel`;  // ✅ FIX: was /channel/create, backend has /createChannel
+export const searchChannelsRoute = `${host}/api/groups/searchChannels`; // ✅ FIX: was /channel/search, backend has /searchChannels
+export const joinChannelRoute = `${host}/api/groups/joinChannel`;        // ✅ FIX: was /channel/join, backend has /joinChannel
 
 
 // =======================================================

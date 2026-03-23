@@ -107,12 +107,10 @@ const MessageItem = React.memo(({
 
         setIsTranslating(true);
         try {
+            // ✅ FIX: App.js interceptor handles Authorization header automatically
             const { data } = await axios.post(translateMessageRoute, {
                 message: message.message,
                 targetLanguage: "English" 
-            }, {
-                headers: { "x-auth-token": currentUser.token },
-                withCredentials: true
             });
 
             if (data.status) {

@@ -5,19 +5,19 @@ import { useNavigate } from "react-router-dom";
 import { io } from "socket.io-client";
 import customParser from "socket.io-msgpack-parser";
 import styled, { keyframes, css } from "styled-components";
-import { allUsersRoute, host, updateFcmTokenRoute } from "../utils/APIRoutes"; 
+import { allUsersRoute, host, updateFcmTokenRoute } from "../utils/APIRoutes";
 import Contacts from "../components/Contacts";
 import Welcome from "../components/Welcome";
 import ChatContainer from "../components/ChatContainer";
 
 import useChatStore from "../store/chatStore";
 import { ToastContainer, toast } from "react-toastify";
-import { requestForToken, onMessageListener } from "../firebase"; 
+import { requestForToken, onMessageListener } from "../firebase";
 
 export default function Chat() {
   const navigate = useNavigate();
   const socket = useRef();
-  
+
   const {
     currentUser, setCurrentUser,
     currentChat, setCurrentChat,
@@ -27,7 +27,7 @@ export default function Chat() {
     isCompact
   } = useChatStore();
 
-  const [contacts, setContacts] = useState([]); 
+  const [contacts, setContacts] = useState([]);
   const [isLoaded, setIsLoaded] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -45,42 +45,61 @@ export default function Chat() {
   }, [theme]);
 
   const toggleTheme = () => {
-    setTheme(theme === 'light' ? 'glass' : 'light'); 
+    setTheme(theme === "light" ? "glass" : "light");
   };
 
   // 1. Authentication Check & Data Retrieval
+  // ✅ FIX: Always read the fresh token from sessionStorage and write it into
+  //         the Zustand store. This ensures the socket (and all other code that
+  //         reads currentUser.token) always gets the live token, not a stale
+  //         value that Zustand rehydrated from IndexedDB from a previous session.
   useEffect(() => {
     async function checkAuth() {
       const storedData = sessionStorage.getItem("chat-app-user");
-      // Grab token to ensure they actually logged in correctly
-      const storedToken = sessionStorage.getItem("chat-app-token"); 
-      
+      const storedToken = sessionStorage.getItem("chat-app-token");
+
       if (!storedData || !storedToken) {
         navigate("/login");
-      } else {
-        const parsedUser = JSON.parse(storedData);
-        // Ensure token is attached to currentUser object if needed by socket
-        parsedUser.token = storedToken; 
-        setCurrentUser(parsedUser);
-        setIsLoaded(true);
+        return;
       }
+
+      const parsedUser = JSON.parse(storedData);
+
+      // Always overwrite whatever token Zustand may have persisted
+      // with the definitive, fresh token from sessionStorage.
+      parsedUser.token = storedToken;
+
+      // Keep sessionStorage in sync too (in case it embedded an old token)
+      sessionStorage.setItem("chat-app-user", JSON.stringify(parsedUser));
+
+      setCurrentUser(parsedUser);
+      setIsLoaded(true);
     }
     checkAuth();
   }, [navigate, setCurrentUser]);
 
   // 2. Setup STABLE Socket Connection
+  // ✅ FIX: Read the token directly from sessionStorage at the moment of
+  //         connection — never from currentUser.token which may not yet reflect
+  //         the value set in effect #1 above (React state updates are async).
+  //         This eliminates the race condition that caused "Invalid token" on
+  //         the socket handshake.
   useEffect(() => {
     if (currentUser && currentUser._id && !socket.current) {
-      
-      // CRITICAL FIX: Strip Bearer prefix if it exists in sessionStorage before passing to socket
-      const cleanToken = currentUser.token.startsWith("Bearer ") 
-        ? currentUser.token.replace("Bearer ", "").trim() 
-        : currentUser.token;
+
+      // Source of truth: always sessionStorage, never the Zustand-persisted value
+      const rawToken = sessionStorage.getItem("chat-app-token") || currentUser.token || "";
+      const cleanToken = rawToken.replace(/(Bearer\s*)+/gi, "").trim();
+
+      if (!cleanToken) {
+        console.error("[Socket] No token available for socket auth. Redirecting to login.");
+        navigate("/login");
+        return;
+      }
 
       socket.current = io(host, {
-        auth: { token: cleanToken }, // ✅ Token is explicitly passed as a clean string here
-        // ❌ REMOVED: withCredentials: true (We don't want cookies sharing across tabs)
-        parser: customParser 
+        auth: { token: cleanToken },
+        parser: customParser,
       });
 
       socket.current.on("connect", () => {
@@ -89,12 +108,13 @@ export default function Chat() {
 
       socket.current.on("connect_error", (err) => {
         console.error("Socket Connection Error:", err.message);
+        // Only force logout on auth errors, not transient network errors
         if (err.message.includes("Authentication error")) {
           sessionStorage.clear();
           navigate("/login");
         }
       });
-      
+
       socket.current.on("get-online-users", (users) => {
         setOnlineUsers(users);
       });
@@ -113,23 +133,23 @@ export default function Chat() {
     if (socket.current) {
       const handleTypingStatus = (data) => {
         setGlobalTypingUsers((prev) => {
-            if (data.isTyping) {
-                return prev.includes(data.from) ? prev : [...prev, data.from];
-            } else {
-                return prev.filter(id => id !== data.from);
-            }
+          if (data.isTyping) {
+            return prev.includes(data.from) ? prev : [...prev, data.from];
+          } else {
+            return prev.filter((id) => id !== data.from);
+          }
         });
 
         if (currentChat) {
-            if (data.isGroup) {
-                setIsTyping(data.isTyping ? data.username : false);
-            } else {
-                if (currentChat._id === data.from) {
-                    setIsTyping(data.isTyping ? data.username : false);
-                }
+          if (data.isGroup) {
+            setIsTyping(data.isTyping ? data.username : false);
+          } else {
+            if (currentChat._id === data.from) {
+              setIsTyping(data.isTyping ? data.username : false);
             }
+          }
         } else {
-            setIsTyping(false);
+          setIsTyping(false);
         }
       };
 
@@ -141,20 +161,16 @@ export default function Chat() {
     }
   }, [currentChat, setGlobalTypingUsers]);
 
-  // 4. Fetch Contacts 
+  // 4. Fetch Contacts
   useEffect(() => {
     async function fetchContacts() {
       if (currentUser && currentUser._id) {
         try {
-          // Our new App.js Request Interceptor adds the Bearer token automatically!
           const response = await axios.get(`${allUsersRoute}/${currentUser._id}`);
           setContacts(response.data);
         } catch (error) {
           console.error("Error fetching contacts:", error);
-          if (error.response?.status === 401) {
-            sessionStorage.clear();
-            navigate("/login");
-          }
+          // Let App.js interceptor handle the 401 — don't double-handle here
         }
       }
     }
@@ -163,19 +179,18 @@ export default function Chat() {
 
   // 5. Firebase Push Notification Setup
   useEffect(() => {
-    if (currentUser && currentUser.token) {
+    if (currentUser && currentUser._id) {
       const setupPushNotifications = async () => {
         const token = await requestForToken();
         if (token) {
-           try {
-              // Interceptor handles it!
-              await axios.post(updateFcmTokenRoute, {
-                 userId: currentUser._id,
-                 fcmToken: token
-              });
-           } catch (err) {
-              console.error("Failed to save FCM token to DB", err);
-           }
+          try {
+            await axios.post(updateFcmTokenRoute, {
+              userId: currentUser._id,
+              fcmToken: token,
+            });
+          } catch (err) {
+            console.error("Failed to save FCM token to DB", err);
+          }
         }
       };
 
@@ -184,22 +199,25 @@ export default function Chat() {
       onMessageListener()
         .then((payload) => {
           toast.info(`📬 ${payload.notification.title}: ${payload.notification.body}`, {
-             position: "top-right",
-             autoClose: 5000,
-             hideProgressBar: false,
-             closeOnClick: true,
-             pauseOnHover: true,
-             draggable: true,
-             theme: theme === 'light' ? 'light' : 'dark',
+            position: "top-right",
+            autoClose: 5000,
+            hideProgressBar: false,
+            closeOnClick: true,
+            pauseOnHover: true,
+            draggable: true,
+            theme: theme === "light" ? "light" : "dark",
           });
         })
-        .catch((err) => console.log('Failed to listen to foreground messages: ', err));
+        .catch((err) => console.log("Failed to listen to foreground messages:", err));
     }
   }, [currentUser, theme]);
 
   const handleLogout = useCallback(async () => {
     try {
-      await axios.get(`${host}/api/auth/logout`); 
+      const refreshToken = sessionStorage.getItem("chat-app-refresh-token");
+      await axios.get(`${host}/api/auth/logout`, {
+        data: { refreshToken }, // pass refresh token so backend can blacklist it
+      });
     } catch (err) {
       console.error("Logout API failed:", err);
     } finally {
@@ -217,17 +235,17 @@ export default function Chat() {
   }, [setCurrentChat]);
 
   return (
-    <Container 
-      $themeType={theme} 
-      $isTyping={!!isTyping} 
+    <Container
+      $themeType={theme}
+      $isTyping={!!isTyping}
       $isMobileMenuOpen={isMobileMenuOpen}
       $timeColors={timeBasedColors}
     >
       <button className="theme-toggle" onClick={toggleTheme}>
-        {theme === 'light' ? '🌙 Dark Mode' : '☀️ Light Mode'}
+        {theme === "light" ? "🌙 Dark Mode" : "☀️ Light Mode"}
       </button>
 
-      {theme !== 'light' && (
+      {theme !== "light" && (
         <div className="mesh-gradient">
           <div className="orb orb-1"></div>
           <div className="orb orb-2"></div>
@@ -235,21 +253,21 @@ export default function Chat() {
         </div>
       )}
 
-      {theme === 'cyberpunk' && <div className="scanlines"></div>}
-      
+      {theme === "cyberpunk" && <div className="scanlines"></div>}
+
       <button className="mobile-toggle" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
         {isMobileMenuOpen ? "✕" : "☰"}
       </button>
 
       <div className={`glass-container ${isCompact ? "compact-mode" : ""}`}>
         <div className={`sidebar-wrapper ${isMobileMenuOpen ? "open" : ""}`}>
-          <Contacts 
-            contacts={contacts} 
-            changeChat={handleChatChange} 
+          <Contacts
+            contacts={contacts}
+            changeChat={handleChatChange}
             handleLogout={handleLogout}
           />
         </div>
-        
+
         <div className="main-chat-wrapper">
           {isLoaded && currentChat === undefined ? (
             <Welcome />
@@ -285,23 +303,23 @@ const scanlineAnim = keyframes`
 `;
 
 const getThemeStyles = (themeType) => {
-  if (themeType === 'midnight') {
+  if (themeType === "midnight") {
     return css`
       background-color: #000000;
-      .glass-container { 
-        background: #0a0a0a; 
-        border: 1px solid #1a1a1a; 
-        box-shadow: none; 
-        backdrop-filter: none; 
+      .glass-container {
+        background: #0a0a0a;
+        border: 1px solid #1a1a1a;
+        box-shadow: none;
+        backdrop-filter: none;
       }
     `;
   }
-  if (themeType === 'cyberpunk') {
+  if (themeType === "cyberpunk") {
     return css`
       background-color: #0d0221;
-      .glass-container { 
-        background: rgba(13, 2, 33, 0.85); 
-        border: 2px solid #00ff88; 
+      .glass-container {
+        background: rgba(13, 2, 33, 0.85);
+        border: 2px solid #00ff88;
         box-shadow: 0 0 20px rgba(0, 255, 136, 0.3), inset 0 0 10px rgba(0, 255, 136, 0.2);
       }
     `;
@@ -318,12 +336,11 @@ const Container = styled.div`
   overflow: hidden;
   position: relative;
   transition: background-color 0.5s ease;
-  
-  background: ${({ $themeType, $timeColors }) => 
-    $themeType === 'light' 
-      ? 'var(--bg-color)' 
-      : `linear-gradient(135deg, ${$timeColors[0]} 0%, ${$timeColors[1]} 100%)`
-  };
+
+  background: ${({ $themeType, $timeColors }) =>
+    $themeType === "light"
+      ? "var(--bg-color)"
+      : `linear-gradient(135deg, ${$timeColors[0]} 0%, ${$timeColors[1]} 100%)`};
 
   ${({ $themeType }) => getThemeStyles($themeType)}
 
@@ -341,7 +358,7 @@ const Container = styled.div`
     cursor: pointer;
     backdrop-filter: var(--glass-blur);
     transition: all 0.3s ease;
-    
+
     &:hover {
       transform: translateY(-2px);
       background: var(--msg-sent);
@@ -353,7 +370,7 @@ const Container = styled.div`
     position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow: hidden; z-index: 0;
     filter: blur(100px);
     ${({ $isTyping }) => $isTyping && css` animation: ${pulseGlow} 2s infinite ease-in-out; `}
-    
+
     .orb {
       position: absolute; border-radius: 50%; opacity: 0.6;
       animation: ${meshAnimation} 20s infinite ease-in-out;
@@ -400,14 +417,14 @@ const Container = styled.div`
     display: grid;
     grid-template-columns: 25% 75%;
     overflow: hidden;
-    z-index: 3; 
-    
+    z-index: 3;
+
     background: var(--glass-bg);
     border: 1px solid var(--glass-border);
     backdrop-filter: var(--glass-blur);
     box-shadow: var(--glass-shadow);
     transition: all 0.3s ease;
-    
+
     &.compact-mode {
       height: 95vh;
       width: 95vw;
@@ -431,7 +448,7 @@ const Container = styled.div`
 
   @media screen and (max-width: 720px) {
     .mobile-toggle { display: block; }
-    
+
     .glass-container {
       grid-template-columns: 100%;
       height: 100vh;
@@ -446,10 +463,10 @@ const Container = styled.div`
       width: 80%;
       height: 100%;
       z-index: 5;
-      background: var(--bg-layout); 
+      background: var(--bg-layout);
       transition: 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
       border-right: 1px solid var(--glass-border);
-      
+
       &.open {
         box-shadow: 20px 0 50px rgba(0, 0, 0, 0.8);
       }

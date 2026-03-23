@@ -45,7 +45,7 @@ export default function ChatSidePanel({
         let optimisticChat = { ...currentChat };
 
         try {
-            const config = { headers: { "x-auth-token": currentUser.token } };
+            const config = {}; // ✅ FIX: App.js interceptor handles Authorization header automatically
             let res;
 
             if (action === 'promote_admin') {

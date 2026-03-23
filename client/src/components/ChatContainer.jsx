@@ -90,10 +90,10 @@ export default function ChatContainer({ socket, isTyping }) {
 
   const skeletonWidths = useMemo(() => ['45%', '65%', '35%', '80%', '50%'], []);
   
-  const getAuthHeader = useCallback(() => ({ 
-      headers: { "x-auth-token": currentUser.token },
-      withCredentials: true 
-  }), [currentUser.token]);
+  // ✅ FIX: App.js request interceptor attaches "Authorization: Bearer <token>" automatically.
+  //         getAuthHeader() is kept so all call-sites work unchanged, but now returns
+  //         an empty object — no manual header needed anywhere in this component.
+  const getAuthHeader = useCallback(() => ({}), []);
 
   // --- EFFECTS ---
   useEffect(() => {
