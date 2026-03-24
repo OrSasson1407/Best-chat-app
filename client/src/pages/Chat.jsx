@@ -31,6 +31,9 @@ export default function Chat() {
   const [isLoaded, setIsLoaded] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  
+  // --- PHASE 4: OFFLINE STATE ---
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
 
   const timeBasedColors = useMemo(() => {
     const hour = new Date().getHours();
@@ -48,11 +51,37 @@ export default function Chat() {
     setTheme(theme === "light" ? "glass" : "light");
   };
 
+  // --- PHASE 4: NETWORK ONLINE/OFFLINE LISTENERS ---
+  useEffect(() => {
+    const handleOffline = () => {
+      setIsOffline(true);
+      toast.warning("📶 You are offline. Waiting for connection...", { 
+        autoClose: false, 
+        toastId: "offline-toast" 
+      });
+    };
+
+    const handleOnline = () => {
+      setIsOffline(false);
+      toast.dismiss("offline-toast");
+      toast.success("🌐 Back online! Reconnecting...", { autoClose: 3000 });
+      
+      // Force Socket.io to try reconnecting immediately if it gave up
+      if (socket.current && !socket.current.connected) {
+        socket.current.connect();
+      }
+    };
+
+    window.addEventListener("offline", handleOffline);
+    window.addEventListener("online", handleOnline);
+
+    return () => {
+      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, []);
+
   // 1. Authentication Check & Data Retrieval
-  // ✅ FIX: Always read the fresh token from sessionStorage and write it into
-  //         the Zustand store. This ensures the socket (and all other code that
-  //         reads currentUser.token) always gets the live token, not a stale
-  //         value that Zustand rehydrated from IndexedDB from a previous session.
   useEffect(() => {
     async function checkAuth() {
       const storedData = sessionStorage.getItem("chat-app-user");
@@ -64,12 +93,7 @@ export default function Chat() {
       }
 
       const parsedUser = JSON.parse(storedData);
-
-      // Always overwrite whatever token Zustand may have persisted
-      // with the definitive, fresh token from sessionStorage.
       parsedUser.token = storedToken;
-
-      // Keep sessionStorage in sync too (in case it embedded an old token)
       sessionStorage.setItem("chat-app-user", JSON.stringify(parsedUser));
 
       setCurrentUser(parsedUser);
@@ -78,16 +102,10 @@ export default function Chat() {
     checkAuth();
   }, [navigate, setCurrentUser]);
 
-  // 2. Setup STABLE Socket Connection
-  // ✅ FIX: Read the token directly from sessionStorage at the moment of
-  //         connection — never from currentUser.token which may not yet reflect
-  //         the value set in effect #1 above (React state updates are async).
-  //         This eliminates the race condition that caused "Invalid token" on
-  //         the socket handshake.
+  // 2. Setup STABLE Socket Connection with Phase 4 Resilience
   useEffect(() => {
     if (currentUser && currentUser._id && !socket.current) {
 
-      // Source of truth: always sessionStorage, never the Zustand-persisted value
       const rawToken = sessionStorage.getItem("chat-app-token") || currentUser.token || "";
       const cleanToken = rawToken.replace(/(Bearer\s*)+/gi, "").trim();
 
@@ -100,15 +118,41 @@ export default function Chat() {
       socket.current = io(host, {
         auth: { token: cleanToken },
         parser: customParser,
+        reconnection: true,             // Enable auto-reconnect
+        reconnectionAttempts: Infinity, // Keep trying
+        reconnectionDelay: 1000,        // Start with 1 second
+        reconnectionDelayMax: 5000,     // Max wait 5 seconds between attempts
       });
 
       socket.current.on("connect", () => {
         socket.current.emit("add-user", currentUser._id);
       });
 
+      // --- PHASE 4: RESILIENCE LISTENERS ---
+      socket.current.on("disconnect", (reason) => {
+        console.warn("[Socket] Disconnected:", reason);
+        // If server manually disconnected us, we must manually reconnect
+        if (reason === "io server disconnect") {
+          socket.current.connect();
+        }
+      });
+
+      socket.current.on("reconnect_attempt", () => {
+        // DYNAMIC AUTH INJECTION: If token refreshed while offline, grab the new one!
+        const freshToken = sessionStorage.getItem("chat-app-token")?.replace(/(Bearer\s*)+/gi, "").trim();
+        if (freshToken) {
+          socket.current.auth.token = freshToken;
+        }
+      });
+
+      socket.current.on("reconnect", (attemptNumber) => {
+        console.log(`[Socket] Reconnected successfully on attempt ${attemptNumber}`);
+        // Re-register to the server to ensure we receive queued messages
+        socket.current.emit("add-user", currentUser._id);
+      });
+
       socket.current.on("connect_error", (err) => {
         console.error("Socket Connection Error:", err.message);
-        // Only force logout on auth errors, not transient network errors
         if (err.message.includes("Authentication error")) {
           sessionStorage.clear();
           navigate("/login");
@@ -164,18 +208,17 @@ export default function Chat() {
   // 4. Fetch Contacts
   useEffect(() => {
     async function fetchContacts() {
-      if (currentUser && currentUser._id) {
+      if (currentUser && currentUser._id && !isOffline) { // Don't fetch if offline
         try {
           const response = await axios.get(`${allUsersRoute}/${currentUser._id}`);
           setContacts(response.data);
         } catch (error) {
           console.error("Error fetching contacts:", error);
-          // Let App.js interceptor handle the 401 — don't double-handle here
         }
       }
     }
     fetchContacts();
-  }, [currentUser, navigate]);
+  }, [currentUser, navigate, isOffline]);
 
   // 5. Firebase Push Notification Setup
   useEffect(() => {
@@ -216,7 +259,7 @@ export default function Chat() {
     try {
       const refreshToken = sessionStorage.getItem("chat-app-refresh-token");
       await axios.get(`${host}/api/auth/logout`, {
-        data: { refreshToken }, // pass refresh token so backend can blacklist it
+        data: { refreshToken },
       });
     } catch (err) {
       console.error("Logout API failed:", err);
@@ -240,7 +283,15 @@ export default function Chat() {
       $isTyping={!!isTyping}
       $isMobileMenuOpen={isMobileMenuOpen}
       $timeColors={timeBasedColors}
+      $isOffline={isOffline} // Added prop for UI offline state
     >
+      {/* PHASE 4: Offline visual indicator header */}
+      {isOffline && (
+        <div className="offline-banner">
+          ⚠️ You are currently offline. Check your internet connection.
+        </div>
+      )}
+
       <button className="theme-toggle" onClick={toggleTheme}>
         {theme === "light" ? "🌙 Dark Mode" : "☀️ Light Mode"}
       </button>
@@ -337,12 +388,29 @@ const Container = styled.div`
   position: relative;
   transition: background-color 0.5s ease;
 
+  /* Turn grayscale if offline */
+  filter: ${({ $isOffline }) => ($isOffline ? "grayscale(80%)" : "none")};
+
   background: ${({ $themeType, $timeColors }) =>
     $themeType === "light"
       ? "var(--bg-color)"
       : `linear-gradient(135deg, ${$timeColors[0]} 0%, ${$timeColors[1]} 100%)`};
 
   ${({ $themeType }) => getThemeStyles($themeType)}
+
+  .offline-banner {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    background-color: #ff4757;
+    color: white;
+    text-align: center;
+    padding: 0.5rem;
+    font-weight: bold;
+    z-index: 100;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+  }
 
   .theme-toggle {
     position: absolute;

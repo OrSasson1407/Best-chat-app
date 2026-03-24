@@ -108,15 +108,21 @@ module.exports.errorHandler = (err, req, res, next) => {
 
   /**
    * Log error details based on severity
+   * (Tweaked to ensure consistent structured logging for production observability)
    */
   if (statusCode >= 500 && !isOperational) {
-    logger.error(
-      `💥 CRITICAL ERROR: ${statusCode} - ${err.message} - ${req.originalUrl} - ${req.method} - ${req.ip}\nStack: ${err.stack}`
-    );
+    logger.error(`[CRITICAL ERROR] ${statusCode} - ${err.message}`, {
+      url: req.originalUrl,
+      method: req.method,
+      ip: req.ip,
+      stack: err.stack
+    });
   } else {
-    logger.warn(
-      `Operational Error: ${statusCode} - ${message} - ${req.originalUrl} - ${req.method} - ${req.ip}`
-    );
+    logger.warn(`[Operational Error] ${statusCode} - ${message}`, {
+      url: req.originalUrl,
+      method: req.method,
+      ip: req.ip
+    });
   }
 
   /**
@@ -143,7 +149,8 @@ module.exports.errorHandler = (err, req, res, next) => {
       status: false,
       msg: message,
       error: err,
-      stack: err.stack
+      // Only include stack trace if NOT in production (double checking)
+      stack: process.env.NODE_ENV === 'production' ? '🥞 (hidden in production)' : err.stack
     });
   }
 };

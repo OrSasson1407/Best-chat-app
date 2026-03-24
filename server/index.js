@@ -6,13 +6,16 @@
 
 require("dotenv").config({ path: require('path').resolve(__dirname, '.env') });
 
-// --- DEBUG: Print env var presence immediately on startup ---
-console.log("🔍 ENV CHECK:", {
-  MONGO_URI: process.env.MONGO_URI ? "✅ set" : "❌ MISSING",
-  REDIS_URI: process.env.REDIS_URI ? "✅ set" : "❌ MISSING",
-  JWT_SECRET: process.env.JWT_SECRET ? "✅ set" : "❌ MISSING",
-  PORT: process.env.PORT || "(not set, will use 5000)"
-});
+// --- STRICT ENVIRONMENT VALIDATION ---
+const requiredEnv = ["MONGO_URI", "REDIS_URI", "JWT_SECRET", "CLIENT_URL"];
+const missingEnv = requiredEnv.filter(envVar => !process.env[envVar]);
+
+if (missingEnv.length > 0) {
+  console.error(`❌ FATAL ERROR: Missing required environment variables: ${missingEnv.join(", ")}`);
+  process.exit(1);
+}
+
+console.log("✅ All required environment variables are set.");
 
 // --- CORE FRAMEWORK IMPORTS ---
 const express = require("express");
@@ -22,6 +25,7 @@ const helmet = require("helmet");
 const socket = require("socket.io");
 const rateLimit = require("express-rate-limit");
 const jwt = require("jsonwebtoken");
+const mongoSanitize = require("express-mongo-sanitize"); // <-- Added for NoSQL injection protection
 
 // --- OBSERVABILITY & CONFIGURATION ---
 const logger = require("./utils/logger");
@@ -100,6 +104,9 @@ app.options('*', cors(corsOptions));
 // JSON & URL-encoded parsers
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
+
+// Prevent NoSQL Injection attacks
+app.use(mongoSanitize()); // <-- Added here
 
 /* =========================================================
    RATE LIMITING
