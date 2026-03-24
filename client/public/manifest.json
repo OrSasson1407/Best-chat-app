@@ -1,6 +1,10 @@
 {
   "short_name": "Snappy",
   "name": "Snappy - Enterprise Chat",
+  "description": "Secure, real-time enterprise communication for modern teams.",
+  "lang": "en",
+  "dir": "ltr",
+  "categories": ["communication", "productivity", "chat"],
   "icons": [
     {
       "src": "favicon.ico",
@@ -20,8 +24,9 @@
       "purpose": "any maskable"
     }
   ],
-  "start_url": ".",
+  "start_url": "/",
   "display": "standalone",
+  "orientation": "portrait",
   "theme_color": "#131324",
   "background_color": "#131324"
 }

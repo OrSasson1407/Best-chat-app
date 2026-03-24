@@ -7,17 +7,15 @@ WORKDIR /app
 # Set environment to production
 ENV NODE_ENV=production
 
-# Copy package.json and package-lock.json
-COPY package*.json ./
+# Copy package files and change ownership in one step to leverage layer caching
+COPY --chown=node:node package*.json ./
 
-# Install dependencies
-RUN npm install --omit=dev
+# Install dependencies using 'ci' for faster, deterministic builds
+RUN npm ci --omit=dev
 
-# Copy the rest of the application code
-COPY . .
-
-# FIX: Change ownership of the /app directory to the 'node' user so winston can create the logs/ folder
-RUN chown -R node:node /app
+# Copy the rest of the application code and change ownership
+# This prevents Docker from doubling the size of your image layer!
+COPY --chown=node:node . .
 
 # Security: Run the container as the built-in non-root "node" user
 USER node

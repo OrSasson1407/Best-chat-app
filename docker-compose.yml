@@ -44,7 +44,7 @@ services:
     env_file:
       - ./server/.env
     environment:
-      - NODE_ENV=production
+      - NODE_ENV=development # Overridden to dev locally so it works smoothly
       - PORT=5000
       - MONGO_URI=mongodb://mongo:27017/chat-app?replicaSet=rs0
       - REDIS_URI=redis://redis:6379
