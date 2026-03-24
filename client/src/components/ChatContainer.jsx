@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo, useTransition } from "react";
 import ChatInput from "./ChatInput";
 import axios from "axios";
 import { Virtuoso } from "react-virtuoso"; 
@@ -11,8 +11,8 @@ import {
     updateChatCustomizationRoute,
     getQuickRepliesRoute,
     publicKeyRoute,
-    summarizeChatRoute, // NEW: AI Summarizer
-    searchMessageRoute  // NEW: Global Search
+    summarizeChatRoute,
+    searchMessageRoute 
 } from "../utils/APIRoutes";
 import { encryptMessage, decryptMessage, encryptGroupMessage, decryptGroupMessage } from "../utils/crypto"; 
 import { v4 as uuidv4 } from "uuid";
@@ -31,7 +31,14 @@ import MessageItem from "./MessageItem";
 import { getSmallAvatar, formatTime } from "./chatHelpers";
 
 export default function ChatContainer({ socket, isTyping }) {
-  const { currentChat, currentUser, theme, isCompact, loadOfflineMessages, cacheMessages } = useChatStore();
+  
+  // 🚀 PERFORMANCE FIX: Atomic Zustand Selectors
+  const currentChat = useChatStore((state) => state.currentChat);
+  const currentUser = useChatStore((state) => state.currentUser);
+  const theme = useChatStore((state) => state.theme);
+  const isCompact = useChatStore((state) => state.isCompact);
+  const loadOfflineMessages = useChatStore((state) => state.loadOfflineMessages);
+  const cacheMessages = useChatStore((state) => state.cacheMessages);
 
   // --- STATE MANAGEMENT ---
   const [messages, setMessages] = useState([]);
@@ -73,14 +80,16 @@ export default function ChatContainer({ socket, isTyping }) {
   const [wallpaper, setWallpaper] = useState("");
   const [customTheme, setCustomTheme] = useState("#4e0eff");
   const [quickReplies, setQuickReplies] = useState([]);
-  const [isGeneratingReplies, setIsGeneratingReplies] = useState(false);
+  
+  // 🚀 REACT 19 UPGRADE: useTransition for non-blocking asynchronous UI updates
+  const [isGeneratingReplies, startGeneratingTransition] = useTransition();
+  const [isSummarizing, startSummarizingTransition] = useTransition();
+  const [isGlobalSearching, startSearchTransition] = useTransition();
 
   // --- NEW: AI Summarizer & Global Search States ---
   const [chatSummary, setChatSummary] = useState(null);
-  const [isSummarizing, setIsSummarizing] = useState(false);
   const [showGlobalSearchModal, setShowGlobalSearchModal] = useState(false);
   const [globalSearchResults, setGlobalSearchResults] = useState([]);
-  const [isGlobalSearching, setIsGlobalSearching] = useState(false);
 
   // Refs
   const virtuosoRef = useRef(null);
@@ -90,9 +99,6 @@ export default function ChatContainer({ socket, isTyping }) {
 
   const skeletonWidths = useMemo(() => ['45%', '65%', '35%', '80%', '50%'], []);
   
-  // ✅ FIX: App.js request interceptor attaches "Authorization: Bearer <token>" automatically.
-  //         getAuthHeader() is kept so all call-sites work unchanged, but now returns
-  //         an empty object — no manual header needed anywhere in this component.
   const getAuthHeader = useCallback(() => ({}), []);
 
   // --- EFFECTS ---
@@ -248,7 +254,7 @@ export default function ChatContainer({ socket, isTyping }) {
               }
           });
 
-          const hue = score > 0 ? '140' : score < 0 ? '250' : '250'; // Using consistent defaults for purple
+          const hue = score > 0 ? '140' : score < 0 ? '250' : '250';
           document.documentElement.style.setProperty('--sentiment-hue', hue);
       }
   }, [messages]);
@@ -268,7 +274,6 @@ export default function ChatContainer({ socket, isTyping }) {
                       else if (activeSideTab === 'files') setChatMedia(prev => ({ ...prev, files: data.media }));
                   }
               } catch (err) {
-                  // Silently log to dev console, don't interrupt user
                   console.error("[API] Failed to fetch media/links for side panel.", err);
               } finally {
                   setIsFetchingMedia(false);
@@ -372,11 +377,7 @@ export default function ChatContainer({ socket, isTyping }) {
       const handleMediaReady = ({ messageId, url, type }) => {
           setMessages((prev) => prev.map(msg => {
               if (msg.id === messageId) {
-                  return { 
-                      ...msg, 
-                      message: url, 
-                      status: "sent" 
-                  };
+                  return { ...msg, message: url, status: "sent" };
               }
               return msg;
           }));
@@ -419,46 +420,44 @@ export default function ChatContainer({ socket, isTyping }) {
 
   // --- ACTIONS & HANDLERS ---
 
-  // NEW: Feature 1 - Execute Global Search
-  const executeGlobalSearch = async (query) => {
+  // 🚀 REACT 19 UPGRADE: useTransition applied to Global Search
+  const executeGlobalSearch = (query) => {
       if (!query.trim()) return;
-      setIsGlobalSearching(true);
-      try {
-          const { data } = await axios.post(searchMessageRoute, { userId: currentUser._id, query }, getAuthHeader());
-          if (data.status) {
-              setGlobalSearchResults(data.messages);
-          } else {
-              setGlobalSearchResults([]);
+      startSearchTransition(async () => {
+          try {
+              const { data } = await axios.post(searchMessageRoute, { userId: currentUser._id, query }, getAuthHeader());
+              if (data.status) {
+                  setGlobalSearchResults(data.messages);
+              } else {
+                  setGlobalSearchResults([]);
+              }
+          } catch (error) {
+              console.error("Global search failed:", error);
+              toast.error("Failed to search messages.");
           }
-      } catch (error) {
-          console.error("Global search failed:", error);
-          toast.error("Failed to search messages.");
-      } finally {
-          setIsGlobalSearching(false);
-      }
+      });
   };
 
-  // NEW: Feature 2 - Handle AI Summarization
-  const handleSummarize = async () => {
-      setIsSummarizing(true);
-      try {
-          const { data } = await axios.post(summarizeChatRoute, {
-              from: currentUser._id,
-              to: currentChat._id,
-              limit: 50 // Summarize last 50 messages
-          }, getAuthHeader());
+  // 🚀 REACT 19 UPGRADE: useTransition applied to AI Chat Summarization
+  const handleSummarize = () => {
+      startSummarizingTransition(async () => {
+          try {
+              const { data } = await axios.post(summarizeChatRoute, {
+                  from: currentUser._id,
+                  to: currentChat._id,
+                  limit: 50
+              }, getAuthHeader());
 
-          if (data.status) {
-              setChatSummary(data.summary);
-          } else {
-              toast.info(data.msg); // E.g., "Not enough messages"
+              if (data.status) {
+                  setChatSummary(data.summary);
+              } else {
+                  toast.info(data.msg); 
+              }
+          } catch (error) {
+              console.error("Summary error", error);
+              toast.error("Failed to summarize chat.");
           }
-      } catch (error) {
-          console.error("Summary error", error);
-          toast.error("Failed to summarize chat.");
-      } finally {
-          setIsSummarizing(false);
-      }
+      });
   };
 
   const loadMoreMessages = useCallback(async () => {
@@ -533,21 +532,21 @@ export default function ChatContainer({ socket, isTyping }) {
     }
   };
 
-  const generateAIReplies = async (text) => {
+  // 🚀 REACT 19 UPGRADE: useTransition applied to AI Quick Replies
+  const generateAIReplies = (text) => {
       if (!text || text.length < 5) {
           setQuickReplies([]);
           return;
       }
-      setIsGeneratingReplies(true);
-      try {
-          const { data } = await axios.post(getQuickRepliesRoute, { message: text }, getAuthHeader());
-          if (data.status && Array.isArray(data.replies)) setQuickReplies(data.replies);
-      } catch (err) {
-          console.error("[AI] Failed to generate AI replies", err);
-          setQuickReplies([]);
-      } finally {
-          setIsGeneratingReplies(false);
-      }
+      startGeneratingTransition(async () => {
+          try {
+              const { data } = await axios.post(getQuickRepliesRoute, { message: text }, getAuthHeader());
+              if (data.status && Array.isArray(data.replies)) setQuickReplies(data.replies);
+          } catch (err) {
+              console.error("[AI] Failed to generate AI replies", err);
+              setQuickReplies([]);
+          }
+      });
   };
 
   const handleSendMsg = useCallback(async (msg, type = "text", replyToId = null, extraData = {}) => {
@@ -572,9 +571,6 @@ export default function ChatContainer({ socket, isTyping }) {
                     console.error("[Crypto] Could not fetch public key for encryption", err); 
                 }
             } else if (currentChat.admin && activeGroupAesKey) {
-                // ✅ FIX: wrap in try/catch — if group encryption throws, fallback to
-                //         plaintext instead of leaving finalMessageContent undefined,
-                //         which causes message.startsWith() to crash on backend (400).
                 try {
                     finalMessageContent = await encryptGroupMessage(msg, activeGroupAesKey);
                 } catch (err) {
@@ -589,8 +585,8 @@ export default function ChatContainer({ socket, isTyping }) {
             type, replyTo: replyToId, isForwarded: extraData.isForwarded || false,
             isViewOnce: extraData.isViewOnce || false, pollData: extraData.pollData || null,
             timer: extraData.timer || null, fileName: extraData.fileName || null, fileSize: extraData.fileSize || null,
-            scheduledAt: extraData.scheduledAt || null, // Needed for Scheduled Messages
-            localId: extraData.localId || newMessageId // FIX: Added localId for optimistic UI tracking
+            scheduledAt: extraData.scheduledAt || null, 
+            localId: extraData.localId || newMessageId 
         };
 
         const fileMetadataObj = extraData.fileName ? { fileName: extraData.fileName, fileSize: extraData.fileSize } : null;

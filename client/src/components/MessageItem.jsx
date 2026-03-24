@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useTransition, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion"; 
 import styled, { keyframes, css } from "styled-components";
 import { 
@@ -72,14 +72,14 @@ const MessageItem = React.memo(({
     setEditingMessage, handleDeleteMsg, handleReaction, handleOpenViewOnce
 }) => {
     
-    // Grab the active theme from the store
-    const { theme } = useChatStore();
+    // 🚀 PERFORMANCE FIX: Atomic Selector prevents unnecessary re-renders of the entire message list
+    const theme = useChatStore((state) => state.theme);
     
     const [translatedText, setTranslatedText] = useState(null);
-    const [isTranslating, setIsTranslating] = useState(false);
-    
-    // --- NEW: Custom Context Menu State ---
     const [contextMenu, setContextMenu] = useState(null);
+    
+    // 🚀 REACT 19 UPGRADE: useTransition for async UI updates instead of manual loading states
+    const [isTranslating, startTransition] = useTransition();
 
     const showDateSeparator = isNewDay(message.createdAt, prevMsg?.createdAt);
     const isGroupedWithPrev = prevMsg && isSameSender(message, prevMsg) &&
@@ -99,32 +99,32 @@ const MessageItem = React.memo(({
         return Object.entries(grouped);
     }, [message.reactions]);
 
-    const handleTranslate = async () => {
+    // 🚀 REACT 19 UPGRADE: Async Transition
+    const handleTranslate = () => {
         if (translatedText) {
             setTranslatedText(null);
             return;
         }
 
-        setIsTranslating(true);
-        try {
-            // ✅ FIX: App.js interceptor handles Authorization header automatically
-            const { data } = await axios.post(translateMessageRoute, {
-                message: message.message,
-                targetLanguage: "English" 
-            });
+        startTransition(async () => {
+            try {
+                // ✅ FIX: App.js interceptor handles Authorization header automatically
+                const { data } = await axios.post(translateMessageRoute, {
+                    message: message.message,
+                    targetLanguage: "English" 
+                });
 
-            if (data.status) {
-                setTranslatedText(data.translatedText);
-            } else {
-                console.warn("[AI] Translation API returned a false status.");
-                toast.error("Could not translate message.");
+                if (data.status) {
+                    setTranslatedText(data.translatedText);
+                } else {
+                    console.warn("[AI] Translation API returned a false status.");
+                    toast.error("Could not translate message.");
+                }
+            } catch (error) {
+                console.error("[AI] Translation Error:", error);
+                toast.error("Translation failed. Please try again.");
             }
-        } catch (error) {
-            console.error("[AI] Translation Error:", error);
-            toast.error("Translation failed. Please try again.");
-        } finally {
-            setIsTranslating(false);
-        }
+        });
     };
 
     // --- NEW: Context Menu Handlers ---
@@ -135,6 +135,14 @@ const MessageItem = React.memo(({
     };
 
     const closeContextMenu = () => setContextMenu(null);
+
+    // 🔧 UX FIX: Close context menu when clicking anywhere else on the screen
+    useEffect(() => {
+        if (!contextMenu) return;
+        const handleGlobalClick = () => closeContextMenu();
+        window.addEventListener("click", handleGlobalClick);
+        return () => window.removeEventListener("click", handleGlobalClick);
+    }, [contextMenu]);
 
     // --- NEW: Animated Read Receipt SVG ---
     const renderAnimatedTicks = (status, hasReaders) => {
@@ -343,6 +351,7 @@ const MessageItem = React.memo(({
                     <ContextMenu 
                         initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}
                         style={{ top: contextMenu.y, left: contextMenu.x }}
+                        onClick={(e) => e.stopPropagation()}
                     >
                         <div onClick={() => { setReplyingTo({ id: message.id, text: message.message, type: message.type, isSelfQuote: message.fromSelf }); closeContextMenu(); }}><FaReply /> Reply</div>
                         <div onClick={closeContextMenu}><FaShare /> Forward</div>
@@ -350,7 +359,7 @@ const MessageItem = React.memo(({
                         
                         {message.type === "text" && (
                             <div onClick={() => { handleTranslate(); closeContextMenu(); }}>
-                                <FaLanguage /> {translatedText ? "Show Original" : "Translate (AI)"}
+                                {isTranslating ? <FaSpinner className="fa-spin" /> : <FaLanguage />} {translatedText ? "Show Original" : "Translate (AI)"}
                             </div>
                         )}
                         
@@ -417,7 +426,7 @@ const MessageItem = React.memo(({
                                 
                                 {message.type === "text" && (
                                     <button onClick={handleTranslate} title={translatedText ? "Show Original" : "Translate with AI"}>
-                                        <FaLanguage color={translatedText ? "var(--msg-sent)" : "inherit"} />
+                                        {isTranslating ? <FaSpinner className="fa-spin" /> : <FaLanguage color={translatedText ? "var(--msg-sent)" : "inherit"} />}
                                     </button>
                                 )}
 

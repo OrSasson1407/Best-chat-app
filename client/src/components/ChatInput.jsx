@@ -1,8 +1,6 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, Suspense, lazy } from "react";
 import styled, { keyframes, css } from "styled-components";
-import EmojiPicker, { Theme } from "emoji-picker-react";
 import axios from "axios"; 
-import imageCompression from "browser-image-compression"; 
 import { IoMdSend, IoMdClose, IoMdCheckmark } from "react-icons/io";
 import { 
     BsEmojiSmileFill, BsPaperclip, BsMicFill, 
@@ -17,9 +15,12 @@ import { v4 as uuidv4 } from 'uuid';
 // --- MERGE UPDATE: IMPORT ZUSTAND STORE ---
 import useChatStore from "../store/chatStore";
 
+// 🚀 PERFORMANCE FIX: Dynamically import the heavy Emoji Picker only when needed
+const EmojiPicker = lazy(() => import("emoji-picker-react"));
+
 // --- CLOUDINARY CONFIGURATION ---
 const CLOUDINARY_CLOUD_NAME = "dz6weueae"; 
-const CLOUDINARY_UPLOAD_PRESET = "chat_app_preset"; // MUST be an "Unsigned" preset in Cloudinary settings
+const CLOUDINARY_UPLOAD_PRESET = "chat_app_preset"; 
 
 // --- COMMANDS REGISTRY ---
 const COMMANDS = [
@@ -143,8 +144,6 @@ export default function ChatInput({
   const sendChat = (event) => {
     event?.preventDefault();
 
-    // ✅ FIX: Intercept the 'Enter' key when a media preview is open.
-    // Without this, pressing Enter tries to send a blank text message instead of uploading the media.
     if (mediaPreview && canPost && !isUploading) {
         confirmSendMedia();
         return;
@@ -155,12 +154,11 @@ export default function ChatInput({
           handleEditMsgSubmit(editingMessage.id, msg);
           setEditingMessage(null);
       } else {
-          // --- TRIPLE HANDSHAKE MERGE: Phase 2 (Optimistic Text) ---
           const localId = uuidv4();
           handleSendMsg(msg, isCodeMode ? "code" : (detectedUrl ? "link" : "text"), replyingTo?.id, {
               timer: timerDuration,
               scheduledAt: scheduleDate || null,
-              localId // Inject the localId so ChatContainer can render it immediately
+              localId 
           }); 
       }
       setMsg("");
@@ -256,11 +254,7 @@ export default function ChatInput({
           );
           return response.data.secure_url;
       } catch (error) {
-          if (error.response?.status === 400) {
-              console.error("[Media] Cloudinary 400 Error: Verify the 'chat_app_preset' is set to UNSIGNED in the Cloudinary Dashboard.");
-          } else {
-              console.error("[Media] Cloudinary Upload Error:", error);
-          }
+          console.error("[Media] Cloudinary Upload Error:", error);
           return null;
       }
   };
@@ -278,6 +272,8 @@ export default function ChatInput({
       } else if (mediaPreview.type === "image") {
           resType = "image";
           try {
+              // 🚀 PERFORMANCE FIX: Dynamically import image compression ONLY when an image is about to be sent
+              const imageCompression = (await import("browser-image-compression")).default;
               const options = { maxSizeMB: 1, maxWidthOrHeight: 1920, useWebWorker: true };
               fileToUpload = await imageCompression(mediaPreview.rawFile, options);
           } catch (error) {
@@ -291,13 +287,12 @@ export default function ChatInput({
       setIsUploading(false);
 
       if (cloudUrl) {
-          // --- TRIPLE HANDSHAKE MERGE: Phase 2 (Optimistic Media) ---
           const localId = uuidv4();
           handleSendMsg(cloudUrl, mediaPreview.type, replyingTo?.id, {
               isViewOnce: isViewOnceMedia,
               fileName: mediaPreview.fileName,
               fileSize: formatFileSize(fileToUpload.size),
-              localId // Inject the localId
+              localId 
           });
           
           setMediaPreview(null);
@@ -356,7 +351,6 @@ export default function ChatInput({
         setIsUploading(false);
 
         if (cloudUrl) {
-            // --- TRIPLE HANDSHAKE MERGE: Phase 2 (Optimistic Audio) ---
             const localId = uuidv4();
             handleSendMsg(cloudUrl, "audio", replyingTo?.id, { timer: timerDuration, localId }); 
             setReplyingTo(null);
@@ -395,8 +389,6 @@ export default function ChatInput({
           </Wrapper>
       );
   }
-
-  const emojiTheme = theme === 'light' ? Theme.LIGHT : Theme.DARK;
 
   return (
     <Wrapper>
@@ -487,7 +479,10 @@ export default function ChatInput({
             <BsEmojiSmileFill onClick={(e) => { e.stopPropagation(); setShowEmojiPicker(!showEmojiPicker); setShowTimerMenu(false); setShowScheduleMenu(false); }} />
             {showEmojiPicker && (
                <div className="floating-menu emoji-picker-react" onClick={e => e.stopPropagation()}>
-                 <EmojiPicker theme={emojiTheme} onEmojiClick={handleEmojiClick} />
+                 {/* 🚀 PERFORMANCE FIX: Suspense boundaries show a fallback while the library is downloaded */}
+                 <Suspense fallback={<div style={{padding: '1.5rem', color: 'var(--text-dim)', fontSize: '0.9rem'}}>Loading Emojis...</div>}>
+                   <EmojiPicker theme={theme === 'light' ? 'light' : 'dark'} onEmojiClick={handleEmojiClick} />
+                 </Suspense>
                </div>
             )}
           </div>
@@ -593,11 +588,6 @@ const pulse = keyframes`
   0% { transform: scale(1); }
   50% { transform: scale(1.15); }
   100% { transform: scale(1); }
-`;
-
-const wave = keyframes`
-  0%, 100% { height: 8px; }
-  50% { height: 24px; }
 `;
 
 const ReadOnlyBanner = styled.div`
