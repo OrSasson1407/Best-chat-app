@@ -92,24 +92,29 @@ module.exports = (io, socket, redisClient) => {
 
     /** DIRECT MESSAGE **/
     else {
-      const receiverSocket = await redisClient.hGet("online_users", data.to);
+      // FIX: Fetch ALL active sockets for the receiving user
+      const receiverSockets = await redisClient.sMembers(`user_sockets:${data.to}`);
 
-      if (receiverSocket) {
-        socket.to(receiverSocket).emit("msg-recieve", {
-          id: data.id,
-          localId: data.localId,
-          msg: data.msg,
-          from: data.from,
-          type: data.type,
-          createdAt: new Date().toISOString(),
-          isGroup: false,
-          replyTo: data.replyTo,
-          status: "sent_to_server",
-          pollData: data.pollData,
-          linkMetadata: data.linkMetadata,
-          isForwarded: data.isForwarded,
-          isViewOnce: data.isViewOnce,
-          fileMetadata: data.fileMetadata
+      if (receiverSockets && receiverSockets.length > 0) {
+        
+        // FIX: Loop through and send the message to EVERY device the user has open
+        receiverSockets.forEach(socketId => {
+          socket.to(socketId).emit("msg-recieve", {
+            id: data.id,
+            localId: data.localId,
+            msg: data.msg,
+            from: data.from,
+            type: data.type,
+            createdAt: new Date().toISOString(),
+            isGroup: false,
+            replyTo: data.replyTo,
+            status: "sent_to_server",
+            pollData: data.pollData,
+            linkMetadata: data.linkMetadata,
+            isForwarded: data.isForwarded,
+            isViewOnce: data.isViewOnce,
+            fileMetadata: data.fileMetadata
+          });
         });
 
         messageLatencyHistogram.observe(Date.now() - startTime);
@@ -150,11 +155,15 @@ module.exports = (io, socket, redisClient) => {
       if (!isGroup) {
         await Message.findByIdAndUpdate(messageId, { status: "delivered_to_device" });
       }
-      const senderSocket = await redisClient.hGet("online_users", from);
-      if (senderSocket) {
-        socket.to(senderSocket).emit("msg-delivery-update", {
-          messageId,
-          status: "delivered_to_device"
+      
+      // FIX: Notify all devices of the sender that the message was delivered
+      const senderSockets = await redisClient.sMembers(`user_sockets:${from}`);
+      if (senderSockets && senderSockets.length > 0) {
+        senderSockets.forEach(socketId => {
+          socket.to(socketId).emit("msg-delivery-update", {
+            messageId,
+            status: "delivered_to_device"
+          });
         });
       }
     } catch (err) {
@@ -169,9 +178,12 @@ module.exports = (io, socket, redisClient) => {
     if (data.isGroup) {
       socket.to(data.to).emit("receive-reaction", data);
     } else {
-      const receiverSocket = await redisClient.hGet("online_users", data.to);
-      if (receiverSocket) {
-        socket.to(receiverSocket).emit("receive-reaction", data);
+      // FIX: Send reaction to all of the recipient's devices
+      const receiverSockets = await redisClient.sMembers(`user_sockets:${data.to}`);
+      if (receiverSockets && receiverSockets.length > 0) {
+        receiverSockets.forEach(socketId => {
+          socket.to(socketId).emit("receive-reaction", data);
+        });
       }
     }
   });
@@ -203,12 +215,15 @@ module.exports = (io, socket, redisClient) => {
 
       if (!message) return;
 
-      const senderSocket = await redisClient.hGet("online_users", message.sender.toString());
-      if (senderSocket) {
-        socket.to(senderSocket).emit("msg-read-update", {
-          messageId,
-          status: message.status,
-          newReader: readData
+      // FIX: Update read receipt on ALL of the original sender's devices
+      const senderSockets = await redisClient.sMembers(`user_sockets:${message.sender.toString()}`);
+      if (senderSockets && senderSockets.length > 0) {
+        senderSockets.forEach(socketId => {
+          socket.to(socketId).emit("msg-read-update", {
+            messageId,
+            status: message.status,
+            newReader: readData
+          });
         });
       }
 
@@ -230,8 +245,11 @@ module.exports = (io, socket, redisClient) => {
     if (data.isGroup) {
       socket.to(data.to).emit("msg-deleted", { messageId: data.messageId });
     } else {
-      const receiverSocket = await redisClient.hGet("online_users", data.to);
-      if (receiverSocket) socket.to(receiverSocket).emit("msg-deleted", { messageId: data.messageId });
+      // FIX: Delete message on all of recipient's devices
+      const receiverSockets = await redisClient.sMembers(`user_sockets:${data.to}`);
+      if (receiverSockets && receiverSockets.length > 0) {
+        receiverSockets.forEach(socketId => socket.to(socketId).emit("msg-deleted", { messageId: data.messageId }));
+      }
     }
     if (callback) callback({ success: true, id: data.messageId });
   });
@@ -240,8 +258,11 @@ module.exports = (io, socket, redisClient) => {
     if (data.isGroup) {
       socket.to(data.to).emit("msg-edited", { messageId: data.messageId, newText: data.newText });
     } else {
-      const receiverSocket = await redisClient.hGet("online_users", data.to);
-      if (receiverSocket) socket.to(receiverSocket).emit("msg-edited", { messageId: data.messageId, newText: data.newText });
+      // FIX: Edit message on all of recipient's devices
+      const receiverSockets = await redisClient.sMembers(`user_sockets:${data.to}`);
+      if (receiverSockets && receiverSockets.length > 0) {
+        receiverSockets.forEach(socketId => socket.to(socketId).emit("msg-edited", { messageId: data.messageId, newText: data.newText }));
+      }
     }
     if (callback) callback({ success: true, id: data.messageId });
   });
