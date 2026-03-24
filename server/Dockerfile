@@ -1,27 +1,33 @@
-# Use an official Node runtime as a parent image
-FROM node:20-alpine
-
-# Set the working directory
+# Stage 1: Build the React application (Updated to Node 20)
+FROM node:20-alpine AS builder
 WORKDIR /app
 
-# Set environment to production
+# Copy only dependency files first to leverage Docker layer caching
+COPY package*.json ./
+
+# Install dependencies (Clean install for Vite and React 19)
+RUN npm ci
+
+# Copy the rest of the source code
+COPY . .
+
+# Build the app using Vite
 ENV NODE_ENV=production
+RUN npm run build
 
-# Copy package files and change ownership in one step to leverage layer caching
-COPY --chown=node:node package*.json ./
+# Stage 2: Serve the app with Nginx
+FROM nginx:alpine
 
-# Install dependencies using 'ci' for faster, deterministic builds
-RUN npm ci --omit=dev
+# Remove default nginx static assets before copying yours
+RUN rm -rf /usr/share/nginx/html/*
 
-# Copy the rest of the application code and change ownership
-# This prevents Docker from doubling the size of your image layer!
-COPY --chown=node:node . .
+# 🔧 FIX: Copy our custom Nginx configuration to handle React Router!
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# Security: Run the container as the built-in non-root "node" user
-USER node
+# 🔧 FIX: Copy the Vite build output (dist folder) to replace the default nginx contents
+COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Expose the port your server runs on
-EXPOSE 5000
+# Expose port 80
+EXPOSE 80
 
-# Start the server
-CMD ["node", "index.js"]
+CMD ["nginx", "-g", "daemon off;"]

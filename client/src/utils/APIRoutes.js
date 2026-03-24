@@ -13,7 +13,7 @@
 // Priority:
 // 1. Use REACT_APP_API_URL if defined (.env file)
 // 2. Otherwise → localhost for development
-export const host = process.env.REACT_APP_API_URL || "http://localhost:5000";
+export const host = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 // =======================================================
 // AUTH & USER ROUTES
