@@ -21,7 +21,8 @@ import {
     FaThumbtack, FaSpinner, FaCloudUploadAlt, FaTimes, FaCheckDouble, FaArrowDown, FaMagic, FaGlobe 
 } from "react-icons/fa";
 
-import { Container, DropOverlay, ScrollButton, Lightbox } from "./ChatContainer.styles"; 
+// UPDATED IMPORTS HERE
+import { ChatLayout, DropOverlay, ScrollButton, Lightbox, PinnedBanner, MessagesArea } from "./ChatContainer.styles"; 
 import CallModal from "./CallModal"; 
 import useChatStore from "../store/chatStore";
 
@@ -740,7 +741,8 @@ export default function ChatContainer({ socket, isTyping }) {
         const adaptiveAccent = data || customTheme || "#4e0eff";
         
         return (
-          <Container 
+          // UPDATED: Container -> ChatLayout
+          <ChatLayout 
             $themeType={theme} 
             $isCompact={isCompact} 
             $hasPinned={!!pinnedMessage} 
@@ -914,8 +916,9 @@ export default function ChatContainer({ socket, isTyping }) {
             
             <AnimatePresence>
                 {pinnedMessage && (
-                    <motion.div 
-                        className="pinned-banner" 
+                    // UPDATED: div className="pinned-banner" -> PinnedBanner
+                    <PinnedBanner 
+                        as={motion.div}
                         onClick={() => scrollToMessage(pinnedMessage.id)}
                         initial={{ y: -50, opacity: 0 }} 
                         animate={{ y: 0, opacity: 1 }} 
@@ -927,11 +930,12 @@ export default function ChatContainer({ socket, isTyping }) {
                             <span className="pin-title">Pinned Message</span>
                             <span className="pin-text">{pinnedMessage.message.substring(0, 80)}...</span>
                         </div>
-                    </motion.div>
+                    </PinnedBanner>
                 )}
             </AnimatePresence>
 
-            <div className="chat-messages-container">
+            {/* UPDATED: div className="chat-messages-container" -> MessagesArea */}
+            <MessagesArea>
               {isFetchingHistory ? (
                   <div className="skeleton-container">
                       {Array.from({ length: 5 }).map((_, i) => (
@@ -979,7 +983,7 @@ export default function ChatContainer({ socket, isTyping }) {
                       )}
                   />
               )}
-            </div>
+            </MessagesArea>
 
             <AnimatePresence>
                 {showScrollBtn && (
@@ -1057,7 +1061,7 @@ export default function ChatContainer({ socket, isTyping }) {
                 droppedFile={droppedFile}
                 onClearDrop={() => setDroppedFile(null)}
             />
-          </Container>
+          </ChatLayout>
         );
       }}
     </ColorThief>
