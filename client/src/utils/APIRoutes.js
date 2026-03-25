@@ -11,9 +11,13 @@
 // =======================================================
 
 // Priority:
-// 1. Use REACT_APP_API_URL if defined (.env file)
-// 2. Otherwise → localhost for development
-export const host = import.meta.env.VITE_API_URL || "http://localhost:5000";
+// 1. Use VITE_API_URL if defined in your Render Environment Variables
+// 2. Otherwise → Automatically detect if we are in DEV (localhost) or PROD (live URL)
+export const host = import.meta.env.VITE_API_URL || (
+  import.meta.env.DEV 
+    ? "http://localhost:5000" 
+    : "https://your-backend-app.onrender.com" // 🚨 REPLACE THIS WITH YOUR LIVE RENDER BACKEND URL
+);
 
 // =======================================================
 // AUTH & USER ROUTES
