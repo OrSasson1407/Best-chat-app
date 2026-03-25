@@ -1066,4 +1066,4 @@ export default function ChatContainer({ socket, isTyping }) {
       }}
     </ColorThief>
   );
-}
+}3
