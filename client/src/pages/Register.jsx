@@ -132,17 +132,14 @@ export default function Register() {
 
         // Save access token separately so App.js request interceptor can read it
         sessionStorage.setItem("chat-app-token", data.token);
-
-        // Save refresh token so App.js can silently renew expired access tokens
         sessionStorage.setItem("chat-app-refresh-token", data.refreshToken);
 
-        // Save user object (also embed token for socket auth)
+        // Save user object
         const userData = { ...data.user, token: data.token };
         sessionStorage.setItem("chat-app-user", JSON.stringify(userData));
 
         toast.success("Welcome to Snappy!", toastOptions);
         
-        // 🚨 CRITICAL FIX: Ensure navigate fires reliably after storage updates
         setTimeout(() => {
             navigate("/");
         }, 100);
@@ -154,7 +151,7 @@ export default function Register() {
       } else {
         toast.error("Check your internet connection and try again.", toastOptions);
       }
-      setIsSubmitting(false); // Ensure button unlocks if network fails
+      setIsSubmitting(false); 
     } 
   };
 
@@ -184,11 +181,16 @@ export default function Register() {
 
           {step === 1 && (
             <div className="form-step slide-in">
-              <input type="text" placeholder="Username" name="username" value={values.username} onChange={handleChange} disabled={isSubmitting} />
-              <input type="email" placeholder="Email" name="email" value={values.email} onChange={handleChange} disabled={isSubmitting} />
+              {/* ✅ FIX: Visually hidden labels + autoComplete + ids */}
+              <label htmlFor="username" className="visually-hidden">Username</label>
+              <input id="username" type="text" placeholder="Username" name="username" autoComplete="username" value={values.username} onChange={handleChange} disabled={isSubmitting} />
+              
+              <label htmlFor="email" className="visually-hidden">Email</label>
+              <input id="email" type="email" placeholder="Email" name="email" autoComplete="email" value={values.email} onChange={handleChange} disabled={isSubmitting} />
 
               <div className="input-wrapper">
-                <input type={showPassword ? "text" : "password"} placeholder="Password" name="password" value={values.password} onChange={handleChange} disabled={isSubmitting} />
+                <label htmlFor="password" className="visually-hidden">Password</label>
+                <input id="password" type={showPassword ? "text" : "password"} placeholder="Password" name="password" autoComplete="new-password" value={values.password} onChange={handleChange} disabled={isSubmitting} />
                 <div className="icon-toggle" onClick={() => setShowPassword(!showPassword)}>
                   {showPassword ? <FaEyeSlash /> : <FaEye />}
                 </div>
@@ -201,7 +203,8 @@ export default function Register() {
               )}
 
               <div className="input-wrapper">
-                <input type={showConfirmPassword ? "text" : "password"} placeholder="Confirm Password" name="confirmPassword" value={values.confirmPassword} onChange={handleChange} disabled={isSubmitting} />
+                <label htmlFor="confirmPassword" className="visually-hidden">Confirm Password</label>
+                <input id="confirmPassword" type={showConfirmPassword ? "text" : "password"} placeholder="Confirm Password" name="confirmPassword" autoComplete="new-password" value={values.confirmPassword} onChange={handleChange} disabled={isSubmitting} />
                 <div className="icon-toggle" onClick={() => setShowConfirmPassword(!showConfirmPassword)}>
                   {showConfirmPassword ? <FaEyeSlash /> : <FaEye />}
                 </div>
@@ -216,8 +219,9 @@ export default function Register() {
           {step === 2 && (
             <div className="form-step slide-in">
               <div className="gender-select">
-                <label>Gender:</label>
-                <select name="gender" value={values.gender} onChange={handleChange} disabled={isSubmitting}>
+                {/* ✅ FIX: Associated label via htmlFor */}
+                <label htmlFor="gender">Gender:</label>
+                <select id="gender" name="gender" autoComplete="sex" value={values.gender} onChange={handleChange} disabled={isSubmitting}>
                   <option value="male">Male</option>
                   <option value="female">Female</option>
                 </select>
@@ -249,8 +253,10 @@ export default function Register() {
                 </div>
               </div>
 
-              <label className="terms-checkbox">
+              {/* ✅ FIX: Properly linked checkbox to label */}
+              <label className="terms-checkbox" htmlFor="termsAccept">
                 <input
+                  id="termsAccept"
                   type="checkbox"
                   checked={acceptedTerms}
                   onChange={(e) => setAcceptedTerms(e.target.checked)}
@@ -302,6 +308,19 @@ const FormContainer = styled.div`
   gap: 1rem; 
   align-items: center; 
   background-color: #050510;
+
+  /* ✅ FIX: Hides labels visually but keeps them readable for screen readers and auto-fill audits */
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+  }
   
   .brand { 
       display: flex; align-items: center; gap: 1rem; justify-content: center; 
