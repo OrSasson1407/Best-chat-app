@@ -114,6 +114,7 @@ export default function Register() {
 
       if (data.status === false) {
         toast.error(data.msg, toastOptions);
+        setIsSubmitting(false); // Reset submitting state on error
         return;
       }
 
@@ -121,6 +122,7 @@ export default function Register() {
         if (!data.token) {
           console.error("[Auth Error] Backend did not return an authentication token.");
           toast.error("Registration failed. Please try again later.", toastOptions);
+          setIsSubmitting(false);
           return;
         }
 
@@ -128,11 +130,10 @@ export default function Register() {
         localStorage.setItem(`privateKey_${data.user._id}`, JSON.stringify(privateKeys.identityPrivateKey));
         localStorage.setItem(`fullE2EKeys_${data.user._id}`, JSON.stringify(privateKeys));
 
-        // ✅ FIX: Save access token separately so App.js request interceptor can read it
+        // Save access token separately so App.js request interceptor can read it
         sessionStorage.setItem("chat-app-token", data.token);
 
-        // ✅ FIX: Save refresh token so App.js can silently renew expired access tokens
-        //         (was missing — caused logout every 15 min after registration too)
+        // Save refresh token so App.js can silently renew expired access tokens
         sessionStorage.setItem("chat-app-refresh-token", data.refreshToken);
 
         // Save user object (also embed token for socket auth)
@@ -140,7 +141,11 @@ export default function Register() {
         sessionStorage.setItem("chat-app-user", JSON.stringify(userData));
 
         toast.success("Welcome to Snappy!", toastOptions);
-        navigate("/");
+        
+        // 🚨 CRITICAL FIX: Ensure navigate fires reliably after storage updates
+        setTimeout(() => {
+            navigate("/");
+        }, 100);
       }
     } catch (error) {
       console.error("Registration Request Failed:", error);
@@ -149,9 +154,8 @@ export default function Register() {
       } else {
         toast.error("Check your internet connection and try again.", toastOptions);
       }
-    } finally {
-      setIsSubmitting(false);
-    }
+      setIsSubmitting(false); // Ensure button unlocks if network fails
+    } 
   };
 
   const getStrengthColor = () => {
