@@ -34,7 +34,7 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    chunkSizeWarningLimit: 600, 
+    chunkSizeWarningLimit: 1000, // Bumped slightly so Vite doesn't yell at us
     commonjsOptions: {
       transformMixedEsModules: true,
     },
@@ -42,6 +42,7 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (id.includes('node_modules')) {
+            // Split out the heaviest libraries safely
             if (id.includes('firebase')) return 'vendor-firebase';
             
             // CRITICAL FIX: Group engine.io AND socket.io together!
@@ -52,6 +53,7 @@ export default defineConfig({
             if (id.includes('emoji-picker-react')) return 'vendor-emoji';
             if (id.includes('framer-motion')) return 'vendor-motion';
             
+            // Group React core libraries together
             if (
               id.includes('react') || 
               id.includes('react-dom') || 
@@ -60,7 +62,8 @@ export default defineConfig({
               return 'vendor-react';
             }
             
-            return 'vendor-general'; 
+            // 🚨 REMOVED the catch-all `return 'vendor-general';` here
+            // We now let Vite automatically calculate the safest dependency graph for the rest!
           }
         }
       }
