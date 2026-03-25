@@ -1,6 +1,8 @@
 import styled, { keyframes, css } from "styled-components";
 
-// --- REFINED ANIMATIONS ---
+// ==========================================
+// 1. REFINED ANIMATIONS
+// ==========================================
 const springyPop = keyframes`
   0% { transform: scale(0.85) translateY(10px); opacity: 0; }
   70% { transform: scale(1.02) translateY(-2px); opacity: 1; }
@@ -32,13 +34,16 @@ const pulseBorder = keyframes`
   100% { border-color: rgba(78, 14, 255, 0.4); box-shadow: 0 0 0 rgba(78, 14, 255, 0); }
 `;
 
-// --- NEW: Scanline Animation for Cyberpunk ---
+// Scanline Animation for Cyberpunk
 const scanline = keyframes`
   0% { transform: translateY(-100%); }
   100% { transform: translateY(100%); }
 `;
 
-export const Container = styled.div`
+// ==========================================
+// 2. MAIN LAYOUT (Formerly Container)
+// ==========================================
+export const ChatLayout = styled.div`
   display: grid; 
   grid-template-rows: ${({ $hasPinned }) => $hasPinned ? '10% auto 1fr 10%' : '10% 1fr 10%'}; 
   overflow: hidden;
@@ -90,33 +95,12 @@ export const Container = styled.div`
       background: #ffcc00; color: #000; padding: 0 2px; border-radius: 4px; font-weight: 600;
       box-shadow: 0 0 10px rgba(255, 204, 0, 0.4);
   }
+`;
 
-  /* --- POLISHED: FLOATING PINNED BANNER (Noise + Fluid Type) --- */
-  .pinned-banner {
-      margin: 12px auto 0 auto;
-      width: 96%;
-      border-radius: 12px;
-      background: var(--glass-noise), var(--bg-panel); 
-      border: 1px solid var(--glass-border);
-      border-left: 4px solid var(--adaptive-accent);
-      padding: 0.6rem 1.5rem; 
-      display: flex; align-items: center; gap: 1rem; color: var(--text-main); 
-      cursor: pointer;
-      backdrop-filter: blur(var(--glass-blur-light)); 
-      -webkit-backdrop-filter: blur(var(--glass-blur-light));
-      z-index: 2; 
-      transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-      box-shadow: var(--glass-shadow);
-      
-      &:hover { filter: brightness(0.95); transform: translateY(-2px); }
-      .pin-content { 
-          display: flex; flex-direction: column; 
-          .pin-title { font-size: var(--text-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.9; color: var(--adaptive-accent);} 
-          .pin-text { font-size: var(--text-sm); color: var(--text-dim); margin-top: 2px;} 
-      }
-  }
-
-  .chat-header {
+// ==========================================
+// 3. HEADER & PINNED BANNER
+// ==========================================
+export const ChatHeader = styled.header`
     display: flex; justify-content: space-between; align-items: center; 
     padding: 0 2rem;
     background: var(--glass-noise), transparent; 
@@ -152,9 +136,36 @@ export const Container = styled.div`
         .admin-badge { background: var(--input-bg); color: var(--adaptive-accent); padding: 0.3rem 0.8rem; border-radius: 1rem; border: 1px solid var(--glass-border); font-size: var(--text-xs); font-weight: 700; display: flex; align-items: center; gap: 0.4rem; backdrop-filter: blur(4px); }
         .action-icon { color: var(--text-dim); cursor: pointer; font-size: var(--text-lg); transition: 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275); &:hover { transform: scale(1.15); color: var(--text-main); } &.blocked { color: #ef4444; } }
     }
-  }
+`;
 
-  .chat-messages-container {
+export const PinnedBanner = styled.div`
+    margin: 12px auto 0 auto;
+    width: 96%;
+    border-radius: 12px;
+    background: var(--glass-noise), var(--bg-panel); 
+    border: 1px solid var(--glass-border);
+    border-left: 4px solid var(--adaptive-accent);
+    padding: 0.6rem 1.5rem; 
+    display: flex; align-items: center; gap: 1rem; color: var(--text-main); 
+    cursor: pointer;
+    backdrop-filter: blur(var(--glass-blur-light)); 
+    -webkit-backdrop-filter: blur(var(--glass-blur-light));
+    z-index: 2; 
+    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    box-shadow: var(--glass-shadow);
+    
+    &:hover { filter: brightness(0.95); transform: translateY(-2px); }
+    .pin-content { 
+        display: flex; flex-direction: column; 
+        .pin-title { font-size: var(--text-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.9; color: var(--adaptive-accent);} 
+        .pin-text { font-size: var(--text-sm); color: var(--text-dim); margin-top: 2px;} 
+    }
+`;
+
+// ==========================================
+// 4. MESSAGES AREA (All Chat Bubbles)
+// ==========================================
+export const MessagesArea = styled.div`
     height: 100%; width: 100%; overflow: hidden; position: relative;
     padding: ${({ $isCompact }) => $isCompact ? '1rem 1.5rem' : '1.5rem 2rem'};
     z-index: 1;
@@ -181,6 +192,7 @@ export const Container = styled.div`
             background-size: 100% 4px;
             animation: ${scanline} 8s linear infinite;
             pointer-events: none; z-index: 10;
+            will-change: transform; /* PERFORMANCE BOOST */
         }
     `}
     
@@ -369,9 +381,12 @@ export const Container = styled.div`
         span:nth-child(1) { animation-delay: -0.32s; }
         span:nth-child(2) { animation-delay: -0.16s; }
     }
-  }
 `;
 
+
+// ==========================================
+// 5. OVERLAYS, BUTTONS, & MODALS
+// ==========================================
 export const DropOverlay = styled.div`
     position: absolute; top: 0; left: 0; width: 100%; height: 100%;
     background: var(--glass-bg); backdrop-filter: blur(12px);
