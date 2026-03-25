@@ -16,7 +16,7 @@
 export const host = import.meta.env.VITE_API_URL || (
   import.meta.env.DEV 
     ? "http://localhost:5000" 
-    : "https://your-backend-app.onrender.com" // 🚨 REPLACE THIS WITH YOUR LIVE RENDER BACKEND URL
+    : "https://best-chat-app-frontend.onrender.com/" // 🚨 REPLACE THIS WITH YOUR LIVE RENDER BACKEND URL
 );
 
 // =======================================================
