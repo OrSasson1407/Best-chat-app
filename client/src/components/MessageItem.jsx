@@ -15,6 +15,10 @@ import { toast } from "react-toastify";
 // --- ZUSTAND STORE ---
 import useChatStore from "../store/chatStore";
 
+// --- HAPTIC ENGINE ---
+// Note: Make sure you created client/src/utils/haptics.js as shown in the previous step
+import { triggerHaptic } from "../utils/haptics";
+
 // --- Holographic Glitch Animation ---
 const glitch = keyframes`
   0% { clip: rect(44px, 450px, 56px, 0); transform: skew(0.5deg); }
@@ -26,6 +30,9 @@ const glitch = keyframes`
 
 // --- Styled Motion Div for the Bubble ---
 const MessageBubble = styled(motion.div)`
+  /* Spring physics ensure smooth return after swipe */
+  touch-action: pan-y; /* Allows vertical scrolling while preventing default horizontal swipes */
+
   ${({ $themeType }) => $themeType === 'cyberpunk' && css`
     position: relative;
     
@@ -130,6 +137,7 @@ const MessageItem = React.memo(({
     // --- NEW: Context Menu Handlers ---
     const handleContextMenu = (e) => {
         e.preventDefault();
+        triggerHaptic('medium'); // Added haptic feedback on long press/right click
         // Calculate position slightly offset from cursor
         setContextMenu({ x: e.pageX, y: e.pageY });
     };
@@ -143,6 +151,21 @@ const MessageItem = React.memo(({
         window.addEventListener("click", handleGlobalClick);
         return () => window.removeEventListener("click", handleGlobalClick);
     }, [contextMenu]);
+
+    // --- NEW: Handle Swipe to Reply Logic ---
+    const handleDragEnd = (event, info) => {
+        const SWIPE_THRESHOLD = 50; 
+        // If swiped left or right past 50px
+        if (Math.abs(info.offset.x) > SWIPE_THRESHOLD) {
+            triggerHaptic('light'); // Satisfying tap when threshold is met
+            setReplyingTo({ 
+                id: message.id, 
+                text: message.message, 
+                type: message.type, 
+                isSelfQuote: message.fromSelf 
+            });
+        }
+    };
 
     // --- NEW: Animated Read Receipt SVG ---
     const renderAnimatedTicks = (status, hasReaders) => {
@@ -376,11 +399,18 @@ const MessageItem = React.memo(({
                 className={`message-wrapper ${highlightedMsgId === message.id ? 'highlight-flash' : ''} ${isGroupedWithNext ? 'grouped-next' : ''} ${isGroupedWithPrev ? 'grouped-prev' : ''}`}
                 onContextMenu={handleContextMenu}
             >
-                {/* --- APPLIED STYLED MOTION COMPONENT --- */}
+                {/* --- APPLIED STYLED MOTION COMPONENT WITH DRAG PHYSICS --- */}
                 <MessageBubble 
                     $themeType={theme}
                     data-text={message.type === 'text' ? message.message : ""}
                     className={`message ${message.fromSelf ? "sended" : "recieved"} ${message.isDeleted ? "deleted-msg" : ""}`}
+                    
+                    // Framer Motion Drag Config for Swipe-to-Reply
+                    drag="x" 
+                    dragConstraints={{ left: 0, right: 0 }} 
+                    dragElastic={0.15} 
+                    onDragEnd={handleDragEnd}
+
                     initial="hidden"
                     animate="visible"
                     variants={messageVariants}

@@ -1,4 +1,17 @@
 :root {
+  /* --- UI UPGRADE: FLUID TYPOGRAPHY --- */
+  /* Scales perfectly from 320px (mobile) to 1200px (desktop) */
+  --text-xs: clamp(0.65rem, 0.6rem + 0.15vw, 0.75rem);
+  --text-sm: clamp(0.75rem, 0.7rem + 0.2vw, 0.85rem);
+  --text-base: clamp(0.875rem, 0.8rem + 0.25vw, 1rem);
+  --text-lg: clamp(1.1rem, 1rem + 0.5vw, 1.25rem);
+  --text-xl: clamp(1.3rem, 1.15rem + 0.75vw, 1.6rem);
+  --text-2xl: clamp(1.5rem, 1.3rem + 1vw, 2rem);
+
+  /* --- UI UPGRADE: VISION OS NOISE TEXTURE --- */
+  /* Generates a fractal noise SVG overlay to give glass a physical, premium texture */
+  --glass-noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.06'/%3E%3C/svg%3E");
+
   /* SHARED EFFECTS */
   --glass-blur: blur(16px);
   --primary-gradient: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
@@ -58,25 +71,52 @@
   padding: 0;
   box-sizing: border-box;
   /* Smooth transition for theme switching */
-  transition: background-color var(--transition-speed) ease, color var(--transition-speed) ease;
+  transition: background-color var(--transition-speed) ease, color var(--transition-speed) ease, border-color var(--transition-speed) ease;
 }
 
 body {
   background-color: var(--bg-color);
   color: var(--text-main);
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: var(--text-base); /* Apply Fluid Typography */
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
 }
 
-/* Re-usable Glass Class using variables */
+h1 { font-size: var(--text-2xl); }
+h2 { font-size: var(--text-xl); }
+h3 { font-size: var(--text-lg); }
+
+/* Re-usable Glass Class using variables and noise texture */
 .glass-container {
-  background: var(--glass-bg);
+  background: var(--glass-noise), var(--glass-bg);
   border: 1px solid var(--glass-border);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   box-shadow: var(--glass-shadow);
   transition: all var(--transition-speed) ease;
+}
+
+/* --- GLOBAL UX ANIMATIONS (Rail View & Avatars) --- */
+@keyframes pulseRing {
+  0% { transform: scale(0.9); opacity: 0.8; }
+  100% { transform: scale(1.35); opacity: 0; }
+}
+
+.typing-pulse-ring {
+  position: absolute; top: -4px; left: -4px; right: -4px; bottom: -4px;
+  border: 2px solid var(--msg-sent); border-radius: 50%;
+  animation: pulseRing 1.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+  z-index: 0; pointer-events: none;
+}
+
+.active-glow-ring {
+  position: absolute; bottom: 0; right: 0;
+  width: 14px; height: 14px;
+  background: #10b981; border-radius: 50%;
+  border: 2px solid var(--bg-panel);
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.5);
+  z-index: 2;
 }
 
 @keyframes spring-hover {
@@ -145,7 +185,7 @@ body {
 
 /* The actual toast card */
 .Toastify__toast {
-    background: var(--bg-panel) !important;
+    background: var(--glass-noise), var(--bg-panel) !important; /* Added noise */
     backdrop-filter: blur(25px) !important;
     -webkit-backdrop-filter: blur(25px) !important;
     border: 1px solid var(--glass-border) !important;
@@ -153,7 +193,7 @@ body {
     box-shadow: 0 15px 35px rgba(0, 0, 0, 0.2) !important;
     color: var(--text-main) !important;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
-    font-size: 0.9rem !important;
+    font-size: var(--text-sm) !important; /* Fluid Typography */
     font-weight: 500 !important;
     padding: 14px 18px !important;
     margin-bottom: 12px !important;

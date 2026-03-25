@@ -14,6 +14,9 @@ import useChatStore from "../store/chatStore";
 import { ToastContainer, toast } from "react-toastify";
 import { requestForToken, onMessageListener } from "../firebase";
 
+// --- NEW: Import the Haptic Engine ---
+import { triggerHaptic } from "../utils/haptics";
+
 export default function Chat() {
   const navigate = useNavigate();
   const socket = useRef();
@@ -48,6 +51,7 @@ export default function Chat() {
   }, [theme]);
 
   const toggleTheme = () => {
+    triggerHaptic('light'); // Added tactile feedback on theme switch
     setTheme(theme === "light" ? "glass" : "light");
   };
 
@@ -55,6 +59,7 @@ export default function Chat() {
   useEffect(() => {
     const handleOffline = () => {
       setIsOffline(true);
+      triggerHaptic('warning'); // Buzzes when the user loses connection
       toast.warning("📶 You are offline. Waiting for connection...", { 
         autoClose: false, 
         toastId: "offline-toast" 
@@ -63,6 +68,7 @@ export default function Chat() {
 
     const handleOnline = () => {
       setIsOffline(false);
+      triggerHaptic('success'); // Happy double-buzz when reconnected
       toast.dismiss("offline-toast");
       toast.success("🌐 Back online! Reconnecting...", { autoClose: 3000 });
       
@@ -306,7 +312,13 @@ export default function Chat() {
 
       {theme === "cyberpunk" && <div className="scanlines"></div>}
 
-      <button className="mobile-toggle" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
+      <button 
+        className="mobile-toggle" 
+        onClick={() => {
+          triggerHaptic('light'); // Added tactile feedback on mobile menu toggle
+          setIsMobileMenuOpen(!isMobileMenuOpen);
+        }}
+      >
         {isMobileMenuOpen ? "✕" : "☰"}
       </button>
 

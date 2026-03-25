@@ -15,6 +15,9 @@ import { v4 as uuidv4 } from 'uuid';
 // --- MERGE UPDATE: IMPORT ZUSTAND STORE ---
 import useChatStore from "../store/chatStore";
 
+// --- NEW: Import the Haptic Engine ---
+import { triggerHaptic } from "../utils/haptics";
+
 // 🚀 PERFORMANCE FIX: Dynamically import the heavy Emoji Picker only when needed
 const EmojiPicker = lazy(() => import("emoji-picker-react"));
 
@@ -122,6 +125,7 @@ export default function ChatInput({
   }, []);
 
   const handleEmojiClick = (emojiData) => {
+    triggerHaptic('light'); // Subtle tactile feedback for emoji selection
     setMsg((prev) => prev + emojiData.emoji);
     handleTyping(true); 
   };
@@ -133,6 +137,7 @@ export default function ChatInput({
   };
 
   const executeCommand = (cmdStr) => {
+      triggerHaptic('success'); // Haptic confirmation of command execution
       if (cmdStr === "/code") setIsCodeMode(true);
       if (cmdStr === "/bomb") setTimerDuration(3600);
       if (cmdStr === "/clear") { setMsg(""); setIsCodeMode(false); setTimerDuration(null); }
@@ -213,6 +218,7 @@ export default function ChatInput({
       if (file.type.startsWith("image/")) type = "image";
       else if (file.type.startsWith("video/")) type = "video";
 
+      triggerHaptic('medium'); // Tactile feedback on file load
       setMediaPreview({ 
           src: reader.result, 
           type, 
@@ -359,6 +365,7 @@ export default function ChatInput({
         }
       };
 
+      triggerHaptic('medium'); // Haptic bump when recording starts
       mediaRecorder.start();
       setIsRecording(true);
     } catch (error) {
@@ -369,12 +376,14 @@ export default function ChatInput({
 
   const stopRecording = () => {
     if (mediaRecorderRef.current) {
+      triggerHaptic('heavy'); // Satisfying hard tap when finishing a voice note
       mediaRecorderRef.current.stop();
       setIsRecording(false);
     }
   };
 
   const toggleTimer = (duration) => {
+      triggerHaptic('light');
       setTimerDuration(timerDuration === duration ? null : duration);
       setShowTimerMenu(false);
   };
@@ -429,14 +438,14 @@ export default function ChatInput({
       {replyingTo && !editingMessage && (
         <div className="reply-banner">
             <span>Replying to: <strong>{replyingTo.text.substring(0, 30)}...</strong></span>
-            <IoMdClose onClick={() => setReplyingTo(null)} className="close-btn" />
+            <IoMdClose onClick={() => { triggerHaptic('light'); setReplyingTo(null); }} className="close-btn" />
         </div>
       )}
 
       {editingMessage && (
         <div className="reply-banner edit-banner">
             <span>Editing message...</span>
-            <IoMdClose onClick={() => { setEditingMessage(null); setMsg(""); resetTextarea(); }} className="close-btn" />
+            <IoMdClose onClick={() => { triggerHaptic('light'); setEditingMessage(null); setMsg(""); resetTextarea(); }} className="close-btn" />
         </div>
       )}
 
@@ -445,7 +454,7 @@ export default function ChatInput({
               <div className="preview-container">
                   <div className="preview-header">
                       <span>Preview {mediaPreview.type}</span>
-                      {!isUploading && <IoMdClose onClick={() => setMediaPreview(null)} className="close-btn" />}
+                      {!isUploading && <IoMdClose onClick={() => { triggerHaptic('light'); setMediaPreview(null); }} className="close-btn" />}
                   </div>
                   
                   {mediaPreview.type === "image" && <img src={mediaPreview.src} alt="Preview" />}
@@ -458,7 +467,7 @@ export default function ChatInput({
 
                   <div className="media-options">
                       <label className={`view-once-toggle ${isViewOnceMedia ? 'active' : ''}`}>
-                          <input type="checkbox" disabled={isUploading} checked={isViewOnceMedia} onChange={(e) => setIsViewOnceMedia(e.target.checked)} hidden />
+                          <input type="checkbox" disabled={isUploading} checked={isViewOnceMedia} onChange={(e) => { triggerHaptic('light'); setIsViewOnceMedia(e.target.checked); }} hidden />
                           <FaFire /> {isViewOnceMedia ? "View Once Enabled" : "Send as View Once"}
                       </label>
                   </div>
@@ -476,18 +485,23 @@ export default function ChatInput({
       <Container $isRecording={isRecording}>
         <div className="button-container">
           <div className="emoji tool-toggle">
-            <BsEmojiSmileFill onClick={(e) => { e.stopPropagation(); setShowEmojiPicker(!showEmojiPicker); setShowTimerMenu(false); setShowScheduleMenu(false); }} />
+            <BsEmojiSmileFill onClick={(e) => { 
+                e.stopPropagation(); 
+                triggerHaptic('light');
+                setShowEmojiPicker(!showEmojiPicker); 
+                setShowTimerMenu(false); 
+                setShowScheduleMenu(false); 
+            }} />
             {showEmojiPicker && (
                <div className="floating-menu emoji-picker-react" onClick={e => e.stopPropagation()}>
-                 {/* 🚀 PERFORMANCE FIX: Suspense boundaries show a fallback while the library is downloaded */}
-                 <Suspense fallback={<div style={{padding: '1.5rem', color: 'var(--text-dim)', fontSize: '0.9rem'}}>Loading Emojis...</div>}>
+                 <Suspense fallback={<div style={{padding: '1.5rem', color: 'var(--text-dim)', fontSize: 'var(--text-sm)'}}>Loading Emojis...</div>}>
                    <EmojiPicker theme={theme === 'light' ? 'light' : 'dark'} onEmojiClick={handleEmojiClick} />
                  </Suspense>
                </div>
             )}
           </div>
 
-          <div className="upload tool-toggle" onClick={() => !isUploading && fileInputRef.current.click()} title="Attach File">
+          <div className="upload tool-toggle" onClick={() => { if (!isUploading) { triggerHaptic('light'); fileInputRef.current.click(); } }} title="Attach File">
             <BsPaperclip />
             <input type="file" ref={fileInputRef} style={{ display: "none" }} accept="image/*,video/*,.pdf,.doc,.docx,.txt,.zip,.rar" onChange={handleFileUpload} />
           </div>
@@ -497,7 +511,13 @@ export default function ChatInput({
           </div>
 
           <div className={`tool-toggle ${timerDuration ? 'active' : ''}`} title="Self-Destruct Timer">
-              <FaBomb onClick={(e) => { e.stopPropagation(); setShowTimerMenu(!showTimerMenu); setShowEmojiPicker(false); setShowScheduleMenu(false); }} />
+              <FaBomb onClick={(e) => { 
+                  e.stopPropagation(); 
+                  triggerHaptic('light');
+                  setShowTimerMenu(!showTimerMenu); 
+                  setShowEmojiPicker(false); 
+                  setShowScheduleMenu(false); 
+              }} />
               {showTimerMenu && (
                   <div className="floating-menu timer-menu" onClick={e => e.stopPropagation()}>
                       <h4>Self-Destruct</h4>
@@ -510,7 +530,13 @@ export default function ChatInput({
           </div>
 
           <div className={`tool-toggle ${scheduleDate ? 'active' : ''}`} title="Schedule Message">
-              <BsClockHistory onClick={(e) => { e.stopPropagation(); setShowScheduleMenu(!showScheduleMenu); setShowEmojiPicker(false); setShowTimerMenu(false); }} />
+              <BsClockHistory onClick={(e) => { 
+                  e.stopPropagation(); 
+                  triggerHaptic('light');
+                  setShowScheduleMenu(!showScheduleMenu); 
+                  setShowEmojiPicker(false); 
+                  setShowTimerMenu(false); 
+              }} />
               {showScheduleMenu && (
                   <div className="floating-menu schedule-menu" onClick={e => e.stopPropagation()}>
                       <h4>Schedule Message</h4>
@@ -520,12 +546,12 @@ export default function ChatInput({
                         onChange={(e) => setScheduleDate(e.target.value)} 
                         min={new Date().toISOString().slice(0, 16)}
                       />
-                      <button onClick={() => setShowScheduleMenu(false)}>Set Schedule</button>
+                      <button onClick={() => { triggerHaptic('success'); setShowScheduleMenu(false); }}>Set Schedule</button>
                   </div>
               )}
           </div>
 
-          <div className={`code-toggle tool-toggle ${isCodeMode ? 'active' : ''}`} onClick={() => setIsCodeMode(!isCodeMode)} title="Send Code Snippet">
+          <div className={`code-toggle tool-toggle ${isCodeMode ? 'active' : ''}`} onClick={() => { triggerHaptic('light'); setIsCodeMode(!isCodeMode); }} title="Send Code Snippet">
               <BsCodeSlash />
           </div>
         </div>
@@ -595,20 +621,20 @@ const ReadOnlyBanner = styled.div`
   background: var(--glass-bg);
   color: var(--text-dim);
   padding: 1.2rem; border-top: 1px solid var(--glass-border);
-  font-style: italic; font-size: 0.95rem; min-height: 10%;
+  font-style: italic; font-size: var(--text-sm); min-height: 10%;
   
-  .lock-icon { margin-right: 10px; font-size: 1.1rem; color: var(--msg-sent); }
+  .lock-icon { margin-right: 10px; font-size: var(--text-base); color: var(--msg-sent); }
 `;
 
 const CommandPalette = styled.div`
     position: absolute; bottom: 85px; left: 2rem; width: 300px;
-    background: var(--bg-panel); backdrop-filter: blur(25px); 
+    background: var(--glass-noise), var(--bg-panel); backdrop-filter: blur(25px); 
     border: 1px solid var(--glass-border); border-radius: 12px; overflow: hidden; 
     box-shadow: 0 10px 40px rgba(0,0,0,0.2); z-index: 100; 
     animation: ${popIn} 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
     
     .cmd-header { 
-        padding: 10px 14px; background: var(--input-bg); font-size: 0.8rem; 
+        padding: 10px 14px; background: var(--input-bg); font-size: var(--text-xs); 
         font-weight: bold; color: var(--text-dim); display: flex; align-items: center; 
         gap: 8px; border-bottom: 1px solid var(--glass-border); text-transform: uppercase;
     }
@@ -619,9 +645,9 @@ const CommandPalette = styled.div`
         &:hover { background: var(--input-bg); transform: translateX(4px); } 
     }
     
-    .cmd-icon { color: var(--text-dim); display: flex; align-items: center; }
-    .cmd-name { font-weight: 700; color: var(--adaptive-accent); }
-    .cmd-desc { font-size: 0.8rem; opacity: 0.7; }
+    .cmd-icon { color: var(--text-dim); display: flex; align-items: center; font-size: var(--text-base); }
+    .cmd-name { font-weight: 700; color: var(--adaptive-accent); font-size: var(--text-sm); }
+    .cmd-desc { font-size: var(--text-xs); opacity: 0.7; }
 `;
 
 const PreviewOverlay = styled.div`
@@ -629,7 +655,7 @@ const PreviewOverlay = styled.div`
     display: flex; justify-content: center; z-index: 100;
     
     .preview-container {
-        background: var(--bg-panel); 
+        background: var(--glass-noise), var(--bg-panel); 
         backdrop-filter: blur(15px); border-radius: 1.5rem; padding: 1.2rem;
         box-shadow: 0 15px 40px rgba(0,0,0,0.2);
         border: 1px solid var(--glass-border);
@@ -638,18 +664,18 @@ const PreviewOverlay = styled.div`
         color: var(--text-main);
         
         .preview-header {
-            display: flex; justify-content: space-between; font-weight: bold;
-            .close-btn { cursor: pointer; font-size: 1.5rem; transition: 0.2s; color: var(--text-dim); &:hover { color: #ff4e4e; transform: scale(1.1); } }
+            display: flex; justify-content: space-between; font-weight: bold; font-size: var(--text-base);
+            .close-btn { cursor: pointer; font-size: var(--text-xl); transition: 0.2s; color: var(--text-dim); &:hover { color: #ff4e4e; transform: scale(1.1); } }
         }
 
         img, video { width: 100%; max-height: 250px; object-fit: contain; border-radius: 0.8rem; background: var(--input-bg); }
-        .file-preview-icon { height: 120px; display: flex; align-items: center; justify-content: center; text-align: center; background: var(--input-bg); border-radius: 0.8rem; border: 2px dashed var(--glass-border); }
+        .file-preview-icon { height: 120px; display: flex; align-items: center; justify-content: center; text-align: center; background: var(--input-bg); border-radius: 0.8rem; border: 2px dashed var(--glass-border); font-size: var(--text-sm); }
 
         .media-options {
             display: flex; justify-content: center;
             .view-once-toggle {
                 display: flex; align-items: center; gap: 0.5rem; background: var(--input-bg);
-                padding: 0.5rem 1rem; border-radius: 2rem; cursor: pointer; font-size: 0.85rem;
+                padding: 0.5rem 1rem; border-radius: 2rem; cursor: pointer; font-size: var(--text-sm);
                 transition: 0.3s; border: 1px solid transparent;
                 &:hover { filter: brightness(1.1); }
                 &.active { background: rgba(255, 85, 0, 0.1); color: #ff5500; border-color: #ff5500; font-weight: bold; }
@@ -659,8 +685,8 @@ const PreviewOverlay = styled.div`
 
         .preview-actions {
             display: flex; gap: 0.8rem;
-            input { flex: 1; padding: 0.9rem 1.2rem; border-radius: 2rem; border: 1px solid var(--glass-border); background: transparent; color: inherit; outline: none; transition: 0.3s; &:focus { border-color: var(--msg-sent); } &:disabled { opacity: 0.5; } }
-            button { background: var(--msg-sent); border: none; border-radius: 50%; min-width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: white; font-size: 1.2rem; transition: 0.3s; &:hover:not(:disabled) { filter: brightness(1.2); transform: scale(1.05); } &:disabled { background: var(--text-dim); cursor: not-allowed; } }
+            input { flex: 1; padding: 0.9rem 1.2rem; border-radius: 2rem; border: 1px solid var(--glass-border); background: transparent; color: inherit; outline: none; transition: 0.3s; font-size: var(--text-sm); &:focus { border-color: var(--msg-sent); } &:disabled { opacity: 0.5; } }
+            button { background: var(--msg-sent); border: none; border-radius: 50%; min-width: 45px; height: 45px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: white; font-size: var(--text-lg); transition: 0.3s; &:hover:not(:disabled) { filter: brightness(1.2); transform: scale(1.05); } &:disabled { background: var(--text-dim); cursor: not-allowed; } }
             .spin-icon { animation: fa-spin 1s infinite linear; }
         }
     }
@@ -671,17 +697,17 @@ const Wrapper = styled.div`
   
   .status-badges {
       position: absolute; top: -35px; left: 2rem; display: flex; gap: 0.8rem; z-index: 10;
-      .badge { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.8rem; border-radius: 1rem; font-size: 0.75rem; font-weight: bold; cursor: pointer; color: white; animation: ${popIn} 0.3s ease; box-shadow: 0 4px 10px rgba(0,0,0,0.2); .close { margin-left: 5px; opacity: 0.6; &:hover { opacity: 1; } } }
+      .badge { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.8rem; border-radius: 1rem; font-size: var(--text-xs); font-weight: bold; cursor: pointer; color: white; animation: ${popIn} 0.3s ease; box-shadow: 0 4px 10px rgba(0,0,0,0.2); .close { margin-left: 5px; opacity: 0.6; transition: 0.2s; &:hover { opacity: 1; transform: scale(1.2); } } }
       .timer-badge { background: rgba(255, 85, 0, 0.2); border: 1px solid #ff5500; color: #ff5500; backdrop-filter: blur(5px); }
       .schedule-badge { background: rgba(16, 185, 129, 0.15); border: 1px solid #10b981; color: #10b981; backdrop-filter: blur(5px); }
   }
 
   .reply-banner {
-      background: var(--input-bg); backdrop-filter: blur(10px); padding: 0.6rem 2rem; display: flex; justify-content: space-between; align-items: center; color: var(--text-dim); font-size: 0.85rem; border-top: 1px solid var(--glass-border);
-      .close-btn { cursor: pointer; color: var(--text-dim); font-size: 1.2rem; transition: 0.2s; &:hover { color: #ff4e4e; transform: scale(1.2); } }
+      background: var(--glass-noise), var(--input-bg); backdrop-filter: blur(10px); padding: 0.6rem 2rem; display: flex; justify-content: space-between; align-items: center; color: var(--text-dim); font-size: var(--text-sm); border-top: 1px solid var(--glass-border);
+      .close-btn { cursor: pointer; color: var(--text-dim); font-size: var(--text-base); transition: 0.2s; &:hover { color: #ff4e4e; transform: scale(1.2); } }
   }
-  .edit-banner { background: rgba(16, 185, 129, 0.1); }
-  .link-banner { background: rgba(52, 183, 241, 0.1); border-top: 1px solid rgba(52, 183, 241, 0.2); justify-content: flex-start; animation: ${popIn} 0.3s ease; }
+  .edit-banner { background: var(--glass-noise), rgba(16, 185, 129, 0.1); border-top: 1px solid rgba(16, 185, 129, 0.2); }
+  .link-banner { background: var(--glass-noise), rgba(52, 183, 241, 0.1); border-top: 1px solid rgba(52, 183, 241, 0.2); justify-content: flex-start; animation: ${popIn} 0.3s ease; }
   
   @keyframes fa-spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 `;
@@ -702,7 +728,7 @@ const Container = styled.div`
     
     .tool-toggle {
       position: relative; cursor: pointer;
-      svg { font-size: 1.4rem; color: var(--text-dim); transition: 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); &:hover { color: var(--text-main); transform: scale(1.15) translateY(-2px); } }
+      svg { font-size: var(--text-xl); color: var(--text-dim); transition: 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); &:hover { color: var(--text-main); transform: scale(1.15) translateY(-2px); } }
       &.active svg { color: var(--msg-sent); filter: drop-shadow(0 0 5px rgba(99, 102, 241, 0.5)); }
     }
     
@@ -715,7 +741,7 @@ const Container = styled.div`
 
     .floating-menu {
       position: absolute; bottom: 50px; left: 0; 
-      background: var(--bg-panel); 
+      background: var(--glass-noise), var(--bg-panel); 
       backdrop-filter: blur(15px);
       box-shadow: 0 10px 30px rgba(0,0,0,0.15); 
       border: 1px solid var(--glass-border); 
@@ -727,9 +753,9 @@ const Container = styled.div`
 
     .timer-menu, .schedule-menu {
         padding: 1.2rem; width: 220px; display: flex; flex-direction: column; gap: 0.6rem;
-        h4 { color: var(--text-main); margin-top: 0; margin-bottom: 0.5rem; font-size: 0.9rem; text-align: center; border-bottom: 1px solid var(--glass-border); padding-bottom: 0.5rem; }
-        button { background: var(--input-bg); border: 1px solid transparent; color: inherit; padding: 0.6rem; border-radius: 0.5rem; cursor: pointer; transition: 0.2s; &:hover { filter: brightness(0.9); } &.selected { background: var(--msg-sent); color: white; font-weight: bold; box-shadow: 0 0 10px rgba(99,102,241,0.3); } }
-        input[type="datetime-local"] { background: var(--input-bg); color: inherit; border: 1px solid var(--glass-border); padding: 0.8rem; border-radius: 0.5rem; outline: none; margin-bottom: 0.5rem; font-family: inherit; }
+        h4 { color: var(--text-main); margin-top: 0; margin-bottom: 0.5rem; font-size: var(--text-sm); text-align: center; border-bottom: 1px solid var(--glass-border); padding-bottom: 0.5rem; }
+        button { background: var(--input-bg); border: 1px solid transparent; color: inherit; font-size: var(--text-sm); padding: 0.6rem; border-radius: 0.5rem; cursor: pointer; transition: 0.2s; &:hover { filter: brightness(0.9); } &.selected { background: var(--msg-sent); color: white; font-weight: bold; box-shadow: 0 0 10px rgba(99,102,241,0.3); } }
+        input[type="datetime-local"] { background: var(--input-bg); color: inherit; font-size: var(--text-sm); border: 1px solid var(--glass-border); padding: 0.8rem; border-radius: 0.5rem; outline: none; margin-bottom: 0.5rem; font-family: inherit; }
     }
   }
 
@@ -745,7 +771,7 @@ const Container = styled.div`
     
     .recording-ui {
         width: 100%; height: 40px; display: flex; align-items: center; justify-content: space-between; padding-left: 1.5rem; padding-right: 1rem;
-        .rec-text { color: #ef4444; font-style: italic; font-weight: bold; animation: ${pulse} 1.5s infinite; }
+        .rec-text { color: #ef4444; font-style: italic; font-weight: bold; font-size: var(--text-sm); animation: ${pulse} 1.5s infinite; }
         .dynamic-waveform { 
             display: flex; align-items: center; gap: 3px; height: 30px; 
             .bar { width: 4px; background: #ef4444; border-radius: 4px; transition: height 0.05s ease; min-height: 4px;} 
@@ -756,7 +782,7 @@ const Container = styled.div`
         width: 100%; background-color: transparent; 
         color: var(--text-main); 
         border: none; padding-left: 1rem; padding-top: 0.6rem; padding-bottom: 0.6rem;
-        font-size: 1rem; resize: none; overflow-y: auto; line-height: 1.4;
+        font-size: var(--text-base); resize: none; overflow-y: auto; line-height: 1.4;
         font-family: inherit;
         &::-webkit-scrollbar { width: 4px; }
         &::-webkit-scrollbar-thumb { background-color: var(--glass-border); border-radius: 10px; }
@@ -773,7 +799,7 @@ const Container = styled.div`
       &.ready { background: var(--primary-gradient); color: white; cursor: pointer; box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3); }
       &.ready:hover { transform: scale(1.08); box-shadow: 0 6px 20px rgba(99, 102, 241, 0.5); }
       
-      svg { font-size: 1.3rem; }
+      svg { font-size: var(--text-xl); }
       &:disabled { background: var(--bg-panel); cursor: not-allowed; box-shadow: none; color: var(--text-dim); }
       
       &.schedule-btn { background: linear-gradient(135deg, #10b981 0%, #059669 100%); box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3); color: white;}

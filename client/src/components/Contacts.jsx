@@ -96,11 +96,6 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
     const pressTimer = useRef(null);
     const [storyPreview, setStoryPreview] = useState(null);
 
-    // ✅ FIX: Removed all { headers: { "x-auth-token": ... }, withCredentials: true } from every
-    //         axios call in this file. The App.js request interceptor automatically attaches
-    //         "Authorization: Bearer <token>" to every request — no need to do it manually here.
-    //         Manually passing x-auth-token was also the wrong header name for the backend middleware.
-
     // Initialize Data
     useEffect(() => {
         const fetchGroupsAndStories = async () => {
@@ -374,13 +369,10 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
             });
 
             if (data.status) {
-                // ✅ FIX: Preserve the token when updating the stored user object.
-                //         Previously this overwrote chat-app-user without the token,
-                //         breaking auth on next page action.
                 const currentToken = sessionStorage.getItem("chat-app-token");
                 const updatedUser = { ...data.user, token: currentToken };
                 sessionStorage.setItem("chat-app-user", JSON.stringify(updatedUser));
-                updateCurrentUser(data.user); // update Zustand store without wiping token
+                updateCurrentUser(data.user); 
                 toast.success("Profile updated.");
                 setShowProfileModal(false);
             }
@@ -441,31 +433,38 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
             {currentUserName && (
                 <Container $isCompact={isCompact} $themeType={theme}>
 
-                    <div className="brand" style={{ justifyContent: isCompact ? "center" : "space-between" }}>
-                        {!isCompact && <h3>Snappy</h3>}
-                        <button className="collapse-btn" onClick={() => setIsCompact(!isCompact)} title="Toggle Sidebar">
-                            {isCompact ? <FaChevronRight /> : <FaChevronLeft />}
-                        </button>
-                    </div>
-
-                    <AnimatePresence>
-                        {storyPreview && (
-                            <StoryPreviewTooltip
-                                initial={{ opacity: 0, y: 10, scale: 0.9 }}
-                                animate={{ opacity: 1, y: 0, scale: 1 }}
-                                exit={{ opacity: 0, scale: 0.9 }}
+                    <div className="sidebar-dynamic-layout" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                        
+                        {/* 1. BRAND & TOGGLE SECTION */}
+                        <div className="brand-area" style={{ padding: isCompact ? "20px 0" : "24px", display: 'flex', justifyContent: isCompact ? 'center' : 'space-between', alignItems: 'center', flexShrink: 0 }}>
+                            {!isCompact && <motion.h3 style={{ color: 'var(--text-main)', fontSize: '1.4rem', fontWeight: '800', letterSpacing: '2px', margin: 0 }} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>SNAPPY</motion.h3>}
+                            <button 
+                                className="sidebar-toggle-trigger" 
+                                onClick={() => setIsCompact(!isCompact)}
+                                style={{ background: 'var(--input-bg)', border: 'none', color: 'var(--text-dim)', borderRadius: '50%', width: '32px', height: '32px', cursor: 'pointer', display: 'flex', justifyContent: 'center', alignItems: 'center' }}
                             >
-                                <img src={storyPreview.stories?.[0]?.mediaUrl || getAvatarUrl(storyPreview.user)} alt="preview" />
-                                <div className="info">
-                                    <h4>{storyPreview.user?.username}</h4>
-                                    <p>{storyPreview.stories?.length} status update{storyPreview.stories?.length > 1 ? "s" : ""}</p>
-                                </div>
-                            </StoryPreviewTooltip>
-                        )}
-                    </AnimatePresence>
+                                {isCompact ? <FaChevronRight /> : <FaChevronLeft />}
+                            </button>
+                        </div>
 
-                    {!isCompact && (
-                        <>
+                        {/* 2. STORIES / ACTIVITY RAIL */}
+                        <AnimatePresence>
+                            {storyPreview && (
+                                <StoryPreviewTooltip
+                                    initial={{ opacity: 0, y: 10, scale: 0.9 }}
+                                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                                    exit={{ opacity: 0, scale: 0.9 }}
+                                >
+                                    <img src={storyPreview.stories?.[0]?.mediaUrl || getAvatarUrl(storyPreview.user)} alt="preview" />
+                                    <div className="info">
+                                        <h4>{storyPreview.user?.username}</h4>
+                                        <p>{storyPreview.stories?.length} status update{storyPreview.stories?.length > 1 ? "s" : ""}</p>
+                                    </div>
+                                </StoryPreviewTooltip>
+                            )}
+                        </AnimatePresence>
+
+                        {!isCompact && (
                             <StoryTray>
                                 <motion.div className="story-item my-status" onClick={() => fileInputRef.current?.click()} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
                                     <div className="story-ring empty">
@@ -499,31 +498,38 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
                                     );
                                 })}
                             </StoryTray>
+                        )}
 
-                            <div className="folders-wrapper">
-                                <div className="segmented-control">
-                                    {folders.map(f => (
-                                        <button
-                                            key={f.id}
-                                            className={`segment-btn ${activeFolder === f.id ? "active" : ""}`}
-                                            onClick={() => setActiveFolder(f.id)}
-                                            title={f.title}
-                                        >
-                                            {activeFolder === f.id && (
-                                                <motion.div layoutId="active-pill" className="active-pill" transition={{ type: "spring", stiffness: 400, damping: 30 }} />
-                                            )}
-                                            <span className="content">
-                                                {f.icon}
-                                                {f.badge > 0 && <span className={`badge ${f.danger ? "danger" : ""}`}>{f.badge}</span>}
-                                            </span>
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
+                        {/* 3. NAVIGATION FOLDERS (Rail Adaptive) */}
+                        <div className="nav-folders" style={{ display: 'flex', flexDirection: isCompact ? 'column' : 'row', gap: '4px', padding: isCompact ? '0 10px' : '0 16px', flexShrink: 0, marginBottom: '16px' }}>
+                            {folders.map(f => (
+                                <button 
+                                    key={f.id} 
+                                    className={`folder-item ${activeFolder === f.id ? 'active' : ''}`}
+                                    onClick={() => setActiveFolder(f.id)}
+                                    title={isCompact ? f.title : ""}
+                                    style={{
+                                        flex: 1, display: 'flex', alignItems: 'center', justifyContent: isCompact ? 'center' : 'center',
+                                        gap: '6px', padding: isCompact ? '12px 0' : '8px 0', background: activeFolder === f.id ? 'var(--input-bg)' : 'transparent',
+                                        border: '1px solid', borderColor: activeFolder === f.id ? 'var(--glass-border)' : 'transparent',
+                                        borderRadius: '12px', color: activeFolder === f.id ? 'var(--text-main)' : 'var(--text-dim)',
+                                        cursor: 'pointer', position: 'relative'
+                                    }}
+                                >
+                                    <div className="icon-wrap" style={{ position: 'relative', fontSize: '1.2rem', display: 'flex' }}>
+                                        {f.icon}
+                                        {f.badge > 0 && <span className="folder-badge" style={{ position: 'absolute', top: '-6px', right: '-8px', background: f.danger ? '#ff4e4e' : 'var(--msg-sent)', color: 'white', fontSize: '0.6rem', fontWeight: 'bold', padding: '2px 5px', borderRadius: '10px', border: '2px solid var(--bg-panel)' }}>{f.badge}</span>}
+                                    </div>
+                                    {!isCompact && <span style={{ fontSize: '0.85rem', fontWeight: '600' }}>{f.title}</span>}
+                                </button>
+                            ))}
+                        </div>
 
-                            <div className={`search-container ${isSearchFocused ? "focused" : ""}`}>
-                                <motion.div className="search-box" animate={{ borderColor: isSearchFocused ? "var(--msg-sent)" : "var(--glass-border)" }}>
-                                    <FaSearch className="icon search-icon" />
+                        {/* 4. SEARCH (Hidden in Rail View) */}
+                        {!isCompact && (
+                            <div className={`search-container ${isSearchFocused ? "focused" : ""}`} style={{ flexShrink: 0, padding: '0 16px', marginBottom: '16px' }}>
+                                <motion.div className="search-box" animate={{ borderColor: isSearchFocused ? "var(--msg-sent)" : "var(--glass-border)" }} style={{ display: 'flex', alignItems: 'center', background: 'var(--input-bg)', borderRadius: '16px', padding: '0 16px', border: '1px solid var(--glass-border)' }}>
+                                    <FaSearch className="icon search-icon" style={{ color: 'var(--text-dim)' }} />
                                     <input
                                         type="text"
                                         placeholder={`Search ${activeFolder}...`}
@@ -531,142 +537,158 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
                                         onChange={(e) => setSearchTerm(e.target.value)}
                                         onFocus={() => setIsSearchFocused(true)}
                                         onBlur={() => setIsSearchFocused(false)}
+                                        style={{ flex: 1, background: 'transparent', border: 'none', padding: '12px', color: 'var(--text-main)', outline: 'none' }}
                                     />
                                     <AnimatePresence>
                                         {searchTerm && (
-                                            <motion.div initial={{ scale: 0, rotate: -90 }} animate={{ scale: 1, rotate: 0 }} exit={{ scale: 0, rotate: 90 }} className="icon clear-icon" onClick={() => setSearchTerm("")}>
+                                            <motion.div initial={{ scale: 0, rotate: -90 }} animate={{ scale: 1, rotate: 0 }} exit={{ scale: 0, rotate: 90 }} className="icon clear-icon" onClick={() => setSearchTerm("")} style={{ cursor: 'pointer', color: 'var(--text-dim)' }}>
                                                 <FaTimes />
                                             </motion.div>
                                         )}
                                     </AnimatePresence>
                                 </motion.div>
                             </div>
-                        </>
-                    )}
+                        )}
 
-                    <div className="contacts-list">
-                        {isLoading ? (
-                            Array.from({ length: 6 }).map((_, i) => (
-                                <div key={i} className="contact-item skeleton">
-                                    <div className="avatar skeleton-anim" />
-                                    {!isCompact && (
-                                        <div className="details">
-                                            <div className="skeleton-line skeleton-anim" />
-                                            <div className="skeleton-line short skeleton-anim" />
+                        {/* 5. CONTACTS LIST */}
+                        <div className="contacts-scroller" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '0 12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            {isLoading ? (
+                                Array.from({ length: 6 }).map((_, i) => (
+                                    <div key={i} className="contact-item skeleton" style={{ display: 'flex', gap: '12px', padding: '12px' }}>
+                                        <div className="avatar skeleton-anim" style={{ width: '48px', height: '48px', borderRadius: '50%' }} />
+                                        {!isCompact && (
+                                            <div className="details" style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '8px' }}>
+                                                <div className="skeleton-line skeleton-anim" style={{ height: '12px', width: '60%', borderRadius: '6px' }} />
+                                                <div className="skeleton-line short skeleton-anim" style={{ height: '12px', width: '40%', borderRadius: '6px' }} />
+                                            </div>
+                                        )}
+                                    </div>
+                                ))
+                            ) : (
+                                <>
+                                    {!isCompact && activeFolder === "groups" && !searchTerm && (
+                                        <div className="group-actions" style={{ display: 'flex', gap: '8px', padding: '0 4px 8px' }}>
+                                            <button className="primary" onClick={() => setShowGroupModal(true)} style={{ flex: 1, padding: '12px', borderRadius: '12px', border: 'none', background: 'linear-gradient(135deg, var(--msg-sent), #9a41fe)', color: 'white', fontWeight: 'bold', cursor: 'pointer' }}><FaPlus /> Create</button>
+                                            <button className="secondary" onClick={() => setShowDiscoverModal(true)} style={{ flex: 1, padding: '12px', borderRadius: '12px', border: '1px solid var(--glass-border)', background: 'var(--input-bg)', color: 'var(--text-main)', fontWeight: 'bold', cursor: 'pointer' }}><FaGlobe /> Discover</button>
                                         </div>
                                     )}
+
+                                    {!isCompact && searchTerm.length >= 3 && <div className="section-title" style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-dim)', fontWeight: '700', margin: '16px 8px 8px' }}>Chats & Groups</div>}
+
+                                    {displayedItems.length === 0 && !searchTerm && !isCompact ? (
+                                        <div className="empty-state" style={{ textAlign: 'center', color: 'var(--text-dim)', padding: '32px 0', fontStyle: 'italic' }}>No chats found.</div>
+                                    ) : (
+                                        displayedItems.map((item) => {
+                                            const isOnline = !item.isGroup && onlineUsers?.includes(item._id);
+                                            const isPinned = pinnedIds?.includes(item._id);
+                                            const isTyping = !item.isGroup && globalTypingUsers?.includes(item._id);
+                                            const isSelected = item._id === currentSelected;
+
+                                            return (
+                                                <ContactItem
+                                                    key={item._id}
+                                                    className={`${isSelected ? "selected" : ""} ${isPinned ? "pinned" : ""}`}
+                                                    onClick={() => changeCurrentChat(item, item.isGroup)}
+                                                    $isCompact={isCompact}
+                                                    title={isCompact ? item.username : ""}
+                                                >
+                                                    <div className="avatar-block" style={{ position: 'relative', width: '48px', height: '48px', flexShrink: 0 }}>
+                                                        {/* --- PULSING TYPING RING UX --- */}
+                                                        {isTyping && <div className="typing-pulse-ring" style={{ position: 'absolute', top: '-4px', left: '-4px', right: '-4px', bottom: '-4px', border: '2px solid var(--msg-sent)', borderRadius: '50%', animation: 'pulseRing 1.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite' }} />}
+                                                        
+                                                        <div className={`avatar-circle ${isOnline ? 'online' : ''}`} style={{ width: '100%', height: '100%', borderRadius: '50%', overflow: 'hidden', position: 'relative' }}>
+                                                            {item.isGroup ? 
+                                                                <div className="group-avatar" style={{ width: '100%', height: '100%', background: 'var(--input-bg)', display: 'flex', justifyContent: 'center', alignItems: 'center', color: 'var(--msg-sent)', fontSize: '1.2rem', fontWeight: 'bold' }}>#</div> : 
+                                                                <img src={getAvatarUrl(item)} alt="avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                            }
+                                                        </div>
+                                                        {isOnline && <div className="online-badge" style={{ position: 'absolute', bottom: '2px', right: '2px', width: '12px', height: '12px', background: '#10b981', borderRadius: '50%', border: '2px solid var(--bg-panel)' }} />}
+                                                        {isCompact && item.unreadCount > 0 && <span className="compact-badge" style={{ position: 'absolute', top: '-4px', right: '-4px', background: '#ff4e4e', color: 'white', fontSize: '0.65rem', fontWeight: 'bold', width: '18px', height: '18px', display: 'flex', justifyContent: 'center', alignItems: 'center', borderRadius: '50%', border: '2px solid var(--bg-panel)' }}>{item.unreadCount}</span>}
+                                                    </div>
+
+                                                    {!isCompact && (
+                                                        <>
+                                                            <div className="details" style={{ flex: 1, overflow: 'hidden' }}>
+                                                                <h3 style={{ fontSize: '0.95rem', fontWeight: '600', color: 'var(--text-main)', margin: '0 0 4px 0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.username}</h3>
+                                                                {item.isGroup ? (
+                                                                    <p className="status group" style={{ fontSize: '0.8rem', color: 'var(--msg-sent)', margin: 0, fontWeight: '500' }}>Group Chat</p>
+                                                                ) : (
+                                                                    <div className="presence" style={{ fontSize: '0.8rem', color: isOnline ? '#10b981' : 'var(--text-dim)' }}>
+                                                                        {isTyping ? (
+                                                                            <div className="typing-indicator" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                                                <motion.span animate={{ y: [0, -3, 0] }} transition={{ repeat: Infinity, duration: 0.6 }} style={{ width: '4px', height: '4px', background: 'var(--msg-sent)', borderRadius: '50%' }} />
+                                                                                <motion.span animate={{ y: [0, -3, 0] }} transition={{ repeat: Infinity, duration: 0.6, delay: 0.2 }} style={{ width: '4px', height: '4px', background: 'var(--msg-sent)', borderRadius: '50%' }} />
+                                                                                <motion.span animate={{ y: [0, -3, 0] }} transition={{ repeat: Infinity, duration: 0.6, delay: 0.4 }} style={{ width: '4px', height: '4px', background: 'var(--msg-sent)', borderRadius: '50%' }} />
+                                                                                <span style={{ color: 'var(--msg-sent)', fontStyle: 'italic', fontWeight: 'bold', marginLeft: '4px' }}>typing</span>
+                                                                            </div>
+                                                                        ) : (
+                                                                            <span>{isOnline ? "Online" : formatLastSeen(item.lastSeen)}</span>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+
+                                                            <div className="meta" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
+                                                                <button className="pin-btn" onClick={(e) => togglePin(e, item._id)} style={{ background: 'none', border: 'none', color: isPinned ? 'var(--msg-sent)' : 'var(--text-dim)', cursor: 'pointer', opacity: isPinned ? 1 : 0, transition: '0.2s' }}>
+                                                                    <FaThumbtack />
+                                                                </button>
+                                                                {item.unreadCount > 0 && <span className="unread-count" style={{ background: 'var(--msg-sent)', color: 'white', fontSize: '0.7rem', fontWeight: 'bold', padding: '2px 8px', borderRadius: '12px' }}>{item.unreadCount}</span>}
+                                                            </div>
+                                                        </>
+                                                    )}
+                                                </ContactItem>
+                                            );
+                                        })
+                                    )}
+
+                                    {!isCompact && searchTerm.length >= 3 && (
+                                        <>
+                                            <div className="section-title" style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-dim)', fontWeight: '700', margin: '16px 8px 8px' }}>Message History</div>
+                                            {isSearchingGlobal ? (
+                                                <div className="empty-state" style={{ textAlign: 'center', color: 'var(--text-dim)' }}><FaSpinner className="fa-spin" /> Searching...</div>
+                                            ) : globalMessages.length === 0 ? (
+                                                <div className="empty-state" style={{ textAlign: 'center', color: 'var(--text-dim)', fontStyle: 'italic' }}>No matching messages.</div>
+                                            ) : (
+                                                globalMessages.map(msg => {
+                                                    const msgText = msg.message?.text || msg.message;
+                                                    if (typeof msgText === "string" && msgText.length > 50 && !msgText.includes(" ")) return null;
+                                                    return (
+                                                        <div key={msg._id} className="global-msg" onClick={() => handleGlobalMessageClick(msg)} style={{ background: 'var(--input-bg)', padding: '12px', borderRadius: '12px', cursor: 'pointer', border: '1px solid var(--glass-border)', marginBottom: '8px' }}>
+                                                            <p style={{ color: 'var(--text-main)', fontSize: '0.85rem', fontStyle: 'italic', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', margin: '0 0 4px 0' }}>"{msgText}"</p>
+                                                            <span style={{ fontSize: '0.7rem', color: 'var(--text-dim)', display: 'block', textAlign: 'right' }}>{new Date(msg.createdAt).toLocaleDateString()}</span>
+                                                        </div>
+                                                    );
+                                                })
+                                            )}
+                                        </>
+                                    )}
+                                </>
+                            )}
+                        </div>
+
+                        {/* 6. USER FOOTER (Adaptive) */}
+                        <div className="sidebar-footer" style={{ padding: isCompact ? "16px 8px" : "16px", borderTop: "1px solid var(--glass-border)", background: "var(--bg-panel)", flexShrink: 0 }}>
+                            <div className="user-profile" style={{ display: 'flex', flexDirection: isCompact ? "column" : "row", alignItems: 'center', gap: isCompact ? "16px" : "12px" }}>
+                                <div className="avatar" style={{ width: '44px', height: '44px', borderRadius: '50%', border: '2px solid var(--msg-sent)', cursor: 'pointer' }} onClick={() => setShowProfileModal(true)}>
+                                    <img src={getAvatarUrl(currentUser)} alt="avatar" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
                                 </div>
-                            ))
-                        ) : (
-                            <>
-                                {!isCompact && activeFolder === "groups" && !searchTerm && (
-                                    <div className="group-actions">
-                                        <button className="primary" onClick={() => setShowGroupModal(true)}><FaPlus /> Create</button>
-                                        <button className="secondary" onClick={() => setShowDiscoverModal(true)}><FaGlobe /> Discover</button>
+
+                                {!isCompact && (
+                                    <div className="info" style={{ flex: 1, overflow: 'hidden', cursor: 'pointer' }} onClick={() => setShowProfileModal(true)}>
+                                        <h2 style={{ fontSize: '0.95rem', fontWeight: '700', color: 'var(--text-main)', margin: '0 0 2px 0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{currentUserName}</h2>
+                                        <p style={{ fontSize: '0.75rem', color: 'var(--adaptive-accent)', margin: 0, fontWeight: '500' }}>{currentUser?.statusIcon || "✨"} {currentUser?.statusMessage || "Available"}</p>
                                     </div>
                                 )}
-
-                                {!isCompact && searchTerm.length >= 3 && <div className="section-title">Chats & Groups</div>}
-
-                                {displayedItems.length === 0 && !searchTerm && !isCompact ? (
-                                    <div className="empty-state">No chats found.</div>
-                                ) : (
-                                    displayedItems.map((item) => {
-                                        const isOnline = !item.isGroup && onlineUsers?.includes(item._id);
-                                        const isPinned = pinnedIds?.includes(item._id);
-                                        const isTyping = !item.isGroup && globalTypingUsers?.includes(item._id);
-                                        const isSelected = item._id === currentSelected;
-
-                                        return (
-                                            <ContactItem
-                                                key={item._id}
-                                                className={`${isSelected ? "selected" : ""} ${isPinned ? "pinned" : ""}`}
-                                                onClick={() => changeCurrentChat(item, item.isGroup)}
-                                                $isCompact={isCompact}
-                                                title={isCompact ? item.username : ""}
-                                            >
-                                                <div className="avatar">
-                                                    {item.isGroup ? <div className="group-avatar">#</div> : <img src={getAvatarUrl(item)} alt="avatar" />}
-                                                    {isOnline && <div className="online-badge" />}
-                                                    {isCompact && item.unreadCount > 0 && <span className="compact-badge">{item.unreadCount}</span>}
-                                                </div>
-
-                                                {!isCompact && (
-                                                    <>
-                                                        <div className="details">
-                                                            <h3>{item.username}</h3>
-                                                            {item.isGroup ? (
-                                                                <p className="status group">Group Chat</p>
-                                                            ) : (
-                                                                <div className="presence">
-                                                                    {isTyping ? (
-                                                                        <div className="typing-indicator">
-                                                                            <motion.span animate={{ y: [0, -3, 0] }} transition={{ repeat: Infinity, duration: 0.6, delay: 0 }} />
-                                                                            <motion.span animate={{ y: [0, -3, 0] }} transition={{ repeat: Infinity, duration: 0.6, delay: 0.2 }} />
-                                                                            <motion.span animate={{ y: [0, -3, 0] }} transition={{ repeat: Infinity, duration: 0.6, delay: 0.4 }} />
-                                                                            <span className="text">typing</span>
-                                                                        </div>
-                                                                    ) : (
-                                                                        <p className={`status ${isOnline ? "online" : ""}`}>{isOnline ? "Online" : formatLastSeen(item.lastSeen)}</p>
-                                                                    )}
-                                                                </div>
-                                                            )}
-                                                        </div>
-
-                                                        <div className="meta">
-                                                            <button className="pin-btn" onClick={(e) => togglePin(e, item._id)}>
-                                                                <FaThumbtack />
-                                                            </button>
-                                                            {item.unreadCount > 0 && <span className="unread-count">{item.unreadCount}</span>}
-                                                        </div>
-                                                    </>
-                                                )}
-                                            </ContactItem>
-                                        );
-                                    })
-                                )}
-
-                                {!isCompact && searchTerm.length >= 3 && (
-                                    <>
-                                        <div className="section-title">Message History</div>
-                                        {isSearchingGlobal ? (
-                                            <div className="empty-state"><FaSpinner className="fa-spin" /> Searching...</div>
-                                        ) : globalMessages.length === 0 ? (
-                                            <div className="empty-state">No matching messages.</div>
-                                        ) : (
-                                            globalMessages.map(msg => {
-                                                const msgText = msg.message?.text || msg.message;
-                                                if (typeof msgText === "string" && msgText.length > 50 && !msgText.includes(" ")) return null;
-                                                return (
-                                                    <div key={msg._id} className="global-msg" onClick={() => handleGlobalMessageClick(msg)}>
-                                                        <p>"{msgText}"</p>
-                                                        <span>{new Date(msg.createdAt).toLocaleDateString()}</span>
-                                                    </div>
-                                                );
-                                            })
-                                        )}
-                                    </>
-                                )}
-                            </>
-                        )}
-                    </div>
-
-                    <div className="user-footer" style={{ padding: isCompact ? "16px 8px" : "16px", justifyContent: isCompact ? "center" : "flex-start" }}>
-                        <div className="user-profile" style={{ flexDirection: isCompact ? "column" : "row", gap: isCompact ? "16px" : "12px" }}>
-                            <div className="avatar" style={{ margin: isCompact ? "0 auto" : "0" }}>
-                                <img src={getAvatarUrl(currentUser)} alt="avatar" />
-                            </div>
-
-                            {!isCompact && (
-                                <div className="info">
-                                    <h2>{currentUserName}</h2>
-                                    <p>{currentUser?.statusIcon || "✨"} {currentUser?.statusMessage || "Available"}</p>
+                                <div className="actions" style={{ display: 'flex', gap: '4px', flexDirection: isCompact ? "column" : "row" }}>
+                                    {!isCompact && (
+                                        <button onClick={() => setTheme(theme === "light" ? "glass" : "light")} title="Toggle Theme" style={{ background: 'var(--input-bg)', border: 'none', color: 'var(--text-dim)', width: '36px', height: '36px', borderRadius: '10px', cursor: 'pointer' }}>
+                                            {theme === "light" ? <FaMoon /> : <FaSun />}
+                                        </button>
+                                    )}
+                                    <button className="logout" onClick={handleLogout} title="Logout" style={{ background: 'var(--input-bg)', border: 'none', color: '#ff4e4e', width: '36px', height: '36px', borderRadius: '10px', cursor: 'pointer' }}>
+                                        <FaSignOutAlt />
+                                    </button>
                                 </div>
-                            )}
-                            <div className="actions" style={{ flexDirection: isCompact ? "column" : "row" }}>
-                                {!isCompact && <button onClick={() => setTheme(theme === "light" ? "glass" : "light")} title="Toggle Theme">{theme === "light" ? <FaMoon /> : <FaSun />}</button>}
-                                <button onClick={() => setShowProfileModal(true)} title="Settings"><FaCog /></button>
-                                <button className="logout" onClick={handleLogout} title="Logout"><FaSignOutAlt /></button>
                             </div>
                         </div>
                     </div>
@@ -851,10 +873,16 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
     );
 }
 
-// --- STYLING (unchanged) ---
+// --- STYLING ---
 const shimmer = keyframes`
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
+`;
+
+// Added Pulse Ring Animation for UX
+const pulseRing = keyframes`
+  0% { transform: scale(0.9); opacity: 1; }
+  100% { transform: scale(1.3); opacity: 0; }
 `;
 
 const Container = styled.div`
@@ -869,91 +897,16 @@ const Container = styled.div`
   
   ${({ $themeType }) => $themeType === "cyberpunk" && css`border-color: #10b981;`}
 
-  h2, h3, h4, p, span, label { font-family: 'Inter', sans-serif; margin: 0; }
-
-  .brand {
-    flex-shrink: 0; padding: 24px 24px 16px;
-    display: flex; align-items: center;
-    h3 { color: var(--text-main); font-size: 1.4rem; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; }
-    .collapse-btn {
-        background: var(--input-bg); border: none; color: var(--text-dim); border-radius: 50%; width: 32px; height: 32px; cursor: pointer; display: flex; justify-content: center; align-items: center; transition: 0.2s;
-        &:hover { color: var(--text-main); background: var(--msg-sent); }
-    }
+  /* Provide the keyframes globally within Container */
+  @keyframes pulseRing {
+      0% { transform: scale(0.9); opacity: 1; }
+      100% { transform: scale(1.3); opacity: 0; }
   }
 
-  .folders-wrapper {
-      flex-shrink: 0; padding: 0 16px 16px;
-      .segmented-control {
-          display: flex; background: var(--input-bg); padding: 4px; border-radius: 16px; border: 1px solid var(--glass-border);
-          .segment-btn {
-              flex: 1; position: relative; background: transparent; border: none; padding: 8px 0; border-radius: 12px; cursor: pointer; color: var(--text-dim); transition: color 0.3s;
-              &.active { color: var(--text-main); }
-              .active-pill { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--bg-panel); border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); z-index: 0; border: 1px solid var(--glass-border); }
-              .content { position: relative; z-index: 1; display: flex; justify-content: center; align-items: center; font-size: 1.2rem; }
-              .badge { position: absolute; top: -6px; right: 10px; background: var(--msg-sent); color: white; font-size: 0.6rem; font-weight: bold; padding: 2px 6px; border-radius: 10px; border: 2px solid var(--input-bg);
-                  &.danger { background: #ff4e4e; }
-              }
-          }
-      }
-  }
-
-  .search-container {
-      flex-shrink: 0; padding: 0 16px 16px; transition: padding 0.3s;
-      &.focused { padding-bottom: 24px; }
-      .search-box {
-          display: flex; align-items: center; background: var(--input-bg); border-radius: 16px; padding: 0 16px; border: 1px solid var(--glass-border); transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-          .icon { color: var(--text-dim); font-size: 0.9rem; }
-          .clear-icon { cursor: pointer; transition: 0.2s; &:hover { color: var(--text-main); } }
-          input { flex: 1; background: transparent; border: none; padding: 12px 12px; color: var(--text-main); font-size: 0.9rem; outline: none; }
-      }
-  }
-
-  .contacts-list {
-      flex: 1; overflow-y: auto; overflow-x: hidden; padding: 0 12px; display: flex; flex-direction: column; gap: 4px;
-      &::-webkit-scrollbar { width: 4px; display: ${({ $isCompact }) => $isCompact ? "none" : "block"}; }
-      &::-webkit-scrollbar-thumb { background: var(--glass-border); border-radius: 4px; }
-
-      .section-title { font-size: 0.75rem; text-transform: uppercase; color: var(--text-dim); font-weight: 700; margin: 16px 8px 8px; letter-spacing: 0.5px; }
-      .empty-state { text-align: center; color: var(--text-dim); padding: 32px 0; font-style: italic; font-size: 0.9rem; }
-
-      .group-actions {
-          display: flex; gap: 8px; padding: 0 4px 8px;
-          button { flex: 1; display: flex; justify-content: center; align-items: center; gap: 8px; padding: 12px; border-radius: 12px; border: none; font-weight: 600; font-size: 0.9rem; cursor: pointer; transition: 0.2s; }
-          .primary { background: linear-gradient(135deg, var(--msg-sent), #9a41fe); color: white; box-shadow: 0 4px 15px rgba(78, 14, 255, 0.3); &:hover { filter: brightness(1.1); transform: translateY(-2px); } }
-          .secondary { background: var(--input-bg); color: var(--text-main); border: 1px solid var(--glass-border); &:hover { background: var(--bg-panel); transform: translateY(-2px); } }
-      }
-
-      .contact-item.skeleton {
-          display: flex; gap: 12px; padding: 12px; pointer-events: none;
-          .avatar { width: 48px; height: 48px; border-radius: 50%; }
-          .details { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 8px; }
-          .skeleton-line { height: 12px; border-radius: 6px; width: 60%; }
-          .short { width: 40%; }
-          .skeleton-anim { background: linear-gradient(90deg, var(--input-bg) 25%, var(--bg-panel) 50%, var(--input-bg) 75%); background-size: 200% 100%; animation: ${shimmer} 1.5s infinite linear; }
-      }
-
-      .global-msg {
-          background: var(--input-bg); padding: 12px; border-radius: 12px; cursor: pointer; border: 1px solid var(--glass-border); transition: 0.2s;
-          &:hover { border-color: var(--msg-sent); transform: translateY(-2px); }
-          p { color: var(--text-main); font-size: 0.85rem; font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-          span { font-size: 0.7rem; color: var(--text-dim); display: block; margin-top: 4px; text-align: right; }
-      }
-  }
-
-  .user-footer {
-      flex-shrink: 0; padding: 16px; border-top: 1px solid var(--glass-border); background: var(--bg-panel);
-      .user-profile {
-          display: flex; align-items: center; gap: 12px;
-          .avatar { width: 44px; height: 44px; border-radius: 50%; border: 2px solid var(--msg-sent); img { width:100%; height:100%; object-fit:cover; border-radius: 50%; } }
-          .info { flex: 1; overflow: hidden; h2 { font-size: 0.95rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } p { font-size: 0.75rem; color: var(--adaptive-accent); margin-top: 2px; font-weight: 500;} }
-          .actions {
-              display: flex; gap: 4px;
-              button { background: var(--input-bg); color: var(--text-dim); width: 36px; height: 36px; border-radius: 10px; border: none; display: flex; justify-content: center; align-items: center; cursor: pointer; transition: 0.2s;
-                  &:hover { background: var(--msg-sent); color: white; transform: translateY(-2px); }
-                  &.logout:hover { background: #ff4e4e; }
-              }
-          }
-      }
+  .skeleton-anim { 
+      background: linear-gradient(90deg, var(--input-bg) 25%, var(--bg-panel) 50%, var(--input-bg) 75%); 
+      background-size: 200% 100%; 
+      animation: ${shimmer} 1.5s infinite linear; 
   }
 `;
 
@@ -965,36 +918,6 @@ const ContactItem = styled.div`
   &:hover { background: linear-gradient(90deg, var(--input-bg) 0%, transparent 100%); transform: ${({ $isCompact }) => $isCompact ? "scale(1.1)" : "none"}; }
   &.selected { background: var(--input-bg); border-color: var(--glass-border); box-shadow: 0 4px 20px rgba(0,0,0,0.05); }
   &.pinned { border-left: 3px solid var(--msg-sent); }
-
-  .avatar {
-      position: relative; width: 48px; height: 48px; flex-shrink: 0;
-      img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; background: var(--bg-panel); }
-      .group-avatar { width: 100%; height: 100%; border-radius: 50%; background: var(--input-bg); display: flex; justify-content: center; align-items: center; color: var(--msg-sent); font-size: 1.2rem; font-weight: 800; }
-      .online-badge { position: absolute; bottom: 2px; right: 2px; width: 12px; height: 12px; background: #10b981; border-radius: 50%; border: 2px solid var(--bg-panel); box-shadow: 0 0 8px rgba(16, 185, 129, 0.4); }
-      .compact-badge { position: absolute; top: -4px; right: -4px; background: #ff4e4e; color: white; font-size: 0.65rem; font-weight: bold; width: 18px; height: 18px; display: flex; justify-content: center; align-items: center; border-radius: 50%; border: 2px solid var(--bg-panel); }
-  }
-
-  .details {
-      flex: 1; overflow: hidden; display: flex; flex-direction: column; justify-content: center;
-      h3 { font-size: 0.95rem; font-weight: 600; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px; }
-      .presence {
-          .status { font-size: 0.8rem; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-              &.online { color: #10b981; }
-              &.group { color: var(--msg-sent); font-weight: 500; }
-          }
-          .typing-indicator {
-              display: flex; align-items: center; gap: 3px;
-              span { width: 4px; height: 4px; background: var(--msg-sent); border-radius: 50%; display: inline-block; }
-              .text { font-size: 0.75rem; color: var(--msg-sent); font-style: italic; background: none; width: auto; height: auto; margin-left: 4px; font-weight: 600;}
-          }
-      }
-  }
-
-  .meta {
-      display: flex; flex-direction: column; align-items: flex-end; gap: 8px; flex-shrink: 0;
-      .pin-btn { background: none; border: none; color: var(--text-dim); cursor: pointer; transition: 0.2s; opacity: 0; font-size: 0.9rem; &:hover { color: var(--text-main); transform: scale(1.2); } }
-      .unread-count { background: var(--msg-sent); color: white; font-size: 0.7rem; font-weight: bold; padding: 2px 8px; border-radius: 12px; box-shadow: 0 2px 8px rgba(78, 14, 255, 0.4); }
-  }
 
   &:hover .pin-btn { opacity: 1; }
   &.pinned .pin-btn { opacity: 1; color: var(--msg-sent); }

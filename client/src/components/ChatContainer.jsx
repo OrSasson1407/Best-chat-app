@@ -30,6 +30,9 @@ import ChatSidePanel from "./ChatSidePanel";
 import MessageItem from "./MessageItem";
 import { getSmallAvatar, formatTime } from "./chatHelpers";
 
+// --- NEW: Import the Haptic Engine ---
+import { triggerHaptic } from "../utils/haptics";
+
 export default function ChatContainer({ socket, isTyping }) {
   
   // 🚀 PERFORMANCE FIX: Atomic Zustand Selectors
@@ -516,6 +519,7 @@ export default function ChatContainer({ socket, isTyping }) {
     setIsDragging(false);
     const files = e.dataTransfer.files;
     if (files.length > 0) {
+        triggerHaptic('success'); // Haptic confirmation of file drop
         toast.info(`Preparing to send ${files[0].name}...`);
         setDroppedFile(files[0]); 
     }
@@ -554,6 +558,9 @@ export default function ChatContainer({ socket, isTyping }) {
     let finalMessageContent = msg;
     const newMessageId = uuidv4(); 
     setQuickReplies([]);
+
+    // --- HAPTIC FEEDBACK: Sending initiated ---
+    triggerHaptic('light');
 
     try {
         if (type === "text") {
@@ -613,6 +620,8 @@ export default function ChatContainer({ socket, isTyping }) {
 
         socket.current.emit("send-msg", socketData, (response) => {
             if (response && response.status) {
+                // --- HAPTIC FEEDBACK: Message Successfully Sent ---
+                triggerHaptic('success');
                 setMessages((prev) => prev.map(m => m.id === newMessageId ? { ...m, status: response.status, linkMetadata: generatedLinkData } : m));
             }
         });
@@ -649,12 +658,14 @@ export default function ChatContainer({ socket, isTyping }) {
               await axios.post(deleteMessageRoute, { messageId }, getAuthHeader()); 
               socket.current.emit("delete-msg", { messageId, to: currentChat._id, isGroup: !!currentChat.admin });
               setMessages((prev) => prev.map(msg => msg.id === messageId ? { ...msg, isDeleted: true, message: "🚫 This message was deleted", reactions: [], linkMetadata: null, pollData: null } : msg));
+              triggerHaptic('heavy'); // Haptic feedback on delete
           } else {
               const confirmDeleteForMe = fromSelf ? window.confirm("Delete for me then?") : window.confirm(options);
               if (confirmDeleteForMe) {
                   await axios.post(deleteMessageForMeRoute, { messageId, userId: currentUser._id }, getAuthHeader());
                   setMessages((prev) => prev.filter(msg => msg.id !== messageId));
                   toast.success("Message deleted.");
+                  triggerHaptic('heavy'); // Haptic feedback on delete
               }
           }
       } catch (error) { 
@@ -665,6 +676,7 @@ export default function ChatContainer({ socket, isTyping }) {
 
   const handleReaction = useCallback(async (messageId, emoji) => {
       try {
+          triggerHaptic('light'); // Satisfying tap when a reaction is sent
           const res = await axios.post(reactMessageRoute, { messageId, emoji, userId: currentUser._id, username: currentUser.username }, getAuthHeader());
           setMessages(prev => prev.map(msg => msg.id === messageId ? { ...msg, reactions: res.data.reactions } : msg));
           socket.current.emit("send-reaction", { messageId, reactions: res.data.reactions, to: currentChat._id, isGroup: !!currentChat.admin });
