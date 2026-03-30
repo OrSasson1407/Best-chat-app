@@ -584,7 +584,12 @@ export default function ChatContainer({ socket, isTyping }) {
                         console.warn(`[Crypto] Encryption skipped: ${pkResponse.data.msg}`);
                     }
                 } catch (err) { 
-                    console.error("[Crypto] Could not fetch public key for encryption", err); 
+                    // ✅ FIX: Gracefully handle the 404 without a red console error
+                    if (err.response && err.response.status === 404) {
+                        console.warn(`[Crypto] Encryption skipped: User hasn't generated E2E keys yet. Sending as plaintext.`);
+                    } else {
+                        console.error("[Crypto] Encryption error:", err.message); 
+                    }
                 }
             } else if (currentChat.admin && activeGroupAesKey) {
                 try {
