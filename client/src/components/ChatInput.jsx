@@ -66,6 +66,7 @@ export default function ChatInput({
   const textareaRef = useRef(null); 
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
+  const fileInputRef = useRef(null);
 
   const audioContextRef = useRef(null);
   const analyzerRef = useRef(null);
