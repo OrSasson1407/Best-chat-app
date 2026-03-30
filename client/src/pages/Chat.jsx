@@ -88,12 +88,16 @@ export default function Chat() {
     };
   }, []);
 
+  const hasRedirected = useRef(false);
+
   // 1. Authentication Check — waits for IDB hydration before deciding
   useEffect(() => {
     if (!_hasHydrated) return; // IDB still loading, do nothing yet
+    if (hasRedirected.current) return; // Already redirected, don't loop
 
     const storedToken = sessionStorage.getItem("chat-app-token");
     if (!storedToken || !currentUser) {
+      hasRedirected.current = true;
       navigate("/login");
     }
   }, [_hasHydrated, currentUser, navigate]);
@@ -155,12 +159,15 @@ export default function Chat() {
         // ✅ FIX: Safely catch "Invalid token" and "Authentication error"
         // Prevent infinite 400 Bad Request loops by destroying Zustand state AND disconnecting.
         if (err.message.includes("Authentication error") || err.message.includes("Invalid token")) {
+          if (hasRedirected.current) return;
+          hasRedirected.current = true;
+
           sessionStorage.clear();
-          setCurrentUser(undefined); // Clear Zustand so useEffect doesn't immediately re-fire
+          setCurrentUser(undefined);
           setCurrentChat(undefined);
           
           if (socket.current) {
-            socket.current.disconnect(); // Hard stop the socket
+            socket.current.disconnect();
           }
           
           toast.error("Session expired. Please log in again.");
@@ -248,7 +255,7 @@ export default function Chat() {
 
       setupPushNotifications();
 
-      onMessageListener()
+      const unsubscribe = onMessageListener()
         .then((payload) => {
           toast.info(`📬 ${payload.notification.title}: ${payload.notification.body}`, {
             position: "top-right",
@@ -261,6 +268,11 @@ export default function Chat() {
           });
         })
         .catch((err) => console.log("Failed to listen to foreground messages:", err));
+
+      return () => {
+        // Clean up the listener on unmount to prevent the message channel error
+        if (unsubscribe && typeof unsubscribe === "function") unsubscribe();
+      };
     }
   }, [currentUser, theme]);
 
