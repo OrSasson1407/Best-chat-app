@@ -59,9 +59,10 @@ const protect = async (req, res, next) => {
   }
 
   /**
-   * Step 2: Ensure token exists
+   * Step 2: Ensure token exists & is not a corrupted frontend string
+   * FIX: Sometimes sessionStorage passes the literal string "null" or "undefined"
    */
-  if (!token) {
+  if (!token || token === "null" || token === "undefined") {
     return res.status(401).json({
       msg: "No token, authorization denied",
       code: "NO_TOKEN"

@@ -88,11 +88,6 @@ export default function Chat() {
   }, []);
 
   // 1. Authentication Check
-  // BUGFIX: Previously this read user data from sessionStorage and called setCurrentUser
-  // every mount, which could diverge from Zustand's persisted state (e.g. after a silent
-  // token refresh that updated Zustand but not sessionStorage). Zustand is now the single
-  // source of truth. We only check sessionStorage for the token to decide if a redirect
-  // to /login is needed — we never overwrite currentUser from sessionStorage here.
   useEffect(() => {
     async function checkAuth() {
       const storedToken = sessionStorage.getItem("chat-app-token");
@@ -110,9 +105,10 @@ export default function Chat() {
   // 2. Setup STABLE Socket Connection with Phase 4 Resilience
   useEffect(() => {
     if (currentUser && currentUser._id && !socket.current) {
-      // BUGFIX: Use currentUser.token (from Zustand, always fresh) as the primary
-      // source. sessionStorage is kept as a fallback for compatibility with the Login
-      // page which still writes there, but Zustand takes precedence.
+      
+      // ✅ FIX: Grab token from Zustand or sessionStorage securely.
+      // If your server expects the "Bearer " prefix, leave rawToken as is.
+      // If it fails, revert to cleanToken (most socket middlewares prefer cleanToken).
       const rawToken = currentUser.token || sessionStorage.getItem("chat-app-token") || "";
       const cleanToken = rawToken.replace(/(Bearer\s*)+/gi, "").trim();
 
@@ -123,7 +119,7 @@ export default function Chat() {
       }
 
       socket.current = io(host, {
-        auth: { token: cleanToken },
+        auth: { token: cleanToken }, // Try passing rawToken here if cleanToken still gives 400 Bad Request
         parser: customParser,
         reconnection: true,             // Enable auto-reconnect
         reconnectionAttempts: Infinity, // Keep trying
@@ -145,8 +141,6 @@ export default function Chat() {
       });
 
       socket.current.on("reconnect_attempt", () => {
-        // BUGFIX: Pull the fresh token from currentUser (Zustand) first, which is
-        // updated by the token-refresh interceptor. sessionStorage is the fallback.
         const freshToken = (currentUser?.token || sessionStorage.getItem("chat-app-token") || "")
           .replace(/(Bearer\s*)+/gi, "").trim();
         if (freshToken) {
@@ -156,14 +150,24 @@ export default function Chat() {
 
       socket.current.on("reconnect", (attemptNumber) => {
         console.log(`[Socket] Reconnected successfully on attempt ${attemptNumber}`);
-        // Re-register to the server to ensure we receive queued messages
         socket.current.emit("add-user", currentUser._id);
       });
 
       socket.current.on("connect_error", (err) => {
         console.error("Socket Connection Error:", err.message);
-        if (err.message.includes("Authentication error")) {
+        
+        // ✅ FIX: Safely catch "Invalid token" and "Authentication error"
+        // Prevent infinite 400 Bad Request loops by destroying Zustand state AND disconnecting.
+        if (err.message.includes("Authentication error") || err.message.includes("Invalid token")) {
           sessionStorage.clear();
+          setCurrentUser(undefined); // Clear Zustand so useEffect doesn't immediately re-fire
+          setCurrentChat(undefined);
+          
+          if (socket.current) {
+            socket.current.disconnect(); // Hard stop the socket
+          }
+          
+          toast.error("Session expired. Please log in again.");
           navigate("/login");
         }
       });
@@ -179,7 +183,7 @@ export default function Chat() {
         }
       };
     }
-  }, [currentUser, navigate, setOnlineUsers]);
+  }, [currentUser, navigate, setOnlineUsers, setCurrentUser, setCurrentChat]);
 
   // 3. Dynamic Socket Listeners
   useEffect(() => {
@@ -217,7 +221,7 @@ export default function Chat() {
   // 4. Fetch Contacts
   useEffect(() => {
     async function fetchContacts() {
-      if (currentUser && currentUser._id && !isOffline) { // Don't fetch if offline
+      if (currentUser && currentUser._id && !isOffline) { 
         try {
           const response = await axios.get(`${allUsersRoute}/${currentUser._id}`);
           setContacts(response.data);
@@ -268,9 +272,7 @@ export default function Chat() {
     try {
       const refreshToken = sessionStorage.getItem("chat-app-refresh-token");
       const token = sessionStorage.getItem("chat-app-token");
-      // BUGFIX: logout was a GET request — browsers/prefetch could trigger it accidentally.
-      // Changed to POST to match the server route fix, and includes the Authorization header
-      // so the server can blacklist the access token as well as the refresh token.
+      
       await axios.post(`${host}/api/auth/logout`,
         { refreshToken },
         { headers: { Authorization: `Bearer ${token}` } }
@@ -297,7 +299,7 @@ export default function Chat() {
       $isTyping={!!isTyping}
       $isMobileMenuOpen={isMobileMenuOpen}
       $timeColors={timeBasedColors}
-      $isOffline={isOffline} // Added prop for UI offline state
+      $isOffline={isOffline} 
     >
       {/* PHASE 4: Offline visual indicator header */}
       {isOffline && (
@@ -323,7 +325,7 @@ export default function Chat() {
       <button 
         className="mobile-toggle" 
         onClick={() => {
-          triggerHaptic('light'); // Added tactile feedback on mobile menu toggle
+          triggerHaptic('light'); 
           setIsMobileMenuOpen(!isMobileMenuOpen);
         }}
       >
