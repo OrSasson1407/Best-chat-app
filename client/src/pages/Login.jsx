@@ -20,9 +20,9 @@ export default function Login() {
     draggable: true,
   };
 
-  // ✅ FIX: Check for the token, not the old user object, to prevent redirect loops
+  // ✅ FIX: Check localStorage for the token to prevent redirect loops
   useEffect(() => {
-    if (sessionStorage.getItem("chat-app-token")) {
+    if (localStorage.getItem("chat-app-token")) {
       navigate("/");
     }
   }, [navigate]);
@@ -56,16 +56,15 @@ export default function Login() {
       }
 
       if (data.status === true) {
-        // ✅ FIX 1: Save access token separately so App.js request interceptor can read it
-        sessionStorage.setItem("chat-app-token", data.token);
+        // ✅ FIX 1: Save access token separately to localStorage
+        localStorage.setItem("chat-app-token", data.token);
 
-        // ✅ FIX 2: Save refresh token so App.js can silently renew expired access tokens
-        //           (was never saved on login — caused logout every 15 min)
-        sessionStorage.setItem("chat-app-refresh-token", data.refreshToken);
+        // ✅ FIX 2: Save refresh token to localStorage
+        localStorage.setItem("chat-app-refresh-token", data.refreshToken);
 
-        // Save user object (also embed token for socket auth)
+        // Save user object to localStorage
         const userData = { ...data.user, token: data.token };
-        sessionStorage.setItem("chat-app-user", JSON.stringify(userData));
+        localStorage.setItem("chat-app-user", JSON.stringify(userData));
 
         // ✅ CRITICAL FIX: Hydrate Zustand store so currentUser is available immediately
         setCurrentUser(userData);
