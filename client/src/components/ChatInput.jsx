@@ -503,13 +503,13 @@ export default function ChatInput({
 
                   <div className="media-options">
                       <label className={`view-once-toggle ${isViewOnceMedia ? 'active' : ''}`}>
-                          <input type="checkbox" disabled={isUploading} checked={isViewOnceMedia} onChange={(e) => { triggerHaptic('light'); setIsViewOnceMedia(e.target.checked); }} hidden />
+                          <input id="view-once" name="view-once" type="checkbox" disabled={isUploading} checked={isViewOnceMedia} onChange={(e) => { triggerHaptic('light'); setIsViewOnceMedia(e.target.checked); }} hidden />
                           <FaFire /> {isViewOnceMedia ? "View Once Enabled" : "Send as View Once"}
                       </label>
                   </div>
 
                   <div className="preview-actions">
-                      <input type="text" disabled={isUploading} placeholder="Add a caption..." value={msg} onChange={(e) => setMsg(e.target.value)} />
+                      <input id="media-caption" name="media-caption" type="text" disabled={isUploading} placeholder="Add a caption..." value={msg} onChange={(e) => setMsg(e.target.value)} />
                       <button disabled={isUploading} onClick={confirmSendMedia}>
                           {isUploading ? <FaSpinner className="spin-icon" /> : <IoMdSend />}
                       </button>
@@ -539,7 +539,7 @@ export default function ChatInput({
 
           <div className="upload tool-toggle" onClick={() => { if (!isUploading) { triggerHaptic('light'); fileInputRef.current.click(); } }} title="Attach File">
             <BsPaperclip />
-            <input type="file" ref={fileInputRef} style={{ display: "none" }} accept="image/*,video/*,.pdf,.doc,.docx,.txt,.zip,.rar" onChange={handleFileUpload} />
+            <input id="file-upload" name="file-upload" type="file" ref={fileInputRef} style={{ display: "none" }} accept="image/*,video/*,.pdf,.doc,.docx,.txt,.zip,.rar" onChange={handleFileUpload} />
           </div>
 
           <div className="mic tool-toggle" onClick={isRecording ? stopRecording : startRecording} title="Record Audio">
@@ -577,6 +577,8 @@ export default function ChatInput({
                   <div className="floating-menu schedule-menu" onClick={e => e.stopPropagation()}>
                       <h4>Schedule Message</h4>
                       <input 
+                        id="schedule-date"
+                        name="schedule-date"
                         type="datetime-local" 
                         value={scheduleDate} 
                         onChange={(e) => setScheduleDate(e.target.value)} 

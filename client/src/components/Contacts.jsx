@@ -472,7 +472,7 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
                                         <div className="add-icon">{isUploadingStory ? <FaSpinner className="fa-spin" /> : <FaPlus />}</div>
                                     </div>
                                     <p>My Status</p>
-                                    <input type="file" hidden ref={fileInputRef} accept="image/*,video/*" onChange={handleStoryUpload} />
+                                    <input id="story-upload" name="story-upload" type="file" hidden ref={fileInputRef} accept="image/*,video/*" onChange={handleStoryUpload} />
                                 </motion.div>
 
                                 {(storyFeed || []).map((feedItem, index) => {
