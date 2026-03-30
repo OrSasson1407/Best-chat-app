@@ -21,9 +21,12 @@ import { triggerHaptic } from "../utils/haptics";
 // 🚀 PERFORMANCE FIX: Dynamically import the heavy Emoji Picker only when needed
 const EmojiPicker = lazy(() => import("emoji-picker-react"));
 
-// --- CLOUDINARY CONFIGURATION ---
-const CLOUDINARY_CLOUD_NAME = "dz6weueae"; 
-const CLOUDINARY_UPLOAD_PRESET = "chat_app_preset"; 
+// SECURITY FIX: Cloudinary credentials were hard-coded in source, allowing anyone to
+// upload unlimited files to the account using the public unsigned preset.
+// Moved to Vite env vars — add VITE_CLOUDINARY_CLOUD_NAME and
+// VITE_CLOUDINARY_UPLOAD_PRESET to client/.env (never commit that file).
+const CLOUDINARY_CLOUD_NAME = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
+const CLOUDINARY_UPLOAD_PRESET = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
 
 // --- COMMANDS REGISTRY ---
 const COMMANDS = [
@@ -59,7 +62,7 @@ export default function ChatInput({
   const [showCommands, setShowCommands] = useState(false);
   const [audioLevels, setAudioLevels] = useState(Array(15).fill(10));
   
-  const fileInputRef = useRef(null);
+  const streamRef = useRef(null);
   const textareaRef = useRef(null); 
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
@@ -120,6 +123,11 @@ export default function ChatInput({
           if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
           if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
               audioContextRef.current.close().catch(()=>console.log("Audio context already closed"));
+          }
+          // BUGFIX: Release microphone on unmount in case the component disappears mid-recording
+          if (streamRef.current) {
+              streamRef.current.getTracks().forEach(track => track.stop());
+              streamRef.current = null;
           }
       }
   }, []);
@@ -248,6 +256,10 @@ export default function ChatInput({
   };
 
   const uploadToCloudinary = async (file, resourceType = "auto") => {
+      if (!CLOUDINARY_CLOUD_NAME || !CLOUDINARY_UPLOAD_PRESET) {
+          console.error("[Media] Cloudinary env vars are not set. Add VITE_CLOUDINARY_CLOUD_NAME and VITE_CLOUDINARY_UPLOAD_PRESET to client/.env");
+          return null;
+      }
       const formData = new FormData();
       formData.append("file", file);
       formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
@@ -301,11 +313,21 @@ export default function ChatInput({
               localId 
           });
           
+          // BUGFIX: Previously setReplyingTo(null) was called here, BEFORE the
+          // setTimeout that fires the caption text. That meant the follow-up text
+          // message always lost its reply context. Capture the current replyingTo
+          // value first, then clear state, then pass the captured value to sendChat.
+          const pendingReply = replyingTo;
           setMediaPreview(null);
           setReplyingTo(null);
           
           if (msg.trim().length > 0) {
-              setTimeout(() => sendChat(), 200); 
+              // Pass the captured reply context directly instead of relying on state
+              setTimeout(() => {
+                  handleSendMsg(msg, "text", pendingReply?.id, {});
+                  setMsg("");
+                  resetTextarea();
+              }, 200);
           }
       } else {
           toast.error("Media upload failed. Please try again.");
@@ -316,6 +338,10 @@ export default function ChatInput({
     if (!canPost) return;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // BUGFIX: Store the stream in a ref so we can stop all tracks on every exit path.
+      // Previously, if the Cloudinary upload failed after recording, the MediaStream was
+      // never stopped — the browser kept the microphone indicator active indefinitely.
+      streamRef.current = stream;
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
@@ -348,6 +374,11 @@ export default function ChatInput({
         if (audioContextRef.current) {
             audioContextRef.current.close().catch(()=>console.log("Audio context already closed"));
         }
+        // BUGFIX: Always stop all mic tracks when recording ends, success or failure.
+        if (streamRef.current) {
+            streamRef.current.getTracks().forEach(track => track.stop());
+            streamRef.current = null;
+        }
 
         const audioBlob = new Blob(audioChunksRef.current, { type: "audio/mp3" });
         const audioFile = new File([audioBlob], `voice_record_${Date.now()}.mp3`, { type: "audio/mp3" });
@@ -365,10 +396,15 @@ export default function ChatInput({
         }
       };
 
-      triggerHaptic('medium'); // Haptic bump when recording starts
+      triggerHaptic('medium');
       mediaRecorder.start();
       setIsRecording(true);
     } catch (error) {
+      // BUGFIX: Also release any stream acquired before the error point.
+      if (streamRef.current) {
+          streamRef.current.getTracks().forEach(track => track.stop());
+          streamRef.current = null;
+      }
       console.error("[Media] Error accessing microphone:", error);
       toast.warning("Microphone access denied. Please allow permissions in your browser settings.");
     }

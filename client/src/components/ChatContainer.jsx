@@ -630,11 +630,17 @@ export default function ChatContainer({ socket, isTyping }) {
     } catch (error) {
         if (error.response && error.response.status === 403) {
             toast.error("You cannot message this user.");
+            // Remove the optimistic message — this chat is blocked, retry would also fail
+            setMessages((prev) => prev.filter(m => m.id !== newMessageId));
         } else {
             console.error("[API] Failed to send message", error);
-            toast.error("Failed to send message. Please try again.");
+            toast.error("Failed to send message. Tap the message to retry.");
+            // IMPROVEMENT: Mark as "failed" rather than silently deleting so the user
+            // can see which message didn't send and choose to retry or dismiss it.
+            setMessages((prev) => prev.map(m =>
+                m.id === newMessageId ? { ...m, status: "failed" } : m
+            ));
         }
-        setMessages((prev) => prev.filter(m => m.id !== newMessageId));
     }
   }, [currentChat, currentUser, activeGroupAesKey, replyingTo, getAuthHeader, socket]);
 

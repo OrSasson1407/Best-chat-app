@@ -35,10 +35,10 @@ module.exports.register = async (req, res, next) => {
     const { username, email, password, gender, avatarImage, e2eKeys } = req.body;
 
     const usernameCheck = await User.findOne({ username });
-    if (usernameCheck) return res.json({ msg: "Username already used", status: false });
+    if (usernameCheck) return res.status(409).json({ msg: "Username already used", status: false });
 
     const emailCheck = await User.findOne({ email });
-    if (emailCheck) return res.json({ msg: "Email already used", status: false });
+    if (emailCheck) return res.status(409).json({ msg: "Email already used", status: false });
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
@@ -245,7 +245,14 @@ module.exports.getAllUsers = async (req, res, next) => {
         try {
           if (cacheClient.isReady) {
             await cacheClient.mSet(msetArgs);
-            missedUsers.forEach(user => cacheClient.expire(`user_profile:${user._id.toString()}`, 3600));
+            // BUGFIX: expire() calls were fire-and-forget inside forEach.
+            // If the process restarted between mSet and expire, profiles would
+            // be cached forever with no TTL, leaking stale data indefinitely.
+            await Promise.all(
+              missedUsers.map(user =>
+                cacheClient.expire(`user_profile:${user._id.toString()}`, 3600)
+              )
+            );
           }
         } catch (redisSaveErr) {
             console.warn("[Redis] Failed to cache user profiles:", redisSaveErr.message);
@@ -268,19 +275,32 @@ module.exports.getAllUsers = async (req, res, next) => {
 module.exports.updateProfile = async (req, res, next) => {
   try {
     const userId = req.params.id;
+
+    // SECURITY FIX: Ensure the authenticated user can only update their own profile
+    if (userId !== req.user.id) {
+      return res.status(403).json({ status: false, msg: "Forbidden: You cannot modify another user's profile." });
+    }
+
     const { statusMessage, statusIcon, bio, interests, privacySettings } = req.body;
     
     let updatePayload = { statusMessage, statusIcon, bio, interests };
     
     if (privacySettings) {
-        const currentUser = await User.findById(userId);
-        updatePayload.privacySettings = { ...currentUser.privacySettings, ...privacySettings };
+        // PERF FIX: Previously read the full user doc just to spread privacySettings,
+        // costing an extra DB round-trip. Using dot-notation $set lets MongoDB merge
+        // only the supplied sub-fields without fetching the existing document first.
+        Object.keys(privacySettings).forEach(key => {
+            updatePayload[`privacySettings.${key}`] = privacySettings[key];
+        });
     }
 
     const user = await User.findByIdAndUpdate(userId, updatePayload, { new: true }).select([
         "email", "username", "avatarImage", "gender", "_id", 
         "statusMessage", "statusIcon", "bio", "interests", "privacySettings", "chatCustomizations"
     ]);
+
+    // BUGFIX: Guard against null when userId is invalid / user was deleted
+    if (!user) return res.status(404).json({ status: false, msg: "User not found." });
 
     if (user.username) {
         try { await userIndex.updateDocuments([{ id: userId, username: user.username }]); } 
@@ -304,6 +324,12 @@ module.exports.updateProfile = async (req, res, next) => {
 module.exports.toggleBlockUser = async (req, res, next) => {
   try {
     const { userId, blockedUserId } = req.body;
+
+    // SECURITY FIX: Ensure the caller can only modify their own block list
+    if (userId !== req.user.id) {
+      return res.status(403).json({ status: false, msg: "Forbidden: You cannot modify another user's block list." });
+    }
+
     const user = await User.findById(userId);
     
     if (user.blockedUsers.includes(blockedUserId)) user.blockedUsers.pull(blockedUserId); 
@@ -319,6 +345,12 @@ module.exports.toggleBlockUser = async (req, res, next) => {
 module.exports.updateFcmToken = async (req, res, next) => {
   try {
     const { userId, fcmToken } = req.body;
+
+    // SECURITY FIX: Only allow the authenticated user to update their own FCM token
+    if (userId !== req.user.id) {
+      return res.status(403).json({ status: false, msg: "Forbidden." });
+    }
+
     await User.findByIdAndUpdate(userId, { fcmToken });
     return res.json({ status: true, msg: "FCM Token updated" });
   } catch (ex) {
@@ -331,6 +363,12 @@ module.exports.updateE2EKeys = async (req, res, next) => {
     const { userId, e2eKeys } = req.body;
     if (!userId || !e2eKeys) {
         return res.status(400).json({ status: false, msg: "Missing data" });
+    }
+    // SECURITY FIX: Only the authenticated user can register their own E2E keys.
+    // Without this check, any logged-in user could silently replace another user's
+    // public key bundle and perform a key-substitution (person-in-the-middle) attack.
+    if (userId !== req.user.id) {
+        return res.status(403).json({ status: false, msg: "Forbidden: You cannot register keys for another user." });
     }
     await User.findByIdAndUpdate(userId, { e2eKeys });
     console.log(`[Crypto] E2E Keys Bundle registered for user ${userId}`);
@@ -381,6 +419,12 @@ module.exports.getUserById = async (req, res, next) => {
 module.exports.updateChatCustomization = async (req, res, next) => {
   try {
     const { userId, chatId, wallpaper, themeColor } = req.body;
+
+    // SECURITY FIX: Ensure the caller can only customize their own chats
+    if (userId !== req.user.id) {
+      return res.status(403).json({ status: false, msg: "Forbidden." });
+    }
+
     const user = await User.findById(userId);
 
     if (!user) return res.status(404).json({ msg: "User not found", status: false });

@@ -19,8 +19,12 @@ const router = require("express").Router();
 // Public routes (no token required)
 router.post("/register", register);
 router.post("/login", login);
-router.get("/logout", logout);
-router.post("/refresh", refreshToken); // ✅ FIX: was missing — every 15-min expiry caused a full logout instead of a silent token renewal
+router.post("/refresh", refreshToken);
+
+// BUGFIX: logout must be POST (it mutates state — blacklists tokens in Redis).
+// Using GET allowed browsers/crawlers/prefetch to trigger logout unintentionally.
+// Auth middleware is added so the access token is verified before blacklisting.
+router.post("/logout", auth, logout);
 
 // Protected routes (require valid access token)
 router.get("/allusers/:id", auth, getAllUsers);
@@ -31,7 +35,8 @@ router.post("/chat-customization", auth, updateChatCustomization);
 router.get("/user/:id", auth, getUserById);
 
 // E2E Encryption routes
-router.post("/e2e-keys", updateE2EKeys);
+// SECURITY FIX: /e2e-keys now requires auth and ownership check
+router.post("/e2e-keys", auth, updateE2EKeys);
 router.get("/public-key/:id", getPublicKey);
 
 module.exports = router;

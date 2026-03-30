@@ -44,14 +44,11 @@ module.exports = (io, socket, redisClient) => {
       return; 
     }
 
-    // SERVER ACKNOWLEDGMENT
-    if (data.localId) {
-      socket.emit("message_ack", {
-        localId: data.localId,
-        dbId: data.id, 
-        status: "sent_to_server"
-      });
-    }
+    // BUGFIX: The old message_ack here sent back data.id (whatever the client supplied)
+    // before the DB write in the REST handler had completed. The triple-handshake then
+    // mapped the wrong ID, corrupting optimistic UI state. The confirmed DB ID is now
+    // returned exclusively via the REST response (addMessage → res.json({ data })).
+    // The socket callback below still fires with "sent_to_server" status after routing.
 
     /** GROUP MESSAGE **/
     if (data.isGroup) {

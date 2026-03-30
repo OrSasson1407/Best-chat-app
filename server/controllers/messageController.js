@@ -1,4 +1,5 @@
 const Message = require("../models/Message"); 
+const mongoose = require("mongoose");
 const messageService = require("../services/messageService");
 const urlMetadata = require('url-metadata'); // Needed for editMessage rich link previews
 const { scheduledMessageQueue } = require("../workers/messageScheduler"); // BullMQ integration
@@ -21,6 +22,12 @@ module.exports.searchMessages = async (req, res, next) => {
 
     if (!query || query.trim() === "") {
         return res.json({ status: true, messages: [] });
+    }
+
+    // SECURITY FIX: Validate userId before interpolating into Meilisearch filter string.
+    // An unvalidated value could break filter syntax or leak messages across users.
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+        return res.status(400).json({ status: false, msg: "Invalid user ID." });
     }
 
     let messageIds = [];
@@ -272,7 +279,14 @@ module.exports.editMessage = async (req, res, next) => {
         const urls = extractUrls(newText);
         if (urls && urls.length > 0) {
             try {
-                const metadata = await urlMetadata(urls[0]);
+                // PERF FIX: urlMetadata is an external HTTP fetch with no built-in timeout.
+                // A slow or unreachable domain would stall the entire edit until Node's
+                // default socket timeout (minutes). Race against a 3-second limit instead.
+                const metadataPromise = urlMetadata(urls[0]);
+                const timeoutPromise = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error("Link preview timeout")), 3000)
+                );
+                const metadata = await Promise.race([metadataPromise, timeoutPromise]);
                 message.linkMetadata = { title: metadata.title, description: metadata.description, image: metadata.image, url: urls[0] };
                 message.type = "link";
             } catch (err) { 

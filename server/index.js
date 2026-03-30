@@ -92,7 +92,14 @@ if (process.env.NODE_ENV === "production") {
 
 app.use(metricsMiddleware);
 
+// SECURITY FIX: /metrics was publicly accessible, leaking internal server telemetry
+// (request counts, latency histograms, hostnames) to anyone who could reach the port.
+// Now requires a shared secret header so only internal scrapers (e.g. Prometheus) can read it.
 app.get('/metrics', async (req, res) => {
+  const secret = process.env.METRICS_SECRET;
+  if (secret && req.headers['x-metrics-secret'] !== secret) {
+    return res.status(403).json({ msg: "Forbidden" });
+  }
   res.set('Content-Type', register.contentType);
   res.end(await register.metrics());
 });
@@ -101,9 +108,11 @@ app.use(helmet());
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 
-// JSON & URL-encoded parsers
-app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ limit: "50mb", extended: true }));
+// PERF/SECURITY FIX: 50 MB JSON limit allowed a single request to exhaust server memory.
+// API bodies never need to be this large — media goes directly to Cloudinary from the client.
+// Reduced to 1 MB for API safety. File uploads use multipart, not JSON.
+app.use(express.json({ limit: "1mb" }));
+app.use(express.urlencoded({ limit: "1mb", extended: true }));
 
 // Prevent NoSQL Injection attacks
 app.use(mongoSanitize()); // <-- Added here
@@ -112,8 +121,10 @@ app.use(mongoSanitize()); // <-- Added here
    RATE LIMITING
    ========================================================= */
 const authLimiter = rateLimit({
-  windowMs: process.env.RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000,
-  max: process.env.RATE_LIMIT_MAX || 10,
+  // BUGFIX: process.env values are always strings. Passing "100" (string) to rateLimit()
+  // could silently disable the limit depending on the library version. Always parseInt.
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
+  max: parseInt(process.env.RATE_LIMIT_MAX) || 10,
   message: "Too many requests, please try again later."
 });
 
@@ -128,6 +139,9 @@ app.use("/api/auth/register", authLimiter);
 app.use("/api/auth", authRoutes);
 app.use("/api/messages", verifyToken, messageRoutes);
 app.use("/api/groups", verifyToken, groupRoutes);
+// NOTE: storyRoutes and aiRoutes apply verifyToken on every handler inside their own
+// route files, so no top-level middleware is needed here. If you add new routes to
+// those files, always include verifyToken — do NOT rely on the mount point alone.
 app.use("/api/stories", storyRoutes);
 app.use("/health", require("./routes/healthRoute"));
 app.use("/api/ai", aiRoutes);

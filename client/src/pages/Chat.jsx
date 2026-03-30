@@ -87,32 +87,33 @@ export default function Chat() {
     };
   }, []);
 
-  // 1. Authentication Check & Data Retrieval
+  // 1. Authentication Check
+  // BUGFIX: Previously this read user data from sessionStorage and called setCurrentUser
+  // every mount, which could diverge from Zustand's persisted state (e.g. after a silent
+  // token refresh that updated Zustand but not sessionStorage). Zustand is now the single
+  // source of truth. We only check sessionStorage for the token to decide if a redirect
+  // to /login is needed — we never overwrite currentUser from sessionStorage here.
   useEffect(() => {
     async function checkAuth() {
-      const storedData = sessionStorage.getItem("chat-app-user");
       const storedToken = sessionStorage.getItem("chat-app-token");
 
-      if (!storedData || !storedToken) {
+      if (!storedToken || !currentUser) {
         navigate("/login");
         return;
       }
 
-      const parsedUser = JSON.parse(storedData);
-      parsedUser.token = storedToken;
-      sessionStorage.setItem("chat-app-user", JSON.stringify(parsedUser));
-
-      setCurrentUser(parsedUser);
       setIsLoaded(true);
     }
     checkAuth();
-  }, [navigate, setCurrentUser]);
+  }, [navigate, currentUser]);
 
   // 2. Setup STABLE Socket Connection with Phase 4 Resilience
   useEffect(() => {
     if (currentUser && currentUser._id && !socket.current) {
-
-      const rawToken = sessionStorage.getItem("chat-app-token") || currentUser.token || "";
+      // BUGFIX: Use currentUser.token (from Zustand, always fresh) as the primary
+      // source. sessionStorage is kept as a fallback for compatibility with the Login
+      // page which still writes there, but Zustand takes precedence.
+      const rawToken = currentUser.token || sessionStorage.getItem("chat-app-token") || "";
       const cleanToken = rawToken.replace(/(Bearer\s*)+/gi, "").trim();
 
       if (!cleanToken) {
@@ -144,8 +145,10 @@ export default function Chat() {
       });
 
       socket.current.on("reconnect_attempt", () => {
-        // DYNAMIC AUTH INJECTION: If token refreshed while offline, grab the new one!
-        const freshToken = sessionStorage.getItem("chat-app-token")?.replace(/(Bearer\s*)+/gi, "").trim();
+        // BUGFIX: Pull the fresh token from currentUser (Zustand) first, which is
+        // updated by the token-refresh interceptor. sessionStorage is the fallback.
+        const freshToken = (currentUser?.token || sessionStorage.getItem("chat-app-token") || "")
+          .replace(/(Bearer\s*)+/gi, "").trim();
         if (freshToken) {
           socket.current.auth.token = freshToken;
         }
@@ -264,9 +267,14 @@ export default function Chat() {
   const handleLogout = useCallback(async () => {
     try {
       const refreshToken = sessionStorage.getItem("chat-app-refresh-token");
-      await axios.get(`${host}/api/auth/logout`, {
-        data: { refreshToken },
-      });
+      const token = sessionStorage.getItem("chat-app-token");
+      // BUGFIX: logout was a GET request — browsers/prefetch could trigger it accidentally.
+      // Changed to POST to match the server route fix, and includes the Authorization header
+      // so the server can blacklist the access token as well as the refresh token.
+      await axios.post(`${host}/api/auth/logout`,
+        { refreshToken },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
     } catch (err) {
       console.error("Logout API failed:", err);
     } finally {
