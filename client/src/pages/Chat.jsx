@@ -87,17 +87,21 @@ export default function Chat() {
     };
   }, []);
 
-  // 1. Authentication Check
+  // 1. Authentication Check (FIXED TO PREVENT INFINITE REDIRECT LOOP)
   useEffect(() => {
     async function checkAuth() {
       const storedToken = sessionStorage.getItem("chat-app-token");
 
-      if (!storedToken || !currentUser) {
+      // 1. Only forcefully redirect if there is NO token at all
+      if (!storedToken) {
         navigate("/login");
         return;
       }
 
-      setIsLoaded(true);
+      // 2. If we have a token, WAIT for Zustand to hydrate currentUser
+      if (storedToken && currentUser) {
+        setIsLoaded(true);
+      }
     }
     checkAuth();
   }, [navigate, currentUser]);

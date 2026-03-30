@@ -37,8 +37,9 @@ export default function Register() {
     theme: "dark",
   };
 
+  // ✅ FIX: Check for the token, not the old user object, to prevent redirect loops
   useEffect(() => {
-    if (sessionStorage.getItem("chat-app-user")) {
+    if (sessionStorage.getItem("chat-app-token")) {
       navigate("/");
     }
   }, [navigate]);
