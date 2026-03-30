@@ -7,9 +7,11 @@ import "react-toastify/dist/ReactToastify.css";
 
 import { loginRoute, updateE2EKeysRoute } from "../utils/APIRoutes";
 import { generateE2EBundle } from "../utils/crypto";
+import useChatStore from "../store/chatStore";
 
 export default function Login() {
   const navigate = useNavigate();
+  const { setCurrentUser } = useChatStore();
   const [values, setValues] = useState({ username: "", password: "" });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -64,6 +66,9 @@ export default function Login() {
         // Save user object (also embed token for socket auth)
         const userData = { ...data.user, token: data.token };
         sessionStorage.setItem("chat-app-user", JSON.stringify(userData));
+
+        // ✅ CRITICAL FIX: Hydrate Zustand store so currentUser is available immediately
+        setCurrentUser(userData);
 
         // --- E2EE: generate device keys if this is a new device ---
         try {

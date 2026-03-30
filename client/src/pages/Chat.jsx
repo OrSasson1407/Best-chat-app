@@ -88,7 +88,23 @@ export default function Chat() {
     };
   }, []);
 
+  // Bootstrap currentUser from sessionStorage on page refresh
   const hasRedirected = useRef(false);
+  // IDB persist only saves between sessions — sessionStorage has the freshest data
+  useEffect(() => {
+    if (!currentUser) {
+      const stored = sessionStorage.getItem("chat-app-user");
+      if (stored) {
+        try {
+          setCurrentUser(JSON.parse(stored));
+        } catch (e) {
+          console.error("[Auth] Failed to parse stored user:", e);
+        }
+      }
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+
 
   // 2. Setup STABLE Socket Connection with Phase 4 Resilience
   useEffect(() => {
