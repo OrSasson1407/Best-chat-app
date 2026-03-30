@@ -31,7 +31,7 @@ export default function Chat() {
   } = useChatStore();
 
   const [contacts, setContacts] = useState([]);
-  const [isLoaded, setIsLoaded] = useState(false);
+  const [isLoaded, setIsLoaded] = useState(true); // Don't gate render on auth check
   const [isTyping, setIsTyping] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
@@ -98,9 +98,10 @@ export default function Chat() {
         return;
       }
 
-      // 2. If we have a token, WAIT for Zustand to hydrate currentUser
-      if (storedToken && currentUser) {
-        setIsLoaded(true);
+      // 2. Token exists — Zustand will hydrate currentUser async, no need to gate render
+      if (storedToken && !currentUser) {
+        // Still waiting for Zustand hydration — don't redirect yet
+        return;
       }
     }
     checkAuth();
@@ -346,12 +347,10 @@ export default function Chat() {
         </div>
 
         <div className="main-chat-wrapper">
-          {isLoaded && currentChat === undefined ? (
+          {!currentChat ? (
             <Welcome />
           ) : (
-            currentChat && (
-              <ChatContainer socket={socket} isTyping={isTyping} />
-            )
+            <ChatContainer socket={socket} isTyping={isTyping} />
           )}
         </div>
       </div>
