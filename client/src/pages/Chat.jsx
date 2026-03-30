@@ -90,18 +90,6 @@ export default function Chat() {
 
   const hasRedirected = useRef(false);
 
-  // 1. Authentication Check — waits for IDB hydration before deciding
-  useEffect(() => {
-    if (!_hasHydrated) return; // IDB still loading, do nothing yet
-    if (hasRedirected.current) return; // Already redirected, don't loop
-
-    const storedToken = sessionStorage.getItem("chat-app-token");
-    if (!storedToken || !currentUser) {
-      hasRedirected.current = true;
-      navigate("/login");
-    }
-  }, [_hasHydrated, currentUser, navigate]);
-
   // 2. Setup STABLE Socket Connection with Phase 4 Resilience
   useEffect(() => {
     if (currentUser && currentUser._id && !socket.current) {
@@ -255,23 +243,20 @@ export default function Chat() {
 
       setupPushNotifications();
 
-      const unsubscribe = onMessageListener()
-        .then((payload) => {
-          toast.info(`📬 ${payload.notification.title}: ${payload.notification.body}`, {
-            position: "top-right",
-            autoClose: 5000,
-            hideProgressBar: false,
-            closeOnClick: true,
-            pauseOnHover: true,
-            draggable: true,
-            theme: theme === "light" ? "light" : "dark",
-          });
-        })
-        .catch((err) => console.log("Failed to listen to foreground messages:", err));
+      const unsubscribe = onMessageListener((payload) => {
+        toast.info(`📬 ${payload.notification.title}: ${payload.notification.body}`, {
+          position: "top-right",
+          autoClose: 5000,
+          hideProgressBar: false,
+          closeOnClick: true,
+          pauseOnHover: true,
+          draggable: true,
+          theme: theme === "light" ? "light" : "dark",
+        });
+      });
 
       return () => {
-        // Clean up the listener on unmount to prevent the message channel error
-        if (unsubscribe && typeof unsubscribe === "function") unsubscribe();
+        if (typeof unsubscribe === "function") unsubscribe();
       };
     }
   }, [currentUser, theme]);

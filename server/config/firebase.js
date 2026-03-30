@@ -1,54 +1,91 @@
-const admin = require("firebase-admin");
-const fs = require("fs");
-const path = require("path");
+/**
+ * Firebase Client Configuration (Vite Version)
+ * --------------------------------------------------------
+ * Uses Vite environment variables (import.meta.env)
+ * Handles:
+ * - Firebase initialization
+ * - FCM token generation
+ * - Foreground message listener
+ */
 
-const initializeFirebase = () => {
-  // 1. Singleton Pattern Check
-  // Prevents "app already exists" errors if this file is required multiple times
-  if (admin.apps.length > 0) {
-    return;
-  }
+import { initializeApp } from "firebase/app";
+import { getMessaging, getToken, onMessage } from "firebase/messaging";
 
-  try {
-    // 2. Environment-Based Credentials (Production / Render)
-    if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-      // NOTE: Render sometimes escapes newlines in JSON strings. 
-      // We safely parse it here.
-      const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-      
-      admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount)
-      });
-      
-      console.log("🔥 Firebase Admin Initialized successfully from environment variables.");
-      return;
-    }
+/* =========================================================
+   FIREBASE CONFIG (VITE ENV)
+   ========================================================= */
 
-    // 3. Local File Fallback (Development)
-    const serviceAccountPath = path.join(__dirname, "../serviceAccountKey.json");
-
-    if (fs.existsSync(serviceAccountPath)) {
-      const serviceAccount = require(serviceAccountPath);
-      
-      admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount)
-      });
-      
-      console.log("🔥 Firebase Admin Initialized successfully from local file.");
-      return;
-    } 
-
-    // 4. No Credentials Found
-    console.warn("⚠️ Firebase credentials not found (Env var or local file). Push notifications are disabled.");
-    
-  } catch (error) {
-    // 5. Error Handling
-    // Catches JSON parsing errors or expired credentials so the server doesn't crash on startup.
-    console.error("❌ Failed to initialize Firebase Admin:", error.message);
-  }
+const firebaseConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 };
 
-// Execute the initialization logic
-initializeFirebase();
+/* =========================================================
+   DEBUG (REMOVE AFTER VERIFY)
+   ========================================================= */
 
-module.exports = admin;
+console.log("🔥 Firebase Config Check:", {
+  projectId: firebaseConfig.projectId,
+  apiKey: firebaseConfig.apiKey ? "EXISTS" : "MISSING",
+});
+
+/* =========================================================
+   INITIALIZE FIREBASE
+   ========================================================= */
+
+const app = initializeApp(firebaseConfig);
+
+/* =========================================================
+   MESSAGING SETUP
+   ========================================================= */
+
+export const messaging = getMessaging(app);
+
+/* =========================================================
+   REQUEST FCM TOKEN
+   ========================================================= */
+
+export const requestForToken = async () => {
+  try {
+    const permission = await Notification.requestPermission();
+
+    if (permission !== "granted") {
+      console.log("❌ Notification permission not granted.");
+      return null;
+    }
+
+    const currentToken = await getToken(messaging, {
+      vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY,
+    });
+
+    if (currentToken) {
+      console.log("✅ FCM Token:", currentToken);
+      return currentToken;
+    } else {
+      console.warn("⚠️ No FCM token received.");
+    }
+  } catch (err) {
+    console.error("❌ Error getting FCM token:", err);
+  }
+
+  return null;
+};
+
+/* =========================================================
+   FOREGROUND MESSAGE LISTENER
+   Returns an unsubscribe function — call it on useEffect cleanup
+   to prevent "message channel closed" errors and listener leaks.
+   ========================================================= */
+
+export const onMessageListener = (callback) => {
+  const unsubscribe = onMessage(messaging, (payload) => {
+    console.log("📩 Foreground message:", payload);
+    callback(payload);
+  });
+  return unsubscribe; // call this to stop listening
+};
