@@ -211,13 +211,14 @@ Promise.all([
   io.use((socket, next) => {
     let token = socket.handshake.auth.token;
 
-    if (!token) {
+    // FIX: Catch missing tokens AND corrupted frontend string nulls
+    if (!token || token === "null" || token === "undefined") {
       return next(new Error("Authentication error: No token provided"));
     }
 
-    if (token.startsWith("Bearer ")) {
-      token = token.replace("Bearer ", "").trim();
-    }
+    // FIX: Robust extraction matching authMiddleware.js
+    // Safely handles "Bearer Bearer eyJ..." mistakes
+    token = token.split(" ").pop().trim();
 
     jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
       if (err) {
