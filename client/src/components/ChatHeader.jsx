@@ -5,17 +5,19 @@ import {
     FaUserSlash, FaMicrophoneAlt, FaMagic, FaGlobe, FaSpinner 
 } from "react-icons/fa";
 import { formatLastSeen } from "./chatHelpers";
+import { ChatHeader as StyledHeader } from "./ChatContainer.styles";
+import useChatStore from "../store/chatStore";
 
 export default function ChatHeader({
     currentChat, currentUser, isBlocked, isOnline, lastSeen,
     showSearch, searchQuery, setSearchQuery, setShowSearch,
     showSidePanel, setShowSidePanel, setActiveSideTab,
     handleToggleBlock, handleAddMember, setIncomingCallData, setShowCallModal,
-    // NEW PROPS FOR AI & GLOBAL SEARCH
     handleSummarize, isSummarizing, setShowGlobalSearchModal 
 }) {
+    const theme = useChatStore((state) => state.theme);
     return (
-        <div className="chat-header">
+        <StyledHeader $themeType={theme}>
             <div className="user-details">
                 <div className="header-info" onClick={() => { setShowSidePanel(true); setActiveSideTab('about'); }} style={{ cursor: 'pointer' }}>
                     <h3>
@@ -114,6 +116,6 @@ export default function ChatHeader({
                     )}
                 </div>
             </div>
-        </div>
+        </StyledHeader>
     );
 }
