@@ -48,7 +48,7 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
         isCompact, setIsCompact, globalTypingUsers
     } = useChatStore();
 
-    const [currentUserName, setCurrentUserName] = useState(undefined);
+    const [currentUserName, setCurrentUserName] = useState(currentUser?.username);
     const [currentSelected, setCurrentSelected] = useState(undefined);
     const [activeFolder, setActiveFolder] = useState("all");
     const [isSearchFocused, setIsSearchFocused] = useState(false);
@@ -430,7 +430,7 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
 
     return (
         <>
-            {currentUserName && (
+            {currentUser && (
                 <Container $isCompact={isCompact} $themeType={theme}>
 
                     <div className="sidebar-dynamic-layout" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
