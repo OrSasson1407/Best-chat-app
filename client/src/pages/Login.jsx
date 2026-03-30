@@ -119,6 +119,7 @@ export default function Login() {
             type="text"
             placeholder="Username"
             name="username"
+            autoComplete="username"
             onChange={handleChange}
             disabled={isSubmitting}
             min="3"
@@ -127,6 +128,7 @@ export default function Login() {
             type="password"
             placeholder="Password"
             name="password"
+            autoComplete="current-password"
             onChange={handleChange}
             disabled={isSubmitting}
           />
