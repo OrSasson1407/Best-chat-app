@@ -116,6 +116,7 @@ export default function Login() {
             <h1>snappy</h1>
           </div>
           <input
+            id="username"
             type="text"
             placeholder="Username"
             name="username"
@@ -125,6 +126,7 @@ export default function Login() {
             min="3"
           />
           <input
+            id="password"
             type="password"
             placeholder="Password"
             name="password"
