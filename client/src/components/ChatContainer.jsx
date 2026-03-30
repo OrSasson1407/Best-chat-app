@@ -103,7 +103,15 @@ export default function ChatContainer({ socket, isTyping }) {
 
   const skeletonWidths = useMemo(() => ['45%', '65%', '35%', '80%', '50%'], []);
   
-  const getAuthHeader = useCallback(() => ({}), []);
+  // ✅ FIX: Get the token from local storage and attach it to the headers
+  const getAuthHeader = useCallback(() => {
+    const token = localStorage.getItem("chat-app-token") || localStorage.getItem("token"); 
+    return {
+        headers: {
+            Authorization: `Bearer ${token}`
+        }
+    };
+  }, []);
 
   // --- EFFECTS ---
   useEffect(() => {
@@ -962,7 +970,7 @@ export default function ChatContainer({ socket, isTyping }) {
             </AnimatePresence>
 
             {/* UPDATED: div className="chat-messages-container" -> MessagesArea */}
-            <MessagesArea>
+            <MessagesArea $themeType={theme} $isCompact={isCompact}>
               {isFetchingHistory ? (
                   <div className="skeleton-container">
                       {Array.from({ length: 5 }).map((_, i) => (

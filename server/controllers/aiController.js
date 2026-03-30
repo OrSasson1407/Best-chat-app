@@ -17,6 +17,11 @@ module.exports.generateQuickReplies = async (req, res, next) => {
         return res.json({ status: false, msg: "Invalid message format" });
     }
 
+    // ✅ FIX: Safely catch missing or dummy API keys
+    if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY.includes('dummy-key')) {
+        throw new Error("OpenAI API Key is missing or invalid in server environment");
+    }
+
     const response = await openai.chat.completions.create({
       model: "gpt-3.5-turbo", // Fast and cheap for quick tasks
       messages: [
@@ -33,11 +38,16 @@ module.exports.generateQuickReplies = async (req, res, next) => {
     });
 
     const repliesText = response.choices[0].message.content;
-    const replies = JSON.parse(repliesText);
-
-    return res.status(200).json({ status: true, replies });
+    
+    // ✅ FIX: Safe JSON parsing with fallback
+    try {
+        const replies = JSON.parse(repliesText);
+        return res.status(200).json({ status: true, replies });
+    } catch (parseErr) {
+        return res.status(200).json({ status: true, replies: ["Sounds good!", "Okay", "Thanks!"] }); 
+    }
   } catch (error) {
-    console.error("AI Quick Reply Error:", error);
+    console.error("AI Quick Reply Error:", error.message || error);
     return res.status(500).json({ status: false, msg: "Failed to generate replies" });
   }
 };
@@ -45,6 +55,10 @@ module.exports.generateQuickReplies = async (req, res, next) => {
 module.exports.translateMessage = async (req, res, next) => {
   try {
     const { message, targetLanguage } = req.body;
+
+    if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY.includes('dummy-key')) {
+        throw new Error("OpenAI API Key is missing or invalid in server environment");
+    }
 
     const response = await openai.chat.completions.create({
       model: "gpt-3.5-turbo",
@@ -65,7 +79,7 @@ module.exports.translateMessage = async (req, res, next) => {
 
     return res.status(200).json({ status: true, translatedText });
   } catch (error) {
-    console.error("AI Translation Error:", error);
+    console.error("AI Translation Error:", error.message || error);
     return res.status(500).json({ status: false, msg: "Failed to translate message" });
   }
 };
@@ -77,6 +91,10 @@ module.exports.summarizeChat = async (req, res, next) => {
 
     if (!from || !to) {
         return res.status(400).json({ status: false, msg: "Missing chat parameters" });
+    }
+
+    if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY.includes('dummy-key')) {
+        throw new Error("OpenAI API Key is missing or invalid in server environment");
     }
 
     // 1. Fetch the last 'X' messages from this specific conversation
@@ -120,7 +138,7 @@ module.exports.summarizeChat = async (req, res, next) => {
 
     return res.status(200).json({ status: true, summary });
   } catch (error) {
-    console.error("AI Chat Summary Error:", error);
+    console.error("AI Chat Summary Error:", error.message || error);
     return res.status(500).json({ status: false, msg: "Failed to summarize chat" });
   }
 };

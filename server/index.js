@@ -136,6 +136,7 @@ app.use("/api/groups", verifyToken, groupRoutes);
 app.use("/api/stories", storyRoutes);
 app.use("/health", require("./routes/healthRoute"));
 app.use("/api/ai", aiRoutes);
+// ✅ NOTE: e2eRoutes is already correctly mounted here
 app.use("/api/e2e", verifyToken, e2eRoutes);
 
 app.use(errorHandler);

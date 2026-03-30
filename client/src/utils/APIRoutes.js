@@ -70,9 +70,9 @@ export const removeGroupMemberRoute = `${host}/api/groups/removemember`;
 // CHANNEL ROUTES
 // =======================================================
 
-export const createChannelRoute = `${host}/api/groups/createChannel`;  // ✅ FIX: was /channel/create, backend has /createChannel
-export const searchChannelsRoute = `${host}/api/groups/searchChannels`; // ✅ FIX: was /channel/search, backend has /searchChannels
-export const joinChannelRoute = `${host}/api/groups/joinChannel`;        // ✅ FIX: was /channel/join, backend has /joinChannel
+export const createChannelRoute = `${host}/api/groups/createChannel`;  
+export const searchChannelsRoute = `${host}/api/groups/searchChannels`; 
+export const joinChannelRoute = `${host}/api/groups/joinChannel`;        
 
 
 // =======================================================
@@ -107,5 +107,6 @@ export const summarizeChatRoute = `${host}/api/ai/summarize`;
 // END-TO-END ENCRYPTION ROUTES
 // =======================================================
 
-export const publicKeyRoute = `${host}/api/auth/public-key`;
-export const updateE2EKeysRoute = `${host}/api/auth/e2e-keys`;
+// ✅ FIX: Matched exactly with backend e2eRoutes.js
+export const publicKeyRoute = `${host}/api/e2e/bundle`;
+export const updateE2EKeysRoute = `${host}/api/e2e/upload-bundle`;
