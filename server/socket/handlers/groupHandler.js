@@ -1,4 +1,5 @@
 const Group = require("../../models/GroupModel");
+const { typingSchema } = require("../../utils/validation");
 
 /**
  * DISTRIBUTED RATE LIMITER
@@ -32,7 +33,11 @@ module.exports = (io, socket, redisClient) => {
   /* =====================================================
      2. TYPING INDICATOR (GROUPS & DIRECT)
      ===================================================== */
-  socket.on("typing", async (data) => {
+  socket.on("typing", async (rawData) => {
+    // 1. Validate payload
+    const { error, value: data } = typingSchema.validate(rawData);
+    if (error) return console.error("Invalid typing payload:", error.details[0].message);
+
     // Throttle typing indicators to save bandwidth (max 1 event per 800ms) using Redis
     if (await isRateLimited(redisClient, socket.id, "typing", 800)) return;
 

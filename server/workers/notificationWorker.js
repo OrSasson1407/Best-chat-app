@@ -129,32 +129,20 @@ const worker = new Worker(
     if (admin.apps.length === 0) return;
 
     // ----------------------------------------------------
-    // 1. Handle SINGLE User push notifications
+    // 1. Handle SINGLE User push notifications (Multi-device)
     // ----------------------------------------------------
     if (job.name === "send_fcm_message") {
 
-      const { userId, fcmToken, title, body } = job.data;
+      const { userId, fcmTokens, title, body } = job.data;
 
-      /**
-       * If the user has no FCM token,
-       * skip sending notification.
-       */
-      if (!fcmToken) return;
+      if (!fcmTokens || fcmTokens.length === 0) return;
 
-      /**
-       * Construct FCM message payload
-       */
       const message = {
         notification: {
           title: title,
           body: body,
         },
-        token: fcmToken,
-        /**
-         * Custom data payload
-         * Used by mobile apps or web apps
-         * to navigate to the correct chat.
-         */
+        tokens: fcmTokens, // Use array for multicast
         data: {
           click_action: "FLUTTER_NOTIFICATION_CLICK",
           userId: userId.toString()
@@ -162,35 +150,35 @@ const worker = new Worker(
       };
 
       try {
-        const response = await admin.messaging().send(message);
-        console.log(`✅ Push notification sent to ${userId}:`, response);
-      } catch (error) {
-        /**
-         * Handle push notification errors
-         */
-        console.error(`❌ Failed to send push notification to ${userId}:`, error.message);
-
-        /**
-         * Logic to actually remove the dead token from the database
-         */
-        if (
-          error.code === 'messaging/invalid-registration-token' ||
-          error.code === 'messaging/registration-token-not-registered'
-        ) {
-          console.log(`🧹 Removing stale FCM token for user ${userId}`);
-          await User.findByIdAndUpdate(userId, { $unset: { fcmToken: "" } });
+        const response = await admin.messaging().sendEachForMulticast(message);
+        console.log(`✅ Push notifications sent to user ${userId} (${response.successCount} successful)`);
+        
+        // Clean up dead tokens from the user's document
+        if (response.failureCount > 0) {
+          const failedTokens = [];
           
-          return; // Return so BullMQ knows NOT to retry sending to this dead token
+          response.responses.forEach((resp, idx) => {
+            if (!resp.success && (
+              resp.error.code === 'messaging/invalid-registration-token' || 
+              resp.error.code === 'messaging/registration-token-not-registered'
+            )) {
+              failedTokens.push(fcmTokens[idx]);
+            }
+          });
+
+          if (failedTokens.length > 0) {
+            console.log(`🧹 Removing ${failedTokens.length} stale FCM tokens for user ${userId}`);
+            await User.findByIdAndUpdate(userId, { $pullAll: { fcmTokens: failedTokens } });
+          }
         }
-
-        // Rethrow the error if it was a network issue, so BullMQ triggers a retry
-        throw error;
+      } catch (error) {
+         console.error(`❌ Failed to send push notification to ${userId}:`, error.message);
+         throw error;
       }
-
     }
 
     // ----------------------------------------------------
-    // 2. IMPROVEMENT: Handle MULTICAST (Group) notifications
+    // 2. Handle MULTICAST (Group) notifications
     // ----------------------------------------------------
     else if (job.name === "send_multicast_message") {
       const { fcmTokens, title, body, groupId } = job.data;
@@ -215,7 +203,7 @@ const worker = new Worker(
       try {
         const response = await admin.messaging().sendEachForMulticast(message);
         
-        // Clean up any dead tokens from the batch efficiently
+        // Clean up any dead tokens globally
         if (response.failureCount > 0) {
           const failedTokens = [];
           
@@ -229,10 +217,10 @@ const worker = new Worker(
           });
 
           if (failedTokens.length > 0) {
-            console.log(`🧹 Removing ${failedTokens.length} stale FCM tokens from multicast batch`);
+            console.log(`🧹 Removing ${failedTokens.length} stale FCM tokens from multicast batch globally`);
             await User.updateMany(
-              { fcmToken: { $in: failedTokens } },
-              { $unset: { fcmToken: "" } }
+              { fcmTokens: { $in: failedTokens } },
+              { $pullAll: { fcmTokens: failedTokens } }
             );
           }
         }
@@ -279,23 +267,4 @@ worker.on("error", (err) => {
    MODULE EXPORTS
    ========================================================= */
 
-/**
- * Export the queue so other parts of the system
- * can enqueue push notification jobs.
- *
- * Example usage:
- *
- * await notificationQueue.add("send_fcm_message", {
- * userId,
- * fcmToken,
- * title: "New Message",
- * body: "You received a new message"
- * });
- * * await notificationQueue.add("send_multicast_message", {
- * groupId,
- * fcmTokens: ["token1", "token2", ...],
- * title: "Group Chat",
- * body: "New message in Group!"
- * });
- */
 module.exports = { notificationQueue };

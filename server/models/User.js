@@ -87,9 +87,10 @@ const userSchema = new mongoose.Schema({
   },
   
   // --- NOTIFICATIONS ---
-  fcmToken: { 
-    type: String, 
-    default: "" 
+  // FIX: Converted from a single string to an array to support multiple devices (phone, desktop, tablet)
+  fcmTokens: { 
+    type: [String], 
+    default: [] 
   },
 
   // --- FULL E2EE PRE-KEY BUNDLE ---

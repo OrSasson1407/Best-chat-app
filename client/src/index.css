@@ -12,10 +12,25 @@
   /* Generates a fractal noise SVG overlay to give glass a physical, premium texture */
   --glass-noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.06'/%3E%3C/svg%3E");
 
-  /* SHARED EFFECTS */
+  /* SHARED EFFECTS & Z-INDEX SCALE */
   --glass-blur: blur(16px);
   --primary-gradient: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
   --transition-speed: 0.4s;
+  
+  --z-base: 1;
+  --z-dropdown: 100;
+  --z-sticky: 500;
+  --z-modal-overlay: 999;
+  --z-modal: 1000;
+  --z-toast: 9999;
+
+  /* --- SEMANTIC STATUS COLORS --- */
+  --color-success: #10b981;
+  --color-danger: #ff4e4e;
+  --color-warning: #f59e0b;
+  --color-info: #3b82f6;
+  --color-read-tick: #34B7F1;
+  --color-star: #ffd700;
 
   /* MODERN DARK THEME (Default) */
   --bg-color: #0f172a;
@@ -113,7 +128,7 @@ h3 { font-size: var(--text-lg); }
 .active-glow-ring {
   position: absolute; bottom: 0; right: 0;
   width: 14px; height: 14px;
-  background: #10b981; border-radius: 50%;
+  background: var(--color-success); border-radius: 50%;
   border: 2px solid var(--bg-panel);
   box-shadow: 0 0 10px rgba(16, 185, 129, 0.5);
   z-index: 2;
@@ -181,16 +196,17 @@ h3 { font-size: var(--text-lg); }
     width: auto !important;
     max-width: 400px;
     padding: 20px;
+    z-index: var(--z-toast) !important;
 }
 
 /* The actual toast card */
 .Toastify__toast {
     background: var(--glass-noise), var(--bg-panel) !important; /* Added noise */
-    backdrop-filter: blur(25px) !important;
-    -webkit-backdrop-filter: blur(25px) !important;
+    backdrop-filter: var(--glass-blur) !important;
+    -webkit-backdrop-filter: var(--glass-blur) !important;
     border: 1px solid var(--glass-border) !important;
     border-radius: 18px !important; /* iOS squircle style */
-    box-shadow: 0 15px 35px rgba(0, 0, 0, 0.2) !important;
+    box-shadow: var(--glass-shadow) !important;
     color: var(--text-main) !important;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
     font-size: var(--text-sm) !important; /* Fluid Typography */
@@ -225,8 +241,8 @@ h3 { font-size: var(--text-lg); }
     opacity: 1 !important;
 }
 
-/* Custom Icon Colors based on Toast Type */
-.Toastify__toast--success .Toastify__toast-icon svg { fill: #10b981 !important; }
-.Toastify__toast--error .Toastify__toast-icon svg { fill: #ef4444 !important; }
-.Toastify__toast--warning .Toastify__toast-icon svg { fill: #f59e0b !important; }
-.Toastify__toast--info .Toastify__toast-icon svg { fill: #3b82f6 !important; }
+/* Custom Icon Colors based on Toast Type mapped to Central Tokens */
+.Toastify__toast--success .Toastify__toast-icon svg { fill: var(--color-success) !important; }
+.Toastify__toast--error .Toastify__toast-icon svg { fill: var(--color-danger) !important; }
+.Toastify__toast--warning .Toastify__toast-icon svg { fill: var(--color-warning) !important; }
+.Toastify__toast--info .Toastify__toast-icon svg { fill: var(--color-info) !important; }

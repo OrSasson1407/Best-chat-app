@@ -644,6 +644,27 @@ export default function ChatContainer({ socket, isTyping }) {
     }
   }, [currentChat, currentUser, activeGroupAesKey, replyingTo, getAuthHeader, socket]);
 
+  // --- NEW: Handle Failed Message Retry ---
+  const handleRetryMsg = useCallback((failedMsg) => {
+      // 1. Remove the failed message from the UI
+      setMessages((prev) => prev.filter(m => m.id !== failedMsg.id));
+      
+      // 2. Resend it using the existing pipeline (this handles re-encryption automatically)
+      handleSendMsg(
+          failedMsg.message,
+          failedMsg.type,
+          failedMsg.replyTo?.id || null,
+          {
+              isForwarded: failedMsg.isForwarded,
+              isViewOnce: failedMsg.isViewOnce,
+              pollData: failedMsg.pollData,
+              timer: failedMsg.timer,
+              fileName: failedMsg.fileMetadata?.fileName,
+              fileSize: failedMsg.fileMetadata?.fileSize
+          }
+      );
+  }, [handleSendMsg]);
+
   const handleEditMsgSubmit = useCallback(async (messageId, newText) => {
       try {
           await axios.post(editMessageRoute, { messageId, newText }, getAuthHeader()); 
@@ -985,6 +1006,7 @@ export default function ChatContainer({ socket, isTyping }) {
                               setReadReceiptsMsg={setReadReceiptsMsg} scrollToMessage={scrollToMessage}
                               setReplyingTo={setReplyingTo} setEditingMessage={setEditingMessage}
                               handleDeleteMsg={handleDeleteMsg} handleReaction={handleReaction} handleOpenViewOnce={handleOpenViewOnce}
+                              handleRetryMsg={handleRetryMsg} // NEW ADDITION
                           />
                       )}
                   />
@@ -1072,4 +1094,4 @@ export default function ChatContainer({ socket, isTyping }) {
       }}
     </ColorThief>
   );
-}3
+}

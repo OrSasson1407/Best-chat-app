@@ -16,7 +16,6 @@ import { toast } from "react-toastify";
 import useChatStore from "../store/chatStore";
 
 // --- HAPTIC ENGINE ---
-// Note: Make sure you created client/src/utils/haptics.js as shown in the previous step
 import { triggerHaptic } from "../utils/haptics";
 
 // --- Holographic Glitch Animation ---
@@ -32,6 +31,11 @@ const glitch = keyframes`
 const MessageBubble = styled(motion.div)`
   /* Spring physics ensure smooth return after swipe */
   touch-action: pan-y; /* Allows vertical scrolling while preventing default horizontal swipes */
+
+  /* --- NEW: Add subtle red border if the message failed to send --- */
+  ${({ $isFailed }) => $isFailed && css`
+      border: 1px solid rgba(255, 78, 78, 0.5);
+  `}
 
   ${({ $themeType }) => $themeType === 'cyberpunk' && css`
     position: relative;
@@ -76,7 +80,8 @@ const HighlightedText = React.memo(({ text, query }) => {
 const MessageItem = React.memo(({
     message, prevMsg, nextMsg, currentChat, currentUser, searchQuery, highlightedMsgId,
     setLightboxImage, setReadReceiptsMsg, scrollToMessage, setReplyingTo,
-    setEditingMessage, handleDeleteMsg, handleReaction, handleOpenViewOnce
+    setEditingMessage, handleDeleteMsg, handleReaction, handleOpenViewOnce,
+    handleRetryMsg // --- ADDED PROPS FOR RETRY LOGIC ---
 }) => {
     
     // 🚀 PERFORMANCE FIX: Atomic Selector prevents unnecessary re-renders of the entire message list
@@ -402,6 +407,7 @@ const MessageItem = React.memo(({
                 {/* --- APPLIED STYLED MOTION COMPONENT WITH DRAG PHYSICS --- */}
                 <MessageBubble 
                     $themeType={theme}
+                    $isFailed={message.status === "failed"} // --- ADDED FAILED STATE FLAG ---
                     data-text={message.type === 'text' ? message.message : ""}
                     className={`message ${message.fromSelf ? "sended" : "recieved"} ${message.isDeleted ? "deleted-msg" : ""}`}
                     
@@ -445,7 +451,18 @@ const MessageItem = React.memo(({
 
                             {message.fromSelf && !message.isDeleted && (
                                 <div className="read-status">
-                                    {renderStatusTicks(message)}
+                                    {/* --- ADDED: Failed Status & Retry Button --- */}
+                                    {message.status === "failed" ? (
+                                        <span 
+                                            onClick={(e) => { e.stopPropagation(); handleRetryMsg(message); }} 
+                                            style={{ color: '#ff4e4e', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 'bold' }}
+                                            title="Message failed to send. Tap to retry."
+                                        >
+                                            <FaInfoCircle size={11} /> Retry
+                                        </span>
+                                    ) : (
+                                        renderStatusTicks(message)
+                                    )}
                                 </div>
                             )}
                         </div>

@@ -3,6 +3,14 @@ const Group = require("../../models/GroupModel");
 const User = require("../../models/User");
 const { notificationQueue } = require("../../workers/notificationWorker");
 const { messageLatencyHistogram } = require("../../utils/metrics");
+const { 
+  sendMsgSchema, 
+  deliveryReceiptSchema, 
+  reactionSchema, 
+  markReadSchema, 
+  deleteMsgSchema, 
+  editMsgSchema 
+} = require("../../utils/validation");
 
 /**
  * DISTRIBUTED RATE LIMITER
@@ -31,7 +39,14 @@ module.exports = (io, socket, redisClient) => {
   /* =====================================================
      1. SEND MESSAGE (DIRECT & GROUP)
      ===================================================== */
-  socket.on("send-msg", async (data, callback) => {
+  socket.on("send-msg", async (rawData, callback) => {
+    // 1. Validate payload
+    const { error, value: data } = sendMsgSchema.validate(rawData);
+    if (error) {
+      if (callback) callback({ status: "error", msg: "Invalid payload: " + error.details[0].message });
+      return;
+    }
+
     const startTime = Date.now(); 
 
     if (await isRateLimited(redisClient, socket.id, "send-msg", 200)) {
@@ -126,12 +141,13 @@ module.exports = (io, socket, redisClient) => {
       } else {
         // RECIPIENT OFFLINE -> PUSH NOTIFICATION
         try {
-          const offlineUser = await User.findById(data.to).select("fcmToken");
-          if (offlineUser && offlineUser.fcmToken) {
+          // FIX: Select the fcmTokens array instead of the old fcmToken string
+          const offlineUser = await User.findById(data.to).select("fcmTokens");
+          if (offlineUser && offlineUser.fcmTokens && offlineUser.fcmTokens.length > 0) {
             const sender = await User.findById(data.from).select("username");
             await notificationQueue.add("send_fcm_message", {
               userId: data.to,
-              fcmToken: offlineUser.fcmToken,
+              fcmTokens: offlineUser.fcmTokens, // Passed as array for multicast
               title: sender ? sender.username : "New Message",
               body: data.type === 'text' ? data.msg : `Sent a ${data.type}`
             });
@@ -147,7 +163,12 @@ module.exports = (io, socket, redisClient) => {
   /* =====================================================
      2. DEVICE DELIVERY RECEIPTS (TRIPLE HANDSHAKE)
      ===================================================== */
-  socket.on("message-delivered-receipt", async ({ messageId, from, to, isGroup }) => {
+  socket.on("message-delivered-receipt", async (rawData) => {
+    // 1. Validate payload
+    const { error, value: data } = deliveryReceiptSchema.validate(rawData);
+    if (error) return console.error("Invalid delivery receipt payload:", error.details[0].message);
+    const { messageId, from, to, isGroup } = data;
+
     try {
       if (!isGroup) {
         await Message.findByIdAndUpdate(messageId, { status: "delivered_to_device" });
@@ -171,7 +192,11 @@ module.exports = (io, socket, redisClient) => {
   /* =====================================================
      3. EMOJI REACTIONS
      ===================================================== */
-  socket.on("send-reaction", async (data) => {
+  socket.on("send-reaction", async (rawData) => {
+    // 1. Validate payload
+    const { error, value: data } = reactionSchema.validate(rawData);
+    if (error) return console.error("Invalid reaction payload:", error.details[0].message);
+
     if (data.isGroup) {
       socket.to(data.to).emit("receive-reaction", data);
     } else {
@@ -188,7 +213,12 @@ module.exports = (io, socket, redisClient) => {
   /* =====================================================
      4. MESSAGE READ RECEIPTS
      ===================================================== */
-  socket.on("mark-as-read", async ({ messageId, from, to, isGroup, username }) => {
+  socket.on("mark-as-read", async (rawData) => {
+    // 1. Validate payload
+    const { error, value: data } = markReadSchema.validate(rawData);
+    if (error) return console.error("Invalid mark-as-read payload:", error.details[0].message);
+    const { messageId, from, to, isGroup, username } = data;
+
     try {
       const readerUser = await User.findById(from).select("privacySettings");
 
@@ -238,7 +268,14 @@ module.exports = (io, socket, redisClient) => {
   /* =====================================================
      5. DELETE & EDIT MESSAGE
      ===================================================== */
-  socket.on("delete-msg", async (data, callback) => {
+  socket.on("delete-msg", async (rawData, callback) => {
+    // 1. Validate payload
+    const { error, value: data } = deleteMsgSchema.validate(rawData);
+    if (error) {
+      if (callback) callback({ success: false, msg: error.details[0].message });
+      return;
+    }
+
     if (data.isGroup) {
       socket.to(data.to).emit("msg-deleted", { messageId: data.messageId });
     } else {
@@ -251,7 +288,14 @@ module.exports = (io, socket, redisClient) => {
     if (callback) callback({ success: true, id: data.messageId });
   });
 
-  socket.on("edit-msg", async (data, callback) => {
+  socket.on("edit-msg", async (rawData, callback) => {
+    // 1. Validate payload
+    const { error, value: data } = editMsgSchema.validate(rawData);
+    if (error) {
+      if (callback) callback({ success: false, msg: error.details[0].message });
+      return;
+    }
+
     if (data.isGroup) {
       socket.to(data.to).emit("msg-edited", { messageId: data.messageId, newText: data.newText });
     } else {

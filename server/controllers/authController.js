@@ -351,8 +351,9 @@ module.exports.updateFcmToken = async (req, res, next) => {
       return res.status(403).json({ status: false, msg: "Forbidden." });
     }
 
-    await User.findByIdAndUpdate(userId, { fcmToken });
-    return res.json({ status: true, msg: "FCM Token updated" });
+    // FIX: Push the token to the array without duplicating using MongoDB $addToSet
+    await User.findByIdAndUpdate(userId, { $addToSet: { fcmTokens: fcmToken } });
+    return res.json({ status: true, msg: "FCM Token registered" });
   } catch (ex) {
     next(ex);
   }

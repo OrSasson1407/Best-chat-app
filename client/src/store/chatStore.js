@@ -51,9 +51,9 @@ const useChatStore = create(
           // FIX: Use idbGet instead of Zustand's get()
           const cached = await idbGet(`chat_history_${chatId}`);
           if (cached) {
-            set((state) => ({
-              offlineMessages: { ...state.offlineMessages, [chatId]: cached }
-            }));
+            // MEMORY EVICTION FIX: Replace the whole object instead of spreading.
+            // This ensures ONLY the active chat sits in RAM; old ones are garbage collected.
+            set({ offlineMessages: { [chatId]: cached } });
             return cached;
           }
           return [];
@@ -66,9 +66,9 @@ const useChatStore = create(
       // Caches messages directly to their own IDB key, bypassing Zustand's heavy global stringify
       cacheMessages: async (chatId, messages) => {
         // 1. Update memory for instant UI rendering
-        set((state) => ({
-          offlineMessages: { ...state.offlineMessages, [chatId]: messages }
-        }));
+        // MEMORY EVICTION FIX: Keep only the active chat in memory
+        set({ offlineMessages: { [chatId]: messages } });
+        
         // 2. Write directly to IDB asynchronously
         // FIX: Use idbSet instead of Zustand's set() to prevent destroying the global state
         await idbSet(`chat_history_${chatId}`, messages);
@@ -84,10 +84,8 @@ const useChatStore = create(
         const currentMessages = state.offlineMessages[chatId] || [];
         const newMessages = [...currentMessages, message];
         
-        // Update memory immediately
-        set({
-            offlineMessages: { ...state.offlineMessages, [chatId]: newMessages }
-        });
+        // Update memory immediately (respecting eviction constraint)
+        set({ offlineMessages: { [chatId]: newMessages } });
         
         // Update IDB in the background so it survives a refresh
         await idbSet(`chat_history_${chatId}`, newMessages);
@@ -104,9 +102,8 @@ const useChatStore = create(
                 : msg
         );
 
-        set({
-            offlineMessages: { ...state.offlineMessages, [chatId]: newMessages }
-        });
+        // Update memory immediately (respecting eviction constraint)
+        set({ offlineMessages: { [chatId]: newMessages } });
         
         await idbSet(`chat_history_${chatId}`, newMessages);
       },

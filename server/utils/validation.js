@@ -1,5 +1,5 @@
 /**
- * Authentication Validation Schemas
+ * Authentication & Socket Validation Schemas
  * -------------------------------------------------------
  * This module defines request validation schemas using Joi.
  *
@@ -10,15 +10,7 @@
  * - Enforce password complexity (NEW)
  * - Auto-normalize inputs like email and whitespace (NEW)
  * - Prevent mass-assignment attacks via strict mode (NEW)
- *
- * Used in:
- * • User registration
- * • User login
- *
- * Benefits:
- * - Prevent invalid data from reaching controllers
- * - Improve API reliability
- * - Provide clear validation error messages
+ * - Validate real-time Socket.io payloads (NEW)
  */
 
 const Joi = require("joi");
@@ -31,15 +23,8 @@ const Joi = require("joi");
  * Schema for validating user registration requests.
  */
 const registerSchema = Joi.object({
-
   /**
    * Username validation
-   *
-   * Requirements:
-   * - Minimum length: 3
-   * - Maximum length: 20
-   * - Alphanumeric only (no special characters/symbols)
-   * - Auto-trimmed
    */
   username: Joi.string()
     .alphanum() // ADDED: Sanitization (letters & numbers only)
@@ -53,23 +38,15 @@ const registerSchema = Joi.object({
 
   /**
    * Email validation
-   *
-   * Must follow standard email format.
-   * Auto-trimmed and converted to lowercase.
    */
   email: Joi.string()
     .email()
     .trim() // ADDED: Normalization
-    .lowercase() // ADDED: Normalization (prevents Email@test.com bypassing email@test.com check)
+    .lowercase() // ADDED: Normalization
     .required(),
 
   /**
    * Password validation
-   *
-   * Requirements:
-   * - Minimum length: 8
-   * - Maximum length: 30
-   * - Must contain at least 1 uppercase, 1 lowercase, 1 number, and 1 special character
    */
   password: Joi.string()
     .min(8)
@@ -79,7 +56,7 @@ const registerSchema = Joi.object({
     .messages({
       "string.min": "Password must be at least 8 characters long.",
       "string.max": "Password cannot exceed 30 characters.",
-      "string.pattern.base": "Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character.", // ADDED: Complexity message
+      "string.pattern.base": "Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character.",
       "any.required": "Password is required.",
     }),
 
@@ -92,8 +69,6 @@ const registerSchema = Joi.object({
 
   /**
    * Avatar image validation
-   * * FIXED: Made optional and allowed to be empty/null so the 
-   * backend controller can successfully generate a Dicebear fallback.
    */
   avatarImage: Joi.string()
     .uri()
@@ -102,11 +77,10 @@ const registerSchema = Joi.object({
 
   /**
    * Full E2EE Pre-Key Bundle (Signal Protocol)
-   * FIXED: Replaced publicKey string with the e2eKeys object bundle
    */
   e2eKeys: Joi.object().required(),
 
-}).options({ stripUnknown: true }); // FIXED: Automatically removes fields like 'confirmPassword' instead of crashing
+}).options({ stripUnknown: true });
 
 
 /* =====================================================
@@ -117,21 +91,78 @@ const registerSchema = Joi.object({
  * Schema for validating login requests.
  */
 const loginSchema = Joi.object({
-
-  /**
-   * Username field
-   */
   username: Joi.string()
     .trim() // ADDED: Normalization
     .required(),
-
-  /**
-   * Password field
-   */
   password: Joi.string()
     .required(),
+}).options({ stripUnknown: true });
 
-}).options({ stripUnknown: true }); // FIXED: Strip extra fields instead of failing
+
+/* =====================================================
+   SOCKET EVENT VALIDATION SCHEMAS
+   ===================================================== */
+
+const sendMsgSchema = Joi.object({
+  id: Joi.string().required(),
+  localId: Joi.string().optional(),
+  msg: Joi.string().allow('', null).optional(),
+  from: Joi.string().required(),
+  to: Joi.string().required(),
+  isGroup: Joi.boolean().default(false),
+  type: Joi.string().valid('text', 'image', 'video', 'file', 'audio').default('text'),
+  username: Joi.string().optional(),
+  replyTo: Joi.object().optional().allow(null),
+  pollData: Joi.object().optional().allow(null),
+  linkMetadata: Joi.object().optional().allow(null),
+  isForwarded: Joi.boolean().optional(),
+  isViewOnce: Joi.boolean().optional(),
+  fileMetadata: Joi.object().optional().allow(null)
+}).options({ stripUnknown: true });
+
+const deliveryReceiptSchema = Joi.object({
+  messageId: Joi.string().required(),
+  from: Joi.string().required(),
+  to: Joi.string().required(),
+  isGroup: Joi.boolean().default(false)
+}).options({ stripUnknown: true });
+
+const reactionSchema = Joi.object({
+  messageId: Joi.string().required(),
+  from: Joi.string().required(),
+  to: Joi.string().required(),
+  isGroup: Joi.boolean().default(false),
+  reaction: Joi.string().required()
+}).options({ stripUnknown: true });
+
+const markReadSchema = Joi.object({
+  messageId: Joi.string().required(),
+  from: Joi.string().required(),
+  to: Joi.string().required(),
+  isGroup: Joi.boolean().default(false),
+  username: Joi.string().optional()
+}).options({ stripUnknown: true });
+
+const deleteMsgSchema = Joi.object({
+  messageId: Joi.string().required(),
+  to: Joi.string().required(),
+  isGroup: Joi.boolean().default(false)
+}).options({ stripUnknown: true });
+
+const editMsgSchema = Joi.object({
+  messageId: Joi.string().required(),
+  to: Joi.string().required(),
+  isGroup: Joi.boolean().default(false),
+  newText: Joi.string().required()
+}).options({ stripUnknown: true });
+
+const typingSchema = Joi.object({
+  from: Joi.string().required(),
+  to: Joi.string().required(),
+  isGroup: Joi.boolean().default(false),
+  isTyping: Joi.boolean().required(),
+  username: Joi.string().optional()
+}).options({ stripUnknown: true });
 
 
 /**
@@ -139,5 +170,12 @@ const loginSchema = Joi.object({
  */
 module.exports = {
   registerSchema,
-  loginSchema
+  loginSchema,
+  sendMsgSchema,
+  deliveryReceiptSchema,
+  reactionSchema,
+  markReadSchema,
+  deleteMsgSchema,
+  editMsgSchema,
+  typingSchema
 };
