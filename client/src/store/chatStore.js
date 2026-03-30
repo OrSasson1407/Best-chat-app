@@ -13,6 +13,10 @@ const idbStorage = {
 const useChatStore = create(
   persist(
     (set, get) => ({
+      // --- HYDRATION FLAG: true once IDB has finished loading ---
+      _hasHydrated: false,
+      setHasHydrated: (val) => set({ _hasHydrated: val }),
+
       // --- 1. AUTH & USER STATE ---
       currentUser: undefined,
       setCurrentUser: (user) => set({ currentUser: user }),
@@ -132,6 +136,9 @@ const useChatStore = create(
         theme: state.theme, 
         isCompact: state.isCompact,
       }),
+      onRehydrateStorage: () => (state) => {
+        if (state) state.setHasHydrated(true);
+      },
     }
   )
 );

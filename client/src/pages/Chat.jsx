@@ -27,7 +27,8 @@ export default function Chat() {
     setOnlineUsers,
     setGlobalTypingUsers,
     theme, setTheme,
-    isCompact
+    isCompact,
+    _hasHydrated,
   } = useChatStore();
 
   const [contacts, setContacts] = useState([]);
@@ -87,25 +88,15 @@ export default function Chat() {
     };
   }, []);
 
-  // 1. Authentication Check (FIXED TO PREVENT INFINITE REDIRECT LOOP)
+  // 1. Authentication Check — waits for IDB hydration before deciding
   useEffect(() => {
-    async function checkAuth() {
-      const storedToken = sessionStorage.getItem("chat-app-token");
+    if (!_hasHydrated) return; // IDB still loading, do nothing yet
 
-      // 1. Only forcefully redirect if there is NO token at all
-      if (!storedToken) {
-        navigate("/login");
-        return;
-      }
-
-      // 2. Token exists — Zustand will hydrate currentUser async, no need to gate render
-      if (storedToken && !currentUser) {
-        // Still waiting for Zustand hydration — don't redirect yet
-        return;
-      }
+    const storedToken = sessionStorage.getItem("chat-app-token");
+    if (!storedToken || !currentUser) {
+      navigate("/login");
     }
-    checkAuth();
-  }, [navigate, currentUser]);
+  }, [_hasHydrated, currentUser, navigate]);
 
   // 2. Setup STABLE Socket Connection with Phase 4 Resilience
   useEffect(() => {
@@ -297,6 +288,15 @@ export default function Chat() {
     setIsTyping(false);
     setIsMobileMenuOpen(false);
   }, [setCurrentChat]);
+
+  // Show nothing (or a spinner) until IDB has rehydrated the store
+  if (!_hasHydrated) {
+    return (
+      <LoadingScreen>
+        <div className="spinner" />
+      </LoadingScreen>
+    );
+  }
 
   return (
     <Container
@@ -568,5 +568,27 @@ const Container = styled.div`
     .main-chat-wrapper {
         width: 100vw;
     }
+  }
+`;
+
+const LoadingScreen = styled.div`
+  height: 100vh;
+  width: 100vw;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: var(--bg-color);
+
+  .spinner {
+    width: 48px;
+    height: 48px;
+    border: 4px solid var(--glass-border);
+    border-top-color: var(--msg-sent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
   }
 `;
