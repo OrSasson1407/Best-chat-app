@@ -816,6 +816,8 @@ export default function ChatContainer({ socket, isTyping }) {
                             <h3><FaGlobe color={adaptiveAccent} style={{ marginRight: '8px' }}/> Global Search</h3>
                             
                             <input
+                            id="globalSearchInput"     // <-- ADD THIS
+                            name="globalSearchInput"
                                 autoFocus
                                 type="text"
                                 placeholder="Search all your chats..."
