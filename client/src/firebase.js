@@ -1,46 +1,89 @@
+/**
+ * Firebase Client Configuration (Vite Version)
+ * --------------------------------------------------------
+ * Uses Vite environment variables (import.meta.env)
+ * Handles:
+ * - Firebase initialization
+ * - FCM token generation
+ * - Foreground message listener
+ */
+
 import { initializeApp } from "firebase/app";
 import { getMessaging, getToken, onMessage } from "firebase/messaging";
 
-// Pulling configuration from the hidden .env file
+/* =========================================================
+   FIREBASE CONFIG (VITE ENV)
+   ========================================================= */
+
 const firebaseConfig = {
-  apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
-  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.REACT_APP_FIREBASE_APP_ID,
-  measurementId: process.env.REACT_APP_FIREBASE_MEASUREMENT_ID
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 };
 
+/* =========================================================
+   DEBUG (REMOVE AFTER VERIFY)
+   ========================================================= */
+
+console.log("🔥 Firebase Config Check:", {
+  projectId: firebaseConfig.projectId,
+  apiKey: firebaseConfig.apiKey ? "EXISTS" : "MISSING",
+});
+
+/* =========================================================
+   INITIALIZE FIREBASE
+   ========================================================= */
+
 const app = initializeApp(firebaseConfig);
+
+/* =========================================================
+   MESSAGING SETUP
+   ========================================================= */
+
 export const messaging = getMessaging(app);
 
-// Function to request permission and get the FCM Token
+/* =========================================================
+   REQUEST FCM TOKEN
+   ========================================================= */
+
 export const requestForToken = async () => {
   try {
     const permission = await Notification.requestPermission();
-    if (permission === "granted") {
-      const currentToken = await getToken(messaging, {
-        vapidKey: process.env.REACT_APP_FIREBASE_VAPID_KEY 
-      });
-      if (currentToken) {
-        return currentToken;
-      } else {
-        console.log("No registration token available. Request permission to generate one.");
-      }
+
+    if (permission !== "granted") {
+      console.log("❌ Notification permission not granted.");
+      return null;
+    }
+
+    const currentToken = await getToken(messaging, {
+      vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY,
+    });
+
+    if (currentToken) {
+      console.log("✅ FCM Token:", currentToken);
+      return currentToken;
     } else {
-      console.log("Permission not granted for Notification.");
+      console.warn("⚠️ No FCM token received.");
     }
   } catch (err) {
-    console.error("An error occurred while retrieving token. ", err);
+    console.error("❌ Error getting FCM token:", err);
   }
+
   return null;
 };
 
-// Listen for foreground messages
+/* =========================================================
+   FOREGROUND MESSAGE LISTENER
+   ========================================================= */
+
 export const onMessageListener = () =>
   new Promise((resolve) => {
     onMessage(messaging, (payload) => {
+      console.log("📩 Foreground message:", payload);
       resolve(payload);
     });
   });
