@@ -158,13 +158,12 @@ global.chatSocket = io;
    REDIS ADAPTER (SCALABILITY)
    ========================================================= */
 const redisUrl = process.env.REDIS_URI || "redis://localhost:6379";
-const isTLS = redisUrl.startsWith("rediss://");
 
+// ⬆️ FIX: Removed manual isTLS check and forced IPv4 family. 
+// Upstash handles this automatically based on the "rediss://" URL.
 const pubClient = createClient({
   url: redisUrl,
   socket: {
-    family: 4,
-    tls: isTLS,
     reconnectStrategy: (retries) => Math.min(retries * 50, 3000)
   }
 });
