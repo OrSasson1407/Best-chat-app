@@ -164,6 +164,7 @@ const redisUrl = process.env.REDIS_URI || "redis://localhost:6379";
 const pubClient = createClient({
   url: redisUrl,
   socket: {
+    family: 4, // <--- CRITICAL FIX: Forces IPv4 to prevent Render/Upstash timeouts
     reconnectStrategy: (retries) => Math.min(retries * 50, 3000)
   }
 });
