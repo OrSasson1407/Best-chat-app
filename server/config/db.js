@@ -9,7 +9,7 @@ const connectDB = async () => {
 
   await mongoose.connect(mongoURI, {
     maxPoolSize: 100,          // Maintain up to 100 socket connections for high traffic
-    serverSelectionTimeoutMS: 5000, // Time out after 5 seconds if DB is unreachable
+    serverSelectionTimeoutMS: 30000, // ⬆️ FIX: Increased to 30 seconds for Render cold starts
     socketTimeoutMS: 45000,    // Close sockets after 45 seconds of inactivity
     wtimeoutMS: 2500,          // PRODUCTION FIX: Ensure write operations timeout after 2.5s
   });
