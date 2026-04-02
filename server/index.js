@@ -188,7 +188,7 @@ const PORT = process.env.NODE_ENV === 'test' ? 0 : (process.env.PORT || 5000);
 const startupTimeout = setTimeout(() => {
   console.error("❌ TIMEOUT: Startup took too long — MongoDB or Redis is hanging.");
   process.exit(1);
-}, 20000);
+}, 45000);
 
 if (process.env.NODE_ENV !== 'test') console.log("🚀 Starting MongoDB and Redis connections...");
 
