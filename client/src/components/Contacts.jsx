@@ -71,6 +71,7 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
     const [showGroupModal, setShowGroupModal] = useState(false);
     const [groupName, setGroupName] = useState("");
     const [selectedMembers, setSelectedMembers] = useState([]);
+    const [groupSearchTerm, setGroupSearchTerm] = useState(""); // ✅ NEW: State for modal search
     const [showProfileModal, setShowProfileModal] = useState(false);
     const [showDiscoverModal, setShowDiscoverModal] = useState(false);
 
@@ -96,7 +97,6 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
     const pressTimer = useRef(null);
     const [storyPreview, setStoryPreview] = useState(null);
 
-    // ✅ FIX: Reusable function to attach JWT token to headers for this component
     const getAuthHeader = useCallback(() => {
         const rawToken = currentUser?.token || sessionStorage.getItem("chat-app-token") || "";
         const cleanToken = rawToken.replace(/(Bearer\s*)+/gi, "").trim();
@@ -109,8 +109,8 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
             if (currentUser) {
                 try {
                     const [groupRes, storyRes] = await Promise.all([
-                        axios.get(getUserGroupsRoute, getAuthHeader()), // ✅ ADDED HEADER
-                        axios.get(getStoryFeedRoute, getAuthHeader()) // ✅ ADDED HEADER
+                        axios.get(getUserGroupsRoute, getAuthHeader()), 
+                        axios.get(getStoryFeedRoute, getAuthHeader()) 
                     ]);
                     setGroups(groupRes.data || []);
                     if (storyRes.data.status) setStoryFeed(storyRes.data.feed || []);
@@ -159,7 +159,7 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
                 const { data } = await axios.post(searchMessageRoute, {
                     userId: currentUser._id,
                     query: searchTerm
-                }, getAuthHeader()); // ✅ ADDED HEADER
+                }, getAuthHeader()); 
                 if (data.status) setGlobalMessages(data.messages || []);
             } catch (error) {
                 console.error("[API] Error searching messages:", error);
@@ -179,7 +179,7 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
         const delayDebounceFn = setTimeout(async () => {
             setIsSearchingChannels(true);
             try {
-                const { data } = await axios.get(`${searchChannelsRoute}?query=${channelSearchQuery}`, getAuthHeader()); // ✅ ADDED HEADER
+                const { data } = await axios.get(`${searchChannelsRoute}?query=${channelSearchQuery}`, getAuthHeader()); 
                 if (data.status) setDiscoveredChannels(data.channels || []);
             } catch (error) {
                 console.error("[API] Error searching channels:", error);
@@ -243,10 +243,10 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
                 const { data } = await axios.post(addStoryRoute, {
                     mediaUrl: reader.result,
                     mediaType: file.type.startsWith("video") ? "video" : "image"
-                }, getAuthHeader()); // ✅ ADDED HEADER
+                }, getAuthHeader()); 
                 if (data.status) {
                     toast.success("Status updated.");
-                    const storyRes = await axios.get(getStoryFeedRoute, getAuthHeader()); // ✅ ADDED HEADER
+                    const storyRes = await axios.get(getStoryFeedRoute, getAuthHeader()); 
                     setStoryFeed(storyRes.data.feed || []);
                 }
             } catch (err) {
@@ -264,7 +264,7 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
         const firstStory = userFeedObj?.stories?.[0];
         if (firstStory && firstStory.user?._id !== currentUser._id) {
             try {
-                await axios.post(`${viewStoryRoute}/${firstStory._id}`, {}, getAuthHeader()); // ✅ ADDED HEADER
+                await axios.post(`${viewStoryRoute}/${firstStory._id}`, {}, getAuthHeader()); 
             } catch (error) {
                 console.error("[API] Failed to mark story as viewed", error);
             }
@@ -279,7 +279,7 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
             const nextStory = viewingStoryUser.stories[nextIdx];
             if (nextStory && nextStory.user?._id !== currentUser._id) {
                 try {
-                    await axios.post(`${viewStoryRoute}/${nextStory._id}`, {}, getAuthHeader()); // ✅ ADDED HEADER
+                    await axios.post(`${viewStoryRoute}/${nextStory._id}`, {}, getAuthHeader()); 
                 } catch (error) {
                     console.error("[API] Failed to mark story as viewed", error);
                 }
@@ -317,7 +317,7 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
 
             const keyPromises = allMembers.map(async (userId) => {
                 try {
-                    const pkResponse = await axios.get(`${publicKeyRoute}/${userId}`, getAuthHeader()); // ✅ ADDED HEADER
+                    const pkResponse = await axios.get(`${publicKeyRoute}/${userId}`, getAuthHeader()); 
                     if (pkResponse.data.status && pkResponse.data.bundle) {
                         const userPublicKey = pkResponse.data.bundle.identityKey;
                         return { userId, encryptedKey: await encryptMessage(aesKeyString, userPublicKey) };
@@ -336,13 +336,14 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
                 members: allMembers,
                 admin: currentUser._id,
                 groupKeys
-            }, getAuthHeader()); // ✅ ADDED HEADER
+            }, getAuthHeader()); 
 
             if (data.status) {
                 setGroups([...groups, data.group]);
                 setShowGroupModal(false);
                 setGroupName("");
                 setSelectedMembers([]);
+                setGroupSearchTerm(""); // ✅ FIX: Clear search term on success
                 toast.success("Group created successfully.");
             }
         } catch (error) {
@@ -353,7 +354,7 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
 
     const handleJoinChannel = async (channelId) => {
         try {
-            const { data } = await axios.post(joinChannelRoute, { channelId }, getAuthHeader()); // ✅ ADDED HEADER
+            const { data } = await axios.post(joinChannelRoute, { channelId }, getAuthHeader()); 
             if (data.status) {
                 toast.success("Joined channel.");
                 setShowDiscoverModal(false);
@@ -373,7 +374,7 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
             const { data } = await axios.post(`${updateProfileRoute}/${currentUser._id}`, {
                 ...profileData,
                 interests: interestsArray
-            }, getAuthHeader()); // ✅ ADDED HEADER
+            }, getAuthHeader()); 
 
             if (data.status) {
                 const currentToken = sessionStorage.getItem("chat-app-token");
@@ -711,18 +712,41 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
                                     </div>
                                     <div className="member-selection">
                                         <label>Select Members</label>
+                                        
+                                        {/* ✅ FIX: Search Bar inside the Group Modal */}
+                                        <div className="input-field" style={{ padding: "10px 14px 0 14px", marginBottom: "4px" }}>
+                                            <FaSearch className="inner-icon" style={{ bottom: "12px", left: "26px", fontSize: "0.8rem" }} />
+                                            <input 
+                                                type="text" 
+                                                placeholder="Search users to add..." 
+                                                value={groupSearchTerm}
+                                                onChange={(e) => setGroupSearchTerm(e.target.value)}
+                                                style={{ paddingLeft: "36px", paddingBottom: "8px", paddingTop: "8px" }}
+                                            />
+                                        </div>
+
                                         <div className="scroll-list">
-                                            {(contacts || []).map(c => (
+                                            {(contacts || [])
+                                                // ✅ FIX: Filters the list by the search term
+                                                .filter(c => c.username.toLowerCase().includes(groupSearchTerm.toLowerCase()))
+                                                .map(c => (
                                                 <div key={c._id} className={`select-item ${selectedMembers?.includes(c._id) ? "selected" : ""}`} onClick={() => toggleMemberSelection(c._id)}>
                                                     <img src={getAvatarUrl(c)} alt="" />
                                                     <span>{c.username}</span>
                                                     {selectedMembers?.includes(c._id) && <FaCheck className="check" />}
                                                 </div>
                                             ))}
+                                            
+                                            {/* Show a message if no users match the search */}
+                                            {contacts.filter(c => c.username.toLowerCase().includes(groupSearchTerm.toLowerCase())).length === 0 && (
+                                                <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-dim)', fontStyle: 'italic', fontSize: '0.85rem' }}>
+                                                    No users found matching "{groupSearchTerm}"
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                     <div className="button-group">
-                                        <button className="btn-secondary" onClick={() => setShowGroupModal(false)}>Cancel</button>
+                                        <button className="btn-secondary" onClick={() => { setShowGroupModal(false); setGroupSearchTerm(""); }}>Cancel</button>
                                         <button className="btn-primary" onClick={handleCreateGroup}>Create Group</button>
                                     </div>
                                 </motion.div>

@@ -45,6 +45,7 @@ export default function Chat() {
   useEffect(() => {
     if (!currentUser) {
       const stored = sessionStorage.getItem("chat-app-user");
+      // ✅ FIX: Guard against string "null" or "undefined"
       if (stored && stored !== "null" && stored !== "undefined") { 
         try { 
           setCurrentUser(JSON.parse(stored)); 
@@ -105,7 +106,7 @@ export default function Chat() {
     }
   }, [currentChat, setGlobalTypingUsers]);
 
-  // ✅ MERGED FIX: Setup Push Notifications with Auth Header
+  // ✅ Setup Push Notifications with Auth Header
   useEffect(() => {
     if (currentUser && currentUser._id) {
       const setupPushNotifications = async () => {
@@ -147,10 +148,16 @@ export default function Chat() {
   const handleLogout = useCallback(async () => {
     try {
       const refreshToken = sessionStorage.getItem("chat-app-refresh-token");
-      const token = sessionStorage.getItem("chat-app-token");
-      await axios.post(`${host}/api/auth/logout`, { refreshToken }, { headers: { Authorization: `Bearer ${token}` } });
-    } catch (err) { console.error("Logout API failed:", err); }
-    finally { sessionStorage.clear(); setCurrentUser(undefined); setCurrentChat(undefined); navigate("/login"); }
+      // ✅ FIX: Removed manual header. The global Axios interceptor in App.jsx handles attaching the token automatically!
+      await axios.post(`${host}/api/auth/logout`, { refreshToken });
+    } catch (err) { 
+      console.error("Logout API failed:", err); 
+    } finally { 
+      sessionStorage.clear(); 
+      setCurrentUser(undefined); 
+      setCurrentChat(undefined); 
+      navigate("/login"); 
+    }
   }, [navigate, setCurrentUser, setCurrentChat]);
 
   const handleChatChange = useCallback((chat) => { setCurrentChat(chat); setIsTyping(false); setIsMobileMenuOpen(false); }, [setCurrentChat]);

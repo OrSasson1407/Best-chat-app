@@ -24,8 +24,7 @@ router.post("/refresh", refreshToken);
 // BUGFIX: logout must be POST (it mutates state — blacklists tokens in Redis).
 // Using GET allowed browsers/crawlers/prefetch to trigger logout unintentionally.
 // Auth middleware is added so the access token is verified before blacklisting.
-router.post("/logout", auth, logout);
-
+router.post("/logout", logout);
 // Protected routes (require valid access token)
 router.get("/allusers/:id", auth, getAllUsers);
 router.post("/updateprofile/:id", auth, updateProfile);

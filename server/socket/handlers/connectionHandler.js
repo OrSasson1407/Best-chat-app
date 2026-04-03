@@ -10,11 +10,15 @@ module.exports = (io, socket, redisClient, heartbeatThrottles) => {
     socket.userId = userId;
 
     try {
-      // FIX: Wrapped in try/catch to prevent crash if Redis times out
-      // Multi-device support. Add this socket ID to the user's Set
+      // ✅ FIX 1: Add the socket and set a 90-second expiration. 
+      // Multi-device support. Add this socket ID to the user's Set.
+      // If the server crashes/restarts, ghost sockets will auto-delete!
       await redisClient.sAdd(`user_sockets:${userId}`, socket.id);
+      await redisClient.expire(`user_sockets:${userId}`, 90); 
+      
       // Keep a reverse lookup to find the user ID quickly when the socket disconnects
       await redisClient.set(`socket_user:${socket.id}`, userId);
+      await redisClient.expire(`socket_user:${socket.id}`, 90);
 
       // Mark user online in database
       const user = await User.findByIdAndUpdate(
@@ -33,6 +37,13 @@ module.exports = (io, socket, redisClient, heartbeatThrottles) => {
           isOnline: true
         });
       }
+
+      // ✅ FIX 2: Send the newly connected user the list of everyone who is online right now.
+      // We scan Redis for active, unexpired keys to guarantee accuracy.
+      const activeKeys = await redisClient.keys('user_sockets:*');
+      const onlineUserIds = activeKeys.map(key => key.replace('user_sockets:', ''));
+      socket.emit("get-online-users", onlineUserIds);
+
     } catch (err) {
       console.error("Failed to process add-user (Redis or DB error):", err.message);
     }
@@ -55,7 +66,7 @@ module.exports = (io, socket, redisClient, heartbeatThrottles) => {
         return;
       }
 
-      // FIX: Check if the user has ANY active sockets across all their devices
+      // FIX: Check if the user has ANY active, unexpired sockets across all their devices
       const socketCount = await redisClient.sCard(`user_sockets:${targetUserId}`);
       const isOnline = socketCount > 0;
 
@@ -81,13 +92,16 @@ module.exports = (io, socket, redisClient, heartbeatThrottles) => {
      ===================================================== */
   socket.on("heartbeat", async (userId) => {
     try {
-      // FIX: Ensure this specific device's socket stays in Redis safely
+      // ✅ FIX 3: Ensure this specific device's socket stays in Redis safely.
+      // Every 30 seconds when the heartbeat fires, reset the 90-second death timer!
       await redisClient.sAdd(`user_sockets:${userId}`, socket.id);
+      await redisClient.expire(`user_sockets:${userId}`, 90);
+      await redisClient.expire(`socket_user:${socket.id}`, 90);
 
       const now = Date.now();
       const lastDbUpdate = heartbeatThrottles.get(userId) || 0;
 
-      // Only update DB every 60 seconds
+      // Only update DB every 60 seconds to save performance
       if (now - lastDbUpdate > 60000) {
         heartbeatThrottles.set(userId, now);
         await User.findByIdAndUpdate(userId, {
