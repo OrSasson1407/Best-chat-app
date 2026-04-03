@@ -51,12 +51,25 @@ export default function Login() {
         setCurrentUser(userData);
         
         try {
-          // ✅ Private E2E keys correctly stay in localStorage
-          const existingKey = localStorage.getItem(`privateKey_${data.user._id}`);
-          if (!existingKey) {
+          // Check BOTH local private key AND server-side key status
+          // A legacy user can be missing either one, or both
+          const existingLocalKey = localStorage.getItem(`privateKey_${data.user._id}`);
+          const serverHasKeys = data.user?.e2eStatus?.hasKeys === true;
+
+          if (!existingLocalKey || !serverHasKeys) {
+            // Either local or server keys are missing — regenerate the full bundle
+            // This silently upgrades legacy users on first login after the fix
+            console.info("[Crypto] Generating E2E keys — missing locally:", !existingLocalKey, "/ missing on server:", !serverHasKeys);
             const { bundle, privateKeys } = await generateE2EBundle();
+
+            // Store the full private key set locally (never sent to server)
             localStorage.setItem(`privateKey_${data.user._id}`, JSON.stringify(privateKeys.identityPrivateKey));
+            localStorage.setItem(`fullE2EKeys_${data.user._id}`, JSON.stringify(privateKeys));
+
+            // Upload public bundle to server
             await axios.post(updateE2EKeysRoute, { bundle }, { headers: { Authorization: `Bearer ${data.token}` } });
+
+            console.info("[Crypto] E2E keys generated and uploaded successfully.");
           }
         } catch (e2eErr) { console.error("[Crypto] E2EE key setup failed:", e2eErr); }
         navigate("/");

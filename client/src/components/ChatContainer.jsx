@@ -34,6 +34,42 @@ import { getSmallAvatar, formatTime } from "./chatHelpers";
 // --- NEW: Import the Haptic Engine ---
 import { triggerHaptic } from "../utils/haptics";
 
+// ============================================================
+// MODULE-LEVEL E2E BUNDLE CACHE
+// Lives outside the component so it persists across re-renders
+// and chat switches. Cleared only on full page reload.
+// Map value is either a bundle object (has keys) or null (no keys).
+// null means "we already checked — don't ask again".
+// ============================================================
+const e2eBundleCache = new Map();
+
+async function getCachedBundle(userId, authHeader) {
+  // Cache hit — return immediately, whether it's a bundle or null
+  if (e2eBundleCache.has(userId)) {
+    return e2eBundleCache.get(userId);
+  }
+
+  try {
+    const res = await axios.get(`${publicKeyRoute}/${userId}`, authHeader);
+    if (res.data.status && res.data.bundle?.identityKey) {
+      e2eBundleCache.set(userId, res.data.bundle);
+      return res.data.bundle;
+    }
+    // Got a response but no valid bundle — cache null so we don't retry
+    e2eBundleCache.set(userId, null);
+    return null;
+  } catch (err) {
+    if (err.response?.status === 404) {
+      // User has no keys — cache null to permanently silence future attempts
+      e2eBundleCache.set(userId, null);
+    } else {
+      // Network error or server crash — do NOT cache, allow retry next message
+      console.error("[Crypto] Bundle fetch error:", err.message);
+    }
+    return null;
+  }
+}
+
 export default function ChatContainer({ socket, isTyping }) {
   
   // 🚀 PERFORMANCE FIX: Atomic Zustand Selectors
@@ -582,22 +618,18 @@ export default function ChatContainer({ socket, isTyping }) {
     try {
         if (type === "text") {
             if (!currentChat.admin) {
-                try {
-                    const pkResponse = await axios.get(`${publicKeyRoute}/${currentChat._id}`, getAuthHeader());
-                    
-                    if (pkResponse.data.status && pkResponse.data.bundle) {
-                        const receiverKey = pkResponse.data.bundle.identityKey;
-                        finalMessageContent = await encryptMessage(msg, receiverKey);
-                    } else {
-                        console.warn(`[Crypto] Encryption skipped: ${pkResponse.data.msg}`);
+                // Use the module-level cache — no network hit if we've seen this user before
+                const bundle = await getCachedBundle(currentChat._id, getAuthHeader());
+
+                if (bundle?.identityKey) {
+                    try {
+                        finalMessageContent = await encryptMessage(msg, bundle.identityKey);
+                    } catch (err) {
+                        console.error("[Crypto] Encryption failed, sending as plaintext:", err.message);
                     }
-                } catch (err) { 
-                    // ✅ FIX: Gracefully handle the 404 without a red console error
-                    if (err.response && err.response.status === 404) {
-                        console.warn(`[Crypto] Encryption skipped: User hasn't generated E2E keys yet. Sending as plaintext.`);
-                    } else {
-                        console.error("[Crypto] Encryption error:", err.message); 
-                    }
+                } else {
+                    // null = legacy user with no keys, already cached — silently send plaintext
+                    console.info("[Crypto] No E2E keys for this user — sending as plaintext.");
                 }
             } else if (currentChat.admin && activeGroupAesKey) {
                 try {

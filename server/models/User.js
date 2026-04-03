@@ -93,6 +93,13 @@ const userSchema = new mongoose.Schema({
     default: [] 
   },
 
+  // --- E2E STATUS TRACKING ---
+  // Tracks whether a user has valid E2E keys, enabling safe fallback for legacy accounts
+  e2eStatus: {
+    hasKeys: { type: Boolean, default: false },
+    enabled: { type: Boolean, default: false },
+  },
+
   // --- FULL E2EE PRE-KEY BUNDLE ---
   // Replaced the old single `publicKey` with a full bundle required for Signal-like E2EE
   e2eKeys: {

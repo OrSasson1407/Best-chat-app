@@ -100,8 +100,20 @@ module.exports.login = async (req, res, next) => {
 
     const { accessToken, refreshToken } = generateTokens(user._id);
 
+    // Sync e2eStatus on login — fixes legacy accounts that predate E2E
+    const hasValidKeys = !!(user.e2eKeys && user.e2eKeys.identityKey);
+    const e2eStatusSynced = { hasKeys: hasValidKeys, enabled: hasValidKeys };
+    if (user.e2eStatus?.hasKeys !== hasValidKeys) {
+      await User.findByIdAndUpdate(user._id, {
+        "e2eStatus.hasKeys": hasValidKeys,
+        "e2eStatus.enabled": hasValidKeys,
+      });
+    }
+
+    // Build response AFTER sync so frontend always receives the correct e2eStatus
     const userResponse = user.toObject();
     delete userResponse.password;
+    userResponse.e2eStatus = e2eStatusSynced;
 
     console.log(`[Auth] User logged in successfully: ${username}`);
     

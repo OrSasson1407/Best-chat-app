@@ -6,7 +6,9 @@ module.exports.uploadKeyBundle = async (req, res, next) => {
     const { identityKey, registrationId, signedPreKey, preKeys } = req.body;
     
     await User.findByIdAndUpdate(userId, {
-      e2eKeys: { identityKey, registrationId, signedPreKey, preKeys }
+      e2eKeys: { identityKey, registrationId, signedPreKey, preKeys },
+      "e2eStatus.hasKeys": true,
+      "e2eStatus.enabled": true,
     });
 
     return res.json({ status: true, msg: "E2E Key Bundle uploaded successfully." });
@@ -21,7 +23,12 @@ module.exports.getKeyBundle = async (req, res, next) => {
     const user = await User.findById(targetUserId).select("e2eKeys");
 
     if (!user || !user.e2eKeys || !user.e2eKeys.identityKey) {
-      return res.status(404).json({ status: false, msg: "Target user E2E keys not found." });
+      // Mark the target user as not having keys so frontend can cache this and skip encryption
+      await User.findByIdAndUpdate(targetUserId, {
+        "e2eStatus.hasKeys": false,
+        "e2eStatus.enabled": false,
+      });
+      return res.status(404).json({ status: false, hasKeys: false, msg: "Target user E2E keys not found." });
     }
 
     // "Pop" one pre-key off the array to give to the requester

@@ -20,12 +20,18 @@ module.exports = (io, socket, redisClient, heartbeatThrottles) => {
       await redisClient.set(`socket_user:${socket.id}`, userId);
       await redisClient.expire(`socket_user:${socket.id}`, 90);
 
-      // Mark user online
-      const user = await User.findByIdAndUpdate(
-        userId,
-        { isOnline: true },
-        { new: true }
-      );
+      // Fetch user first so we can read their e2eKeys before updating
+      const user = await User.findById(userId).select("e2eKeys e2eStatus privacySettings");
+
+      // Determine real key status from actual stored data
+      const hasValidKeys = !!(user?.e2eKeys?.identityKey);
+
+      // Single DB write: mark online + sync e2eStatus in one round-trip
+      await User.findByIdAndUpdate(userId, {
+        isOnline: true,
+        "e2eStatus.hasKeys": hasValidKeys,
+        "e2eStatus.enabled": hasValidKeys,
+      });
 
       heartbeatThrottles.set(userId, Date.now());
 
