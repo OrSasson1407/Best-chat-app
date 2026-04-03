@@ -71,10 +71,13 @@ export default function Register() {
         if (!data.token) { toast.error("Registration failed. Please try again.", toastOptions); setIsSubmitting(false); return; }
         localStorage.setItem(`privateKey_${data.user._id}`, JSON.stringify(privateKeys.identityPrivateKey));
         localStorage.setItem(`fullE2EKeys_${data.user._id}`, JSON.stringify(privateKeys));
+        
+        // ✅ Ensure tokens are stored in sessionStorage properly
         sessionStorage.setItem("chat-app-token", data.token);
         sessionStorage.setItem("chat-app-refresh-token", data.refreshToken);
         const userData = { ...data.user, token: data.token };
         sessionStorage.setItem("chat-app-user", JSON.stringify(userData));
+        
         toast.success("Welcome to Snappy! 🎉", toastOptions);
         setTimeout(() => navigate("/"), 100);
       }

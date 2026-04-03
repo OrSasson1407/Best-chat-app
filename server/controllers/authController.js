@@ -21,9 +21,11 @@ const femaleTops = "longHairBob,longHairBun,longHairCurly,longHairCurvy,longHair
 const maleTops = "shortHairDreads01,shortHairDreads02,shortHairFrizzle,shortHairShaggy,shortHairShortCurly,shortHairShortFlat,shortHairShortRound,shortHairShortWaved,shortHairSides";
 const backgroundColors = "b6e3f4,c0aede,d1d4f9,ffdfbf,ffd5dc";
 
+// ✅ FIX: Cast userId to String() before creating the JWT to prevent BSON Object errors
 const generateTokens = (userId) => {
-  const accessToken = jwt.sign({ id: userId }, process.env.JWT_SECRET, { expiresIn: "15m" });
-  const refreshToken = jwt.sign({ id: userId }, process.env.REFRESH_SECRET, { expiresIn: "7d" });
+  const idStr = String(userId);
+  const accessToken = jwt.sign({ id: idStr }, process.env.JWT_SECRET, { expiresIn: "15m" });
+  const refreshToken = jwt.sign({ id: idStr }, process.env.REFRESH_SECRET, { expiresIn: "7d" });
   return { accessToken, refreshToken };
 };
 
@@ -72,7 +74,6 @@ module.exports.register = async (req, res, next) => {
 
     console.log(`[Auth] User registered successfully: ${username}`);
     
-    // CRITICAL FIX: Return both tokens in JSON payload, NO COOKIES.
     return res.json({ 
       status: true, 
       user: userResponse, 
@@ -104,7 +105,6 @@ module.exports.login = async (req, res, next) => {
 
     console.log(`[Auth] User logged in successfully: ${username}`);
     
-    // CRITICAL FIX: Return both tokens in JSON payload, NO COOKIES.
     return res.json({ 
       status: true, 
       user: userResponse, 
@@ -119,15 +119,13 @@ module.exports.login = async (req, res, next) => {
 
 module.exports.logout = async (req, res, next) => {
   try {
-    // CRITICAL FIX: Read token from the Authorization header injected by React, not cookies
     let accessToken = req.header("Authorization");
     if (accessToken && accessToken.startsWith("Bearer ")) {
       accessToken = accessToken.replace("Bearer ", "").trim();
     }
     
-    const refreshToken = req.body.refreshToken; // Read from body if provided
+    const refreshToken = req.body.refreshToken; 
     
-    // REDIS BLACKLISTING 
     if (cacheClient.isReady) {
         if (refreshToken) {
             const decoded = jwt.decode(refreshToken);
@@ -159,7 +157,6 @@ module.exports.logout = async (req, res, next) => {
 };
 
 module.exports.refreshToken = async (req, res) => {
-  // CRITICAL FIX: Read the refresh token from the JSON body instead of cookies
   const refreshToken = req.body.refreshToken;
   if (!refreshToken) return res.sendStatus(401);
 
@@ -170,9 +167,8 @@ module.exports.refreshToken = async (req, res) => {
 
   jwt.verify(refreshToken, process.env.REFRESH_SECRET, (err, decoded) => {
     if (err) return res.sendStatus(403);
-    const accessToken = jwt.sign({ id: decoded.id }, process.env.JWT_SECRET, { expiresIn: "15m" });
+    const accessToken = jwt.sign({ id: String(decoded.id) }, process.env.JWT_SECRET, { expiresIn: "15m" });
     
-    // Return the new access token in the JSON response
     res.json({ status: true, token: accessToken });
   });
 };
@@ -245,9 +241,6 @@ module.exports.getAllUsers = async (req, res, next) => {
         try {
           if (cacheClient.isReady) {
             await cacheClient.mSet(msetArgs);
-            // BUGFIX: expire() calls were fire-and-forget inside forEach.
-            // If the process restarted between mSet and expire, profiles would
-            // be cached forever with no TTL, leaking stale data indefinitely.
             await Promise.all(
               missedUsers.map(user =>
                 cacheClient.expire(`user_profile:${user._id.toString()}`, 3600)
@@ -276,8 +269,8 @@ module.exports.updateProfile = async (req, res, next) => {
   try {
     const userId = req.params.id;
 
-    // SECURITY FIX: Ensure the authenticated user can only update their own profile
-    if (userId !== req.user.id) {
+    // ✅ FIX: Strict String casting to prevent MongoDB object equality mismatch
+    if (String(userId) !== String(req.user.id)) {
       return res.status(403).json({ status: false, msg: "Forbidden: You cannot modify another user's profile." });
     }
 
@@ -286,9 +279,6 @@ module.exports.updateProfile = async (req, res, next) => {
     let updatePayload = { statusMessage, statusIcon, bio, interests };
     
     if (privacySettings) {
-        // PERF FIX: Previously read the full user doc just to spread privacySettings,
-        // costing an extra DB round-trip. Using dot-notation $set lets MongoDB merge
-        // only the supplied sub-fields without fetching the existing document first.
         Object.keys(privacySettings).forEach(key => {
             updatePayload[`privacySettings.${key}`] = privacySettings[key];
         });
@@ -299,7 +289,6 @@ module.exports.updateProfile = async (req, res, next) => {
         "statusMessage", "statusIcon", "bio", "interests", "privacySettings", "chatCustomizations"
     ]);
 
-    // BUGFIX: Guard against null when userId is invalid / user was deleted
     if (!user) return res.status(404).json({ status: false, msg: "User not found." });
 
     if (user.username) {
@@ -325,8 +314,8 @@ module.exports.toggleBlockUser = async (req, res, next) => {
   try {
     const { userId, blockedUserId } = req.body;
 
-    // SECURITY FIX: Ensure the caller can only modify their own block list
-    if (userId !== req.user.id) {
+    // ✅ FIX: Strict String casting
+    if (String(userId) !== String(req.user.id)) {
       return res.status(403).json({ status: false, msg: "Forbidden: You cannot modify another user's block list." });
     }
 
@@ -346,12 +335,11 @@ module.exports.updateFcmToken = async (req, res, next) => {
   try {
     const { userId, fcmToken } = req.body;
 
-    // SECURITY FIX: Only allow the authenticated user to update their own FCM token
-    if (userId !== req.user.id) {
+    // ✅ FIX: Strict String casting prevents false-positive 403s
+    if (String(userId) !== String(req.user.id)) {
       return res.status(403).json({ status: false, msg: "Forbidden." });
     }
 
-    // FIX: Push the token to the array without duplicating using MongoDB $addToSet
     await User.findByIdAndUpdate(userId, { $addToSet: { fcmTokens: fcmToken } });
     return res.json({ status: true, msg: "FCM Token registered" });
   } catch (ex) {
@@ -365,12 +353,12 @@ module.exports.updateE2EKeys = async (req, res, next) => {
     if (!userId || !e2eKeys) {
         return res.status(400).json({ status: false, msg: "Missing data" });
     }
-    // SECURITY FIX: Only the authenticated user can register their own E2E keys.
-    // Without this check, any logged-in user could silently replace another user's
-    // public key bundle and perform a key-substitution (person-in-the-middle) attack.
-    if (userId !== req.user.id) {
+    
+    // ✅ FIX: Strict String casting
+    if (String(userId) !== String(req.user.id)) {
         return res.status(403).json({ status: false, msg: "Forbidden: You cannot register keys for another user." });
     }
+    
     await User.findByIdAndUpdate(userId, { e2eKeys });
     console.log(`[Crypto] E2E Keys Bundle registered for user ${userId}`);
     return res.json({ status: true, msg: "E2E Keys Bundle registered" });
@@ -421,8 +409,8 @@ module.exports.updateChatCustomization = async (req, res, next) => {
   try {
     const { userId, chatId, wallpaper, themeColor } = req.body;
 
-    // SECURITY FIX: Ensure the caller can only customize their own chats
-    if (userId !== req.user.id) {
+    // ✅ FIX: Strict String casting
+    if (String(userId) !== String(req.user.id)) {
       return res.status(403).json({ status: false, msg: "Forbidden." });
     }
 
