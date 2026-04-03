@@ -169,7 +169,7 @@ module.exports = (io, socket, redisClient, heartbeatThrottles) => {
         }
       }
     } catch (err) {
-      console.error("Failed to process disconnect cleanup:", err.message);
+      console.error("Failed to process disconnect cleanupp:", err.message);
     }
   });
 };
