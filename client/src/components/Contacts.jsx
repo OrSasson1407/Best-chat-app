@@ -96,14 +96,21 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
     const pressTimer = useRef(null);
     const [storyPreview, setStoryPreview] = useState(null);
 
+    // ✅ FIX: Reusable function to attach JWT token to headers for this component
+    const getAuthHeader = useCallback(() => {
+        const rawToken = currentUser?.token || sessionStorage.getItem("chat-app-token") || "";
+        const cleanToken = rawToken.replace(/(Bearer\s*)+/gi, "").trim();
+        return { headers: { Authorization: `Bearer ${cleanToken}` } };
+    }, [currentUser]);
+
     // Initialize Data
     useEffect(() => {
         const fetchGroupsAndStories = async () => {
             if (currentUser) {
                 try {
                     const [groupRes, storyRes] = await Promise.all([
-                        axios.get(getUserGroupsRoute),
-                        axios.get(getStoryFeedRoute)
+                        axios.get(getUserGroupsRoute, getAuthHeader()), // ✅ ADDED HEADER
+                        axios.get(getStoryFeedRoute, getAuthHeader()) // ✅ ADDED HEADER
                     ]);
                     setGroups(groupRes.data || []);
                     if (storyRes.data.status) setStoryFeed(storyRes.data.feed || []);
@@ -126,7 +133,7 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
             });
             fetchGroupsAndStories();
         }
-    }, [currentUser]);
+    }, [currentUser, getAuthHeader]);
 
     useEffect(() => {
         if (currentUser) localStorage.setItem(`pinned-chats-${currentUser._id}`, JSON.stringify(pinnedIds));
@@ -152,7 +159,7 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
                 const { data } = await axios.post(searchMessageRoute, {
                     userId: currentUser._id,
                     query: searchTerm
-                });
+                }, getAuthHeader()); // ✅ ADDED HEADER
                 if (data.status) setGlobalMessages(data.messages || []);
             } catch (error) {
                 console.error("[API] Error searching messages:", error);
@@ -161,7 +168,7 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
             }
         }, 600);
         return () => clearTimeout(delayDebounceFn);
-    }, [searchTerm, currentUser]);
+    }, [searchTerm, currentUser, getAuthHeader]);
 
     // Debounced Channel Search
     useEffect(() => {
@@ -172,7 +179,7 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
         const delayDebounceFn = setTimeout(async () => {
             setIsSearchingChannels(true);
             try {
-                const { data } = await axios.get(`${searchChannelsRoute}?query=${channelSearchQuery}`);
+                const { data } = await axios.get(`${searchChannelsRoute}?query=${channelSearchQuery}`, getAuthHeader()); // ✅ ADDED HEADER
                 if (data.status) setDiscoveredChannels(data.channels || []);
             } catch (error) {
                 console.error("[API] Error searching channels:", error);
@@ -181,7 +188,7 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
             }
         }, 500);
         return () => clearTimeout(delayDebounceFn);
-    }, [channelSearchQuery, currentUser]);
+    }, [channelSearchQuery, currentUser, getAuthHeader]);
 
     // Handlers
     const togglePin = useCallback((e, id) => {
@@ -236,10 +243,10 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
                 const { data } = await axios.post(addStoryRoute, {
                     mediaUrl: reader.result,
                     mediaType: file.type.startsWith("video") ? "video" : "image"
-                });
+                }, getAuthHeader()); // ✅ ADDED HEADER
                 if (data.status) {
                     toast.success("Status updated.");
-                    const storyRes = await axios.get(getStoryFeedRoute);
+                    const storyRes = await axios.get(getStoryFeedRoute, getAuthHeader()); // ✅ ADDED HEADER
                     setStoryFeed(storyRes.data.feed || []);
                 }
             } catch (err) {
@@ -257,7 +264,7 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
         const firstStory = userFeedObj?.stories?.[0];
         if (firstStory && firstStory.user?._id !== currentUser._id) {
             try {
-                await axios.post(`${viewStoryRoute}/${firstStory._id}`, {});
+                await axios.post(`${viewStoryRoute}/${firstStory._id}`, {}, getAuthHeader()); // ✅ ADDED HEADER
             } catch (error) {
                 console.error("[API] Failed to mark story as viewed", error);
             }
@@ -272,7 +279,7 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
             const nextStory = viewingStoryUser.stories[nextIdx];
             if (nextStory && nextStory.user?._id !== currentUser._id) {
                 try {
-                    await axios.post(`${viewStoryRoute}/${nextStory._id}`, {});
+                    await axios.post(`${viewStoryRoute}/${nextStory._id}`, {}, getAuthHeader()); // ✅ ADDED HEADER
                 } catch (error) {
                     console.error("[API] Failed to mark story as viewed", error);
                 }
@@ -310,7 +317,7 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
 
             const keyPromises = allMembers.map(async (userId) => {
                 try {
-                    const pkResponse = await axios.get(`${publicKeyRoute}/${userId}`);
+                    const pkResponse = await axios.get(`${publicKeyRoute}/${userId}`, getAuthHeader()); // ✅ ADDED HEADER
                     if (pkResponse.data.status && pkResponse.data.bundle) {
                         const userPublicKey = pkResponse.data.bundle.identityKey;
                         return { userId, encryptedKey: await encryptMessage(aesKeyString, userPublicKey) };
@@ -329,7 +336,7 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
                 members: allMembers,
                 admin: currentUser._id,
                 groupKeys
-            });
+            }, getAuthHeader()); // ✅ ADDED HEADER
 
             if (data.status) {
                 setGroups([...groups, data.group]);
@@ -346,7 +353,7 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
 
     const handleJoinChannel = async (channelId) => {
         try {
-            const { data } = await axios.post(joinChannelRoute, { channelId });
+            const { data } = await axios.post(joinChannelRoute, { channelId }, getAuthHeader()); // ✅ ADDED HEADER
             if (data.status) {
                 toast.success("Joined channel.");
                 setShowDiscoverModal(false);
@@ -366,7 +373,7 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
             const { data } = await axios.post(`${updateProfileRoute}/${currentUser._id}`, {
                 ...profileData,
                 interests: interestsArray
-            });
+            }, getAuthHeader()); // ✅ ADDED HEADER
 
             if (data.status) {
                 const currentToken = sessionStorage.getItem("chat-app-token");
@@ -593,7 +600,6 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
                                                     title={isCompact ? item.username : ""}
                                                 >
                                                     <div className="avatar-block" style={{ position: 'relative', width: '48px', height: '48px', flexShrink: 0 }}>
-                                                        {/* --- PULSING TYPING RING UX --- */}
                                                         {isTyping && <div className="typing-pulse-ring" style={{ position: 'absolute', top: '-4px', left: '-4px', right: '-4px', bottom: '-4px', border: '2px solid var(--msg-sent)', borderRadius: '50%', animation: 'pulseRing 1.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite' }} />}
                                                         
                                                         <div className={`avatar-circle ${isOnline ? 'online' : ''}`} style={{ width: '100%', height: '100%', borderRadius: '50%', overflow: 'hidden', position: 'relative' }}>

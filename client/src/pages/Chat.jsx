@@ -92,6 +92,35 @@ export default function Chat() {
     }
   }, [currentChat, setGlobalTypingUsers]);
 
+  // ✅ MERGED FIX: Setup Push Notifications with Auth Header
+  useEffect(() => {
+    if (currentUser && currentUser._id) {
+      const setupPushNotifications = async () => {
+        const token = await requestForToken();
+        if (token) {
+          try {
+            const rawToken = currentUser.token || sessionStorage.getItem("chat-app-token") || "";
+            const cleanToken = rawToken.replace(/(Bearer\s*)+/gi, "").trim();
+            
+            await axios.post(
+              updateFcmTokenRoute, 
+              { userId: currentUser._id, fcmToken: token },
+              { headers: { Authorization: `Bearer ${cleanToken}` } }
+            );
+          } catch (err) {
+            console.error("Failed to save FCM token to DB", err);
+          }
+        }
+      };
+      setupPushNotifications();
+      
+      const unsubscribe = onMessageListener((payload) => {
+        toast.info(`📬 ${payload.notification.title}: ${payload.notification.body}`, { position: "top-right", autoClose: 5000, theme: theme === "light" ? "light" : "dark" });
+      });
+      return () => { if (typeof unsubscribe === "function") unsubscribe(); };
+    }
+  }, [currentUser, theme]);
+
   useEffect(() => {
     async function fetchContacts() {
       if (currentUser && currentUser._id && !isOffline) {
@@ -101,20 +130,6 @@ export default function Chat() {
     }
     fetchContacts();
   }, [currentUser, navigate, isOffline]);
-
-  useEffect(() => {
-    if (currentUser && currentUser._id) {
-      const setupPushNotifications = async () => {
-        const token = await requestForToken();
-        if (token) { try { await axios.post(updateFcmTokenRoute, { userId: currentUser._id, fcmToken: token }); } catch (err) { console.error("Failed to save FCM token to DB", err); } }
-      };
-      setupPushNotifications();
-      const unsubscribe = onMessageListener((payload) => {
-        toast.info(`📬 ${payload.notification.title}: ${payload.notification.body}`, { position: "top-right", autoClose: 5000, theme: theme === "light" ? "light" : "dark" });
-      });
-      return () => { if (typeof unsubscribe === "function") unsubscribe(); };
-    }
-  }, [currentUser, theme]);
 
   const handleLogout = useCallback(async () => {
     try {

@@ -103,15 +103,16 @@ export default function ChatContainer({ socket, isTyping }) {
 
   const skeletonWidths = useMemo(() => ['45%', '65%', '35%', '80%', '50%'], []);
   
-  // ✅ FIX: Get the token from local storage and attach it to the headers
+  // ✅ FIX: Read token correctly from currentUser or sessionStorage, just like Chat.jsx
   const getAuthHeader = useCallback(() => {
-    const token = localStorage.getItem("chat-app-token") || localStorage.getItem("token"); 
+    const rawToken = currentUser?.token || sessionStorage.getItem("chat-app-token") || "";
+    const cleanToken = rawToken.replace(/(Bearer\s*)+/gi, "").trim();
     return {
         headers: {
-            Authorization: `Bearer ${token}`
+            Authorization: `Bearer ${cleanToken}`
         }
     };
-  }, []);
+  }, [currentUser]);
 
   // --- EFFECTS ---
   useEffect(() => {
