@@ -45,7 +45,13 @@ export default function Chat() {
   useEffect(() => {
     if (!currentUser) {
       const stored = sessionStorage.getItem("chat-app-user");
-      if (stored) { try { setCurrentUser(JSON.parse(stored)); } catch (e) { console.error("[Auth] Failed to parse stored user:", e); } }
+      if (stored && stored !== "null" && stored !== "undefined") { 
+        try { 
+          setCurrentUser(JSON.parse(stored)); 
+        } catch (e) { 
+          console.error("[Auth] Failed to parse stored user:", e); 
+        } 
+      }
     }
   }, []);
 
@@ -53,7 +59,14 @@ export default function Chat() {
     if (currentUser && currentUser._id && !socket.current) {
       const rawToken = currentUser.token || sessionStorage.getItem("chat-app-token") || "";
       const cleanToken = rawToken.replace(/(Bearer\s*)+/gi, "").trim();
-      if (!cleanToken) { navigate("/login"); return; }
+      
+      // ✅ FIX: Wipe bad data so Login doesn't bounce you right back into a loop
+      if (!cleanToken || cleanToken === "null" || cleanToken === "undefined") { 
+        sessionStorage.clear(); 
+        navigate("/login"); 
+        return; 
+      }
+      
       socket.current = io(host, { auth: { token: cleanToken }, parser: customParser, reconnection: true, reconnectionAttempts: Infinity, reconnectionDelay: 1000, reconnectionDelayMax: 5000 });
       socket.current.on("connect", () => { socket.current.emit("add-user", currentUser._id); });
       socket.current.on("disconnect", (reason) => { if (reason === "io server disconnect") socket.current.connect(); });

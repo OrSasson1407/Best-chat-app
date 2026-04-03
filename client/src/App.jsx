@@ -149,7 +149,10 @@ const Login = lazy(() => import("./pages/Login"));
 const Register = lazy(() => import("./pages/Register"));
 
 const PublicRoute = ({ children }) => {
-  const isAuthenticated = sessionStorage.getItem("chat-app-user");
+  const stored = sessionStorage.getItem("chat-app-user");
+  // ✅ FIX: Guard against string "null" or "undefined"
+  const isAuthenticated = stored && stored !== "null" && stored !== "undefined";
+  
   if (isAuthenticated) {
     return <Navigate to={ROUTES.HOME} replace />;
   }

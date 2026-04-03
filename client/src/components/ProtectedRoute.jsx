@@ -4,16 +4,17 @@ import { Navigate } from "react-router-dom";
 import { ROUTES } from "../utils/routes";
 
 const ProtectedRoute = ({ children }) => {
-  // בדיקה אם המשתמש מחובר. 
-  // תוקן: קריאה מ-sessionStorage עם המפתח המדויק
-  const isAuthenticated = sessionStorage.getItem("chat-app-user");
+  const stored = sessionStorage.getItem("chat-app-user");
+  
+  // ✅ FIX: Guard against string "null" or "undefined" that causes infinite loops
+  const isAuthenticated = stored && stored !== "null" && stored !== "undefined";
 
   if (!isAuthenticated) {
-    // אם לא מחובר, מפנה חזרה ללוגין
+    // If not authenticated, redirect to Login
     return <Navigate to={ROUTES.LOGIN} replace />;
   }
 
-  // אם מחובר, מציג את הרכיב המבוקש (הצ'אט)
+  // If authenticated, render the requested component
   return children;
 };
 

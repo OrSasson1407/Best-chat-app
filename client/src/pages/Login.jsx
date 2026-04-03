@@ -17,8 +17,12 @@ export default function Login() {
   const [showPass, setShowPass] = useState(false);
   const [focused, setFocused] = useState(null);
 
+  // ✅ FIX: Use sessionStorage and guard against string "null" / "undefined"
   useEffect(() => {
-    if (localStorage.getItem("chat-app-token")) navigate("/");
+    const token = sessionStorage.getItem("chat-app-token");
+    if (token && token !== "null" && token !== "undefined") {
+      navigate("/");
+    }
   }, [navigate]);
 
   const handleChange = (e) => setValues({ ...values, [e.target.name]: e.target.value });
@@ -38,12 +42,16 @@ export default function Login() {
       const { data } = await axios.post(loginRoute, { username: values.username, password: values.password });
       if (data.status === false) { toast.error(data.msg || "Invalid credentials."); return; }
       if (data.status === true) {
-        localStorage.setItem("chat-app-token", data.token);
-        localStorage.setItem("chat-app-refresh-token", data.refreshToken);
+        
+        // ✅ FIX: Store session data in sessionStorage
+        sessionStorage.setItem("chat-app-token", data.token);
+        sessionStorage.setItem("chat-app-refresh-token", data.refreshToken);
         const userData = { ...data.user, token: data.token };
-        localStorage.setItem("chat-app-user", JSON.stringify(userData));
+        sessionStorage.setItem("chat-app-user", JSON.stringify(userData));
         setCurrentUser(userData);
+        
         try {
+          // ✅ Private E2E keys correctly stay in localStorage
           const existingKey = localStorage.getItem(`privateKey_${data.user._id}`);
           if (!existingKey) {
             const { bundle, privateKeys } = await generateE2EBundle();
