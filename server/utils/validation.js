@@ -77,8 +77,10 @@ const registerSchema = Joi.object({
 
   /**
    * Full E2EE Pre-Key Bundle (Signal Protocol)
+   * ✅ FIX: Added .unknown(true) so Joi doesn't strip the inner keys (identityKey, preKeys, etc.)
+   * ✅ FIX: Made .optional() so registration doesn't completely break if a user's browser blocks crypto generation
    */
-  e2eKeys: Joi.object().required(),
+  e2eKeys: Joi.object().unknown(true).optional(),
 
 }).options({ stripUnknown: true });
 

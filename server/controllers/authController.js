@@ -1,3 +1,4 @@
+// server/controllers/authController.js
 const User = require("../models/User");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
@@ -54,7 +55,8 @@ module.exports.register = async (req, res, next) => {
       gender,
       avatarImage: finalAvatar,
       isAvatarImageSet: true,
-      e2eKeys 
+      e2eKeys,
+      e2eStatus: { hasKeys: true, enabled: true } // ✅ FIX: Explicitly activate keys on registration
     });
 
     try {
