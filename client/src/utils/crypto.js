@@ -121,13 +121,26 @@ export const encryptMessage = async (messageText, receiverPublicKeyJwk) => {
     }
 };
 
+// Helper: returns true only if a string is valid base64 AND long enough to be RSA ciphertext
+// RSA-2048 always produces exactly 256 bytes → 344 base64 chars. Plaintext is never that.
+const isLikelyEncrypted = (str) => {
+    if (!str || typeof str !== "string") return false;
+    if (str.length < 300) return false; // plaintext messages are always shorter than RSA output
+    return /^[A-Za-z0-9+/]+={0,2}$/.test(str);
+};
+
 // 3. Decrypt a message using YOUR private key
 export const decryptMessage = async (base64Ciphertext, myPrivateKeyJwk) => {
+    // Fast-path: if the message doesn't look like RSA ciphertext, it's plaintext — return as-is
+    // This silently handles all legacy messages without hitting atob() or the crypto API
+    if (!isLikelyEncrypted(base64Ciphertext)) {
+        return base64Ciphertext;
+    }
+
     try {
         const jwk = parseJwk(myPrivateKeyJwk, "My Private");
         const privateKey = await getImportedKey(jwk, "RSA", true, ["decrypt"]);
 
-        // Highly optimized Base64 parsing array loop
         const binaryString = atob(base64Ciphertext);
         const ciphertextBuffer = Uint8Array.from(binaryString, c => c.charCodeAt(0));
 
@@ -139,7 +152,7 @@ export const decryptMessage = async (base64Ciphertext, myPrivateKeyJwk) => {
 
         return new TextDecoder().decode(decryptedBuffer);
     } catch (err) {
-        console.warn("[Crypto] Decryption skipped (Legacy plaintext message or bad key):", err.message);
+        console.warn("[Crypto] Decryption skipped (bad key or corrupted ciphertext):", err.message);
         return base64Ciphertext; 
     }
 };

@@ -135,7 +135,11 @@ export default function ChatContainer({ socket, isTyping }) {
   const virtuosoRef = useRef(null);
   const isScrolledUpRef = useRef(false);
   const [highlightedMsgId, setHighlightedMsgId] = useState(null);
-  const myPrivateKeyRef = useRef(null); 
+  const myPrivateKeyRef = useRef(null);
+  // Ref mirror for activeGroupAesKey — lets the socket listener always read the
+  // latest AES key without being part of the effect dependency array.
+  // Without this, the listener captures a stale null from when it was registered.
+  const activeGroupAesKeyRef = useRef(null);
 
   const skeletonWidths = useMemo(() => ['45%', '65%', '35%', '80%', '50%'], []);
   
@@ -157,6 +161,11 @@ export default function ChatContainer({ socket, isTyping }) {
           myPrivateKeyRef.current = rawKey ? JSON.parse(rawKey) : null;
       }
   }, [currentUser]);
+
+  // Keep ref in sync so socket handlers always read the latest AES key
+  useEffect(() => {
+      activeGroupAesKeyRef.current = activeGroupAesKey;
+  }, [activeGroupAesKey]);
 
   useEffect(() => {
     if (currentUser && currentChat) {
@@ -365,8 +374,9 @@ export default function ChatContainer({ socket, isTyping }) {
         if (data.type === "text") {
             if (!data.isGroup && myPrivateKey) {
                 decryptedText = await decryptMessage(data.msg, myPrivateKey);
-            } else if (data.isGroup && activeGroupAesKey) {
-                decryptedText = await decryptGroupMessage(data.msg, activeGroupAesKey);
+            } else if (data.isGroup && activeGroupAesKeyRef.current) {
+                // Use the ref — not the closure value — so we always get the latest AES key
+                decryptedText = await decryptGroupMessage(data.msg, activeGroupAesKeyRef.current);
             }
             
             generateAIReplies(decryptedText);
