@@ -1,20 +1,29 @@
 // server/utils/meilisearch.js
 const { MeiliSearch } = require("meilisearch");
 
+// Initialize the Meilisearch client
 const meiliClient = new MeiliSearch({
+  // This will use your Render environment variable in production, 
+  // and fall back to localhost for your local development.
   host: process.env.MEILISEARCH_HOST || "http://127.0.0.1:7700",
-  apiKey: process.env.MEILISEARCH_API_KEY || "", // Leave empty for local dev without a master key
+  apiKey: process.env.MEILISEARCH_API_KEY || "", 
 });
 
+// Identify the indexes
 const userIndex = meiliClient.index("users");
-
-// --- PHASE 3: NEW MESSAGES INDEX ---
 const messageIndex = meiliClient.index("messages"); 
 
-// Initialize Search Settings (ALL awaits MUST be inside this async function!)
+/**
+ * Initialize Search Settings
+ * This function is called in server/index.js during the startup process.
+ */
 const setupMeilisearch = async () => {
+  const host = process.env.MEILISEARCH_HOST || "http://127.0.0.1:7700";
+  
   try {
-    // 1. Configure Users Index
+    console.log(`🔍 Connecting to Meilisearch at: ${host}`);
+
+    // 1. Configure Users Index (Settings for searching people)
     await userIndex.updateSearchableAttributes(["username", "email"]);
     await userIndex.updateRankingRules([
       "words",
@@ -25,16 +34,19 @@ const setupMeilisearch = async () => {
       "exactness",
     ]);
 
-    // 2. Configure Messages Index
+    // 2. Configure Messages Index (Settings for searching chats)
     await messageIndex.updateSearchableAttributes(["text"]);
-    // CRITICAL: This allows us to securely filter messages so users can only search their own chats
+    
+    // CRITICAL: This allows us to securely filter messages 
+    // so users can only search their own chats, not everyone's.
     await messageIndex.updateFilterableAttributes(["users"]);
 
-    console.log("Meilisearch configured and ready.");
+    console.log("✅ Meilisearch Cloud configured and ready.");
   } catch (error) {
-    console.warn("Meilisearch setup warning (Is the service running?):", error.message);
+    // If this fails, the app will still run, but search won't work.
+    console.warn("⚠️ Meilisearch setup warning:", error.message);
   }
 };
 
-// Make sure messageIndex is exported so the messageController can use it!
+// Export the client and indexes for use in your Controllers
 module.exports = { meiliClient, userIndex, messageIndex, setupMeilisearch };
