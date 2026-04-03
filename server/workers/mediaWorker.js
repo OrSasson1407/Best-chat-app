@@ -151,14 +151,16 @@ const worker = new Worker("media_processing", async (job) => {
 
       // 5. Trigger FCM Push Notification
       if (isSent) {
-          const receiver = await User.findById(to).select("fcmToken");
-          if (receiver && receiver.fcmToken) {
-             const isOnline = await cacheClient.hExists("online_users", to);
+          // FIX: select fcmTokens (array), not the old fcmToken (string)
+          const receiver = await User.findById(to).select("fcmTokens");
+          if (receiver && receiver.fcmTokens && receiver.fcmTokens.length > 0) {
+             // FIX: check user_sockets set — online_users hash is no longer written
+             const isOnline = (await cacheClient.sCard(`user_sockets:${to}`)) > 0;
              if (!isOnline) {
                  const senderUser = await User.findById(from).select("username");
                  await notificationQueue.add("send_fcm_message", {
                    userId: to,
-                   fcmToken: receiver.fcmToken,
+                   fcmTokens: receiver.fcmTokens,  // FIX: array, matches notificationWorker
                    title: `New message from ${senderUser.username}`,
                    body: `Sent a ${type}`,
                  }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });

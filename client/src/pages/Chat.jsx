@@ -42,17 +42,25 @@ export default function Chat() {
   }, []);
 
   const hasRedirected = useRef(false);
+  // FIX: sessionStorage is tab-isolated by the browser spec, making it the only
+  // correct source for per-tab identity. We removed currentUser from the Zustand
+  // IDB persist config because IDB is shared across ALL tabs — persisting there
+  // caused Tab B to rehydrate with Tab A's user on mount.
+  // This effect runs once and bootstraps the tab's identity from sessionStorage.
   useEffect(() => {
-    if (!currentUser) {
-      const stored = sessionStorage.getItem("chat-app-user");
-      // ✅ FIX: Guard against string "null" or "undefined"
-      if (stored && stored !== "null" && stored !== "undefined") { 
-        try { 
-          setCurrentUser(JSON.parse(stored)); 
-        } catch (e) { 
-          console.error("[Auth] Failed to parse stored user:", e); 
-        } 
-      }
+    const stored = sessionStorage.getItem("chat-app-user");
+    if (stored && stored !== "null" && stored !== "undefined") { 
+      try { 
+        const parsed = JSON.parse(stored);
+        // Always sync from sessionStorage — overrides any stale IDB rehydration
+        setCurrentUser(parsed); 
+      } catch (e) { 
+        console.error("[Auth] Failed to parse stored user:", e);
+        sessionStorage.clear();
+      } 
+    } else if (!currentUser) {
+      // No session data and no in-memory user → redirect to login
+      navigate("/login");
     }
   }, []);
 
@@ -138,7 +146,13 @@ export default function Chat() {
   useEffect(() => {
     async function fetchContacts() {
       if (currentUser && currentUser._id && !isOffline) {
-        try { const response = await axios.get(`${allUsersRoute}/${currentUser._id}`); setContacts(response.data); }
+        try { 
+          // FIX Bug C1: allUsersRoute is a protected endpoint — the global Axios
+          // interceptor in App.jsx attaches the Authorization header automatically,
+          // so no manual header is needed here. Previously this was missing entirely.
+          const response = await axios.get(`${allUsersRoute}/${currentUser._id}`);
+          setContacts(response.data);
+        }
         catch (error) { console.error("Error fetching contacts:", error); }
       }
     }
@@ -146,19 +160,27 @@ export default function Chat() {
   }, [currentUser, navigate, isOffline]);
 
   const handleLogout = useCallback(async () => {
+    const userId = currentUser?._id;
     try {
       const refreshToken = sessionStorage.getItem("chat-app-refresh-token");
-      // ✅ FIX: Removed manual header. The global Axios interceptor in App.jsx handles attaching the token automatically!
       await axios.post(`${host}/api/auth/logout`, { refreshToken });
     } catch (err) { 
       console.error("Logout API failed:", err); 
-    } finally { 
+    } finally {
+      // FIX: Clear only this user's IDB keys (not other tabs') + clear private keys
+      const { clearCache } = useChatStore.getState();
+      await clearCache(userId);
+      // FIX (Bug C5): remove E2E private keys so they don't persist after logout
+      if (userId) {
+        localStorage.removeItem(`privateKey_${userId}`);
+        localStorage.removeItem(`fullE2EKeys_${userId}`);
+      }
       sessionStorage.clear(); 
       setCurrentUser(undefined); 
       setCurrentChat(undefined); 
       navigate("/login"); 
     }
-  }, [navigate, setCurrentUser, setCurrentChat]);
+  }, [navigate, setCurrentUser, setCurrentChat, currentUser]);
 
   const handleChatChange = useCallback((chat) => { setCurrentChat(chat); setIsTyping(false); setIsMobileMenuOpen(false); }, [setCurrentChat]);
 

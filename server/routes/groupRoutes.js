@@ -24,7 +24,8 @@ const router = express.Router();
 // Basic Group Routes
 router.post("/create", auth, createGroup);
 router.get("/getgroups", auth, getUserGroups); // FIXED: Reverted back to /getgroups to match frontend
-router.post("/messages", auth, getGroupMessages);
+router.post("/messages", auth, getGroupMessages);    // keep for backward-compat
+router.post("/getmessages", auth, getGroupMessages); // FIX: frontend calls /getmessages
 
 // Standard Member Management
 router.post("/add-member", auth, addMember);

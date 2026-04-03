@@ -127,12 +127,15 @@ const deliveryReceiptSchema = Joi.object({
   isGroup: Joi.boolean().default(false)
 }).options({ stripUnknown: true });
 
+// FIX: Schema was mismatched with the frontend payload.
+// Frontend sends: { messageId, reactions (array), to, isGroup }
+// Old schema required: { from, reaction (string) } — both wrong field names.
+// 'from' is not sent (unnecessary for routing), 'reaction' -> 'reactions' (full updated array).
 const reactionSchema = Joi.object({
   messageId: Joi.string().required(),
-  from: Joi.string().required(),
   to: Joi.string().required(),
   isGroup: Joi.boolean().default(false),
-  reaction: Joi.string().required()
+  reactions: Joi.array().required()
 }).options({ stripUnknown: true });
 
 const markReadSchema = Joi.object({

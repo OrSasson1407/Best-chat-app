@@ -150,12 +150,14 @@ class MessageService {
       await cacheClient.expire(cacheKey, 86400);
     }
 
-    if (isSent && receiver && receiver.fcmToken && !global.onlineUsers?.has(to)) {
+    // FIX: User model stores fcmTokens as an array (multi-device support).
+    // Old field fcmToken (singular) no longer exists — always check fcmTokens.
+    if (isSent && receiver && receiver.fcmTokens && receiver.fcmTokens.length > 0) {
        try {
          const senderUser = await User.findById(from);
          await notificationQueue.add("send_fcm_message", {
            userId: receiver._id,
-           fcmToken: receiver.fcmToken,
+           fcmTokens: receiver.fcmTokens,  // FIX: array, matches notificationWorker expectation
            title: `New message from ${senderUser.username}`,
            body: finalType === "text" ? "Sent a message" : `Sent a ${finalType}`,
          }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 } });

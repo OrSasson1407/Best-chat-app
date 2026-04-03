@@ -20,7 +20,10 @@ module.exports = (io, socket, redisClient) => {
       const group = await Group.findById(groupId).select("users");
       
       // Strict Room Validation: Make sure the user is actually a member of the group
-      if (group && group.users.includes(socket.userId)) {
+      // FIX: Group schema field is `members`, not `users`. The wrong field name
+      // meant the check always failed, so no socket ever joined the group room,
+      // and real-time group messages were never delivered to anyone.
+      if (group && group.members.map(id => id.toString()).includes(socket.userId)) {
         socket.join(groupId);
       } else {
         socket.emit("error-msg", { message: "You are not authorized to join this group." });

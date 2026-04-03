@@ -38,12 +38,13 @@ class GroupService {
         deletedFor: { $ne: from }
     };
 
+    // FIX: cursor is a MongoDB _id string (same as DM service), not a date string
     if (cursor) {
-      query.createdAt = { $lt: new Date(cursor) }; 
+      query._id = { $lt: cursor };
     }
 
     const messages = await Message.find(query)
-      .sort({ createdAt: -1 })
+      .sort({ _id: -1 }) // FIX: sort by _id to match cursor-based pagination
       .limit(limit)
       .populate("sender", "username") 
       .populate("replyTo", "message.text sender type isDeleted");
@@ -89,7 +90,7 @@ class GroupService {
     return {
         messages: projectedMessages,
         hasMore: messages.length === limit, 
-        nextCursor: messages.length > 0 ? messages[0].createdAt : null 
+        nextCursor: messages.length > 0 ? messages[0]._id : null // FIX: return _id as cursor
     };
   }
 

@@ -33,14 +33,16 @@ module.exports = (io, redisClient) => {
             fileMetadata: message.fileMetadata
           };
 
-          message.users.forEach(async (userId) => {
+          // FIX: Use user_sockets Set (multi-device) — online_users Hash is never written.
+          // forEach with async callbacks doesn't await properly; use for...of instead.
+          for (const userId of message.users) {
             if (userId.toString() !== message.sender.toString()) {
-              const receiverSocket = await redisClient.hGet("online_users", userId.toString());
-              if (receiverSocket) {
-                io.to(receiverSocket).emit("msg-recieve", payload);
-              }
+              const receiverSockets = await redisClient.sMembers(`user_sockets:${userId.toString()}`);
+              receiverSockets.forEach(socketId => {
+                io.to(socketId).emit("msg-recieve", payload);
+              });
             }
-          });
+          }
         }
       }
 

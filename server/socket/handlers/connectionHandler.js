@@ -7,7 +7,12 @@ module.exports = (io, socket, redisClient, heartbeatThrottles) => {
      1. USER ONLINE STATUS
      ===================================================== */
   socket.on("add-user", async (userId) => {
-    socket.userId = userId;
+    // FIX Bug C2: Ignore the client-supplied userId entirely. The socket auth
+    // middleware in index.js already verified the JWT and set socket.userId = decoded.id.
+    // Trusting the payload here would let any authenticated user spoof another
+    // user's presence by emitting add-user with a different ID.
+    // We keep the parameter in the signature for API compatibility but discard it.
+    const userId = socket.userId; // use only the JWT-verified identity
 
     try {
       // ✅ FIX 1: Add the socket and set a 90-second expiration. 

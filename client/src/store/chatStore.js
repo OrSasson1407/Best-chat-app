@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 // CRITICAL FIX: Alias the idb-keyval imports to prevent collision with Zustand's (set, get)
-import { get as idbGet, set as idbSet, del as idbDel, clear as idbClear } from 'idb-keyval'; 
+import { get as idbGet, set as idbSet, del as idbDel } from 'idb-keyval'; // keys/del imported dynamically in clearCache
 
 // --- CUSTOM INDEXED-DB STORAGE ENGINE ---
 const idbStorage = {
@@ -115,9 +115,18 @@ const useChatStore = create(
       // =================================================================
 
       // --- 5. SECURE CLEANUP ---
-      clearCache: async () => {
-        // FIX: Use idbClear instead of clear()
-        await idbClear(); 
+      clearCache: async (userId) => {
+        // FIX: Don't use idbClear() — it wipes the ENTIRE IndexedDB origin, destroying
+        // other tabs' chat history too. Instead delete only keys owned by this user.
+        if (userId) {
+          const { keys } = await import('idb-keyval');
+          const allKeys = await keys();
+          const userKeys = allKeys.filter(k => 
+            typeof k === 'string' && k.includes(userId)
+          );
+          const { del } = await import('idb-keyval');
+          await Promise.all(userKeys.map(k => del(k)));
+        }
         set({ 
             offlineMessages: {}, 
             currentUser: undefined, 
@@ -128,11 +137,17 @@ const useChatStore = create(
       }
     }),
     {
-      name: 'best-chat-app-settings', 
+      // FIX: Use a tab-scoped key so each tab has its own isolated settings store.
+      // sessionStorage.getItem returns null in other tabs, giving a unique-enough key
+      // per tab. Falls back to a shared name only on first load (before sessionStorage
+      // is written), which is fine because currentUser is no longer persisted here.
+      name: `best-chat-app-settings-${sessionStorage.getItem('chat-app-token')?.slice(-8) || 'default'}`,
       storage: createJSONStorage(() => idbStorage), 
-      // CRITICAL FIX: We exclude offlineMessages here so Zustand only saves the lightweight UI/Auth state
+      // FIX: Do NOT persist currentUser here. IDB is shared across all tabs of the
+      // same origin, so persisting currentUser here causes Tab A's user to bleed into
+      // Tab B when it rehydrates. Identity must come exclusively from sessionStorage
+      // (which IS tab-isolated by the browser spec) — see Chat.jsx mount effect.
       partialize: (state) => ({ 
-        currentUser: state.currentUser, 
         theme: state.theme, 
         isCompact: state.isCompact,
       }),

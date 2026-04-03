@@ -1,5 +1,11 @@
 module.exports = (io, socket, redisClient) => {
 
+  // Helper: get any one active socket for a user (sufficient for 1-to-1 WebRTC signaling)
+  const getOneSocket = async (userId) => {
+    const sockets = await redisClient.sMembers(`user_sockets:${userId}`);
+    return sockets.length > 0 ? sockets[0] : null;
+  };
+
   /* =====================================================
      1. INITIATE CALL
      ===================================================== */
@@ -12,7 +18,8 @@ module.exports = (io, socket, redisClient) => {
       return;
     }
 
-    const receiverSocket = await redisClient.hGet("online_users", data.userToCall);
+    // FIX: Look up via user_sockets Set — online_users Hash is never written
+    const receiverSocket = await getOneSocket(data.userToCall);
 
     if (receiverSocket) {
       // Mark both users as currently in a call in Redis
@@ -36,7 +43,8 @@ module.exports = (io, socket, redisClient) => {
      2. ANSWER CALL
      ===================================================== */
   socket.on("answer-call", async (data) => {
-    const callerSocket = await redisClient.hGet("online_users", data.to);
+    // FIX: Look up via user_sockets Set
+    const callerSocket = await getOneSocket(data.to);
     if (callerSocket) {
       io.to(callerSocket).emit("call-accepted", data.signal);
     }
@@ -46,7 +54,8 @@ module.exports = (io, socket, redisClient) => {
      3. ICE CANDIDATE EXCHANGE
      ===================================================== */
   socket.on("ice-candidate", async (data) => {
-    const targetSocket = await redisClient.hGet("online_users", data.target);
+    // FIX: Look up via user_sockets Set
+    const targetSocket = await getOneSocket(data.target);
     if (targetSocket) {
       io.to(targetSocket).emit("ice-candidate-received", data.candidate);
     }
@@ -60,7 +69,8 @@ module.exports = (io, socket, redisClient) => {
     await redisClient.hDel("active_calls", data.to);
     if (socket.userId) await redisClient.hDel("active_calls", socket.userId);
 
-    const targetSocket = await redisClient.hGet("online_users", data.to);
+    // FIX: Look up via user_sockets Set
+    const targetSocket = await getOneSocket(data.to);
 
     if (targetSocket) {
       io.to(targetSocket).emit("call-ended", {

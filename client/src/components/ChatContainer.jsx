@@ -314,6 +314,15 @@ export default function ChatContainer({ socket, isTyping }) {
       };
 
       const handleMsgRecieve = async (data) => {
+        // FIX: Guard — only process messages that belong to the currently open chat.
+        // Without this, a DM arriving while the user is viewing a group (or a different
+        // DM) would be injected into the wrong message list.
+        const isForCurrentChat = data.isGroup
+          ? currentChat._id === data.to          // group messages: match the group id
+          : currentChat._id === data.from;       // DMs: match the sender
+
+        if (!isForCurrentChat) return;
+
         let decryptedText = data.msg;
         const myPrivateKey = myPrivateKeyRef.current;
 
@@ -324,9 +333,7 @@ export default function ChatContainer({ socket, isTyping }) {
                 decryptedText = await decryptGroupMessage(data.msg, activeGroupAesKey);
             }
             
-            if (data.from === currentChat._id || data.isGroup) {
-                generateAIReplies(decryptedText);
-            }
+            generateAIReplies(decryptedText);
         }
 
         setArrivalMessage({ 

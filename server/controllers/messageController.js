@@ -175,7 +175,9 @@ module.exports.addMessage = async (req, res, next) => {
 
 module.exports.reactToMessage = async (req, res, next) => {
   try {
-    const { messageId, emoji, userId, username } = req.body;
+    const { messageId, emoji, username } = req.body;
+    // FIX: Use verified JWT identity — body userId could be forged to react as anyone.
+    const userId = req.user.id;
     const message = await Message.findById(messageId);
     if (!message) return res.status(404).json({ msg: "Message not found" });
 
@@ -207,7 +209,8 @@ module.exports.deleteMessage = async (req, res, next) => {
     const message = await Message.findById(messageId);
     if (!message) return res.status(404).json({ msg: "Message not found" });
 
-    const requestingUserId = req.user?.id || req.body.userId;
+    // FIX: Remove body fallback — req.user.id is always set by auth middleware on protected routes.
+    const requestingUserId = req.user.id;
     if (message.sender.toString() !== requestingUserId.toString()) {
         return res.status(403).json({ msg: "Unauthorized action: You can only delete your own messages." });
     }
@@ -238,12 +241,23 @@ module.exports.deleteMessage = async (req, res, next) => {
    ========================================================= */
 module.exports.deleteMessageForMe = async (req, res, next) => {
   try {
-    const { messageId, userId } = req.body;
+    const { messageId } = req.body;
+    // FIX: Never trust userId from the request body — use the verified JWT identity.
+    // Previously any authenticated user could pass any userId and hide the message
+    // from that person's view, which is a privilege escalation vulnerability.
+    const userId = req.user.id;
+
     const message = await Message.findById(messageId);
     if (!message) return res.status(404).json({ msg: "Message not found" });
 
+    // Verify the requester is actually a participant in this conversation
+    const isParticipant = message.users.some(id => id.toString() === userId.toString());
+    if (!isParticipant) {
+        return res.status(403).json({ msg: "Unauthorized: You are not part of this conversation." });
+    }
+
     if (!message.deletedFor) message.deletedFor = [];
-    
+
     if (!message.deletedFor.some(id => id.toString() === userId.toString())) {
         message.deletedFor.push(userId);
         await message.save();
@@ -264,7 +278,8 @@ module.exports.editMessage = async (req, res, next) => {
     const message = await Message.findById(messageId);
     if (!message) return res.status(404).json({ msg: "Message not found" });
 
-    const requestingUserId = req.user?.id || req.body.userId;
+    // FIX: Remove body fallback — req.user.id is always set by auth middleware on protected routes.
+    const requestingUserId = req.user.id;
     if (message.sender.toString() !== requestingUserId.toString()) {
         return res.status(403).json({ msg: "Unauthorized action: You can only edit your own messages." });
     }
@@ -316,7 +331,10 @@ module.exports.editMessage = async (req, res, next) => {
 
 module.exports.votePoll = async (req, res, next) => {
     try {
-        const { messageId, optionId, userId } = req.body;
+        const { messageId, optionId } = req.body;
+        // FIX: Use verified JWT identity — body userId could be forged to vote as anyone.
+        const userId = req.user.id;
+
         const message = await Message.findById(messageId);
         
         if (!message || message.type !== 'poll') {
@@ -343,13 +361,16 @@ module.exports.votePoll = async (req, res, next) => {
 
 module.exports.triggerViewOnce = async (req, res, next) => {
     try {
-        const { messageId, userId } = req.body;
+        const { messageId } = req.body;
+        // FIX: Use verified JWT identity — body userId could be forged to mark media as
+        // viewed on behalf of another user, destroying their view-once opportunity.
+        const userId = req.user.id;
+
         const message = await Message.findById(messageId);
-        
-        if(!message) return res.status(404).json({ msg: "Message not found" });
+        if (!message) return res.status(404).json({ msg: "Message not found" });
 
         message.viewed = true;
-        if (userId && !message.viewedBy.some(id => id.toString() === userId.toString())) {
+        if (!message.viewedBy.some(id => id.toString() === userId.toString())) {
             message.viewedBy.push(userId);
         }
         await message.save();
@@ -362,9 +383,11 @@ module.exports.triggerViewOnce = async (req, res, next) => {
 
 module.exports.toggleStarMessage = async (req, res, next) => {
     try {
-        const { messageId, userId } = req.body;
+        const { messageId } = req.body;
+        // FIX: Use verified JWT identity — body userId could be forged to star/unstar for anyone.
+        const userId = req.user.id;
+
         const message = await Message.findById(messageId);
-        
         if(!message) return res.status(404).json({ msg: "Message not found" });
 
         const isStarred = message.starredBy && message.starredBy.some(id => id.toString() === userId.toString());

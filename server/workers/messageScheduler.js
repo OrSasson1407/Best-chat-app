@@ -117,12 +117,13 @@ const startMessageScheduler = async (io, redisClient) => {
             
           } else {
             // Recipient is offline, send a push notification instead
-            const offlineUser = await User.findById(targetId.toString());
+            // FIX: select fcmTokens (array) — old fcmToken (singular) field no longer exists
+            const offlineUser = await User.findById(targetId.toString()).select("fcmTokens");
             
-            if (offlineUser && offlineUser.fcmToken) {
+            if (offlineUser && offlineUser.fcmTokens && offlineUser.fcmTokens.length > 0) {
               await notificationQueue.add("send_fcm_message", {
                 userId: targetId.toString(),
-                fcmToken: offlineUser.fcmToken,
+                fcmTokens: offlineUser.fcmTokens,  // FIX: array, matches notificationWorker
                 title: "New Scheduled Message",
                 body: msg.message?.text || msg.message.text || "You received a new message"
               });
