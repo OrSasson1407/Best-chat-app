@@ -1,16 +1,20 @@
 // server/controllers/aiController.js
 const { OpenAI } = require("openai");
-
 const Message = require("../models/Message");
 
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+  apiKey: process.env.OPENAI_API_KEY || "dummy-key", // Fallback to prevent init crash
 });
 
 // Helper — returns true if a usable API key is configured
-const hasApiKey = () =>
-  process.env.OPENAI_API_KEY &&
-  !process.env.OPENAI_API_KEY.includes("dummy-key");
+const hasApiKey = () => {
+  const key = process.env.OPENAI_API_KEY;
+  return (
+    key &&
+    !key.includes("dummy-key") &&
+    !key.includes("REPLACE_THIS") // Added check for your local .env placeholder
+  );
+};
 
 // --- FEATURE 1: Quick Replies ---
 module.exports.generateQuickReplies = async (req, res, next) => {
@@ -45,15 +49,18 @@ module.exports.generateQuickReplies = async (req, res, next) => {
       const replies = JSON.parse(repliesText);
       return res.status(200).json({ status: true, replies });
     } catch (parseErr) {
+      // JSON parse failed, send fallbacks
       return res
         .status(200)
         .json({ status: true, replies: ["Sounds good!", "Okay", "Thanks!"] });
     }
   } catch (error) {
-    console.error("AI Quick Reply Error:", error.message || error);
+    console.error("AI Quick Reply Error (Quota/Key issue):", error.message || error);
+    // FIX: Instead of throwing a 500 error that breaks the frontend, 
+    // gracefully return a 200 status with generic fallback replies.
     return res
-      .status(500)
-      .json({ status: false, msg: "Failed to generate replies" });
+      .status(200)
+      .json({ status: true, replies: ["Sounds good!", "Okay", "Thanks!"] });
   }
 };
 
@@ -85,9 +92,10 @@ module.exports.translateMessage = async (req, res, next) => {
     return res.status(200).json({ status: true, translatedText });
   } catch (error) {
     console.error("AI Translation Error:", error.message || error);
+    // Graceful degradation for translation
     return res
-      .status(500)
-      .json({ status: false, msg: "Failed to translate message" });
+      .status(200)
+      .json({ status: false, msg: "AI translation currently unavailable." });
   }
 };
 
@@ -150,8 +158,9 @@ module.exports.summarizeChat = async (req, res, next) => {
     return res.status(200).json({ status: true, summary });
   } catch (error) {
     console.error("AI Chat Summary Error:", error.message || error);
+    // Graceful degradation for summary
     return res
-      .status(500)
-      .json({ status: false, msg: "Failed to summarize chat" });
+      .status(200)
+      .json({ status: false, msg: "AI summary currently unavailable due to API limits." });
   }
 };
