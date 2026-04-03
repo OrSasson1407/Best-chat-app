@@ -67,7 +67,10 @@ export default function Login() {
             localStorage.setItem(`fullE2EKeys_${data.user._id}`, JSON.stringify(privateKeys));
 
             // Upload public bundle to server
-            await axios.post(updateE2EKeysRoute, { bundle }, { headers: { Authorization: `Bearer ${data.token}` } });
+            // ✅ FIX: spread bundle fields at top level — uploadKeyBundle destructures
+            // { identityKey, registrationId, signedPreKey, preKeys } from req.body directly.
+            // Sending { bundle } wraps them one level too deep → all fields arrive as undefined.
+            await axios.post(updateE2EKeysRoute, { ...bundle }, { headers: { Authorization: `Bearer ${data.token}` } });
 
             console.info("[Crypto] E2E keys generated and uploaded successfully.");
           }

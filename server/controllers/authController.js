@@ -371,7 +371,11 @@ module.exports.updateE2EKeys = async (req, res, next) => {
         return res.status(403).json({ status: false, msg: "Forbidden: You cannot register keys for another user." });
     }
     
-    await User.findByIdAndUpdate(userId, { e2eKeys });
+    await User.findByIdAndUpdate(userId, {
+      e2eKeys,
+      "e2eStatus.hasKeys": true,
+      "e2eStatus.enabled": true,
+    });
     console.log(`[Crypto] E2E Keys Bundle registered for user ${userId}`);
     return res.json({ status: true, msg: "E2E Keys Bundle registered" });
   } catch (ex) {
