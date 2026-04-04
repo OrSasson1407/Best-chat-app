@@ -6,7 +6,7 @@ const GroupSchema = new mongoose.Schema(
       type: String,
       required: true,
       min: 3,
-      max: 50, 
+      max: 50,
     },
     description: {
       type: String,
@@ -14,12 +14,12 @@ const GroupSchema = new mongoose.Schema(
     },
     avatarImage: {
       type: String,
-      default: "", 
+      default: "",
     },
     members: [
       {
         type: mongoose.Schema.Types.ObjectId,
-        ref: "User", 
+        ref: "User",
       },
     ],
     admins: [
@@ -31,37 +31,44 @@ const GroupSchema = new mongoose.Schema(
     ],
     groupKeys: [
       {
-        userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-        encryptedKey: { type: String, required: true } 
+        userId: { 
+          type: mongoose.Schema.Types.ObjectId, 
+          ref: "User", 
+          required: true 
+        },
+        encryptedKey: { 
+          type: String, 
+          required: true 
+        }
       }
     ],
     inviteCode: {
       type: String,
       unique: true,
-      sparse: true 
+      sparse: true,
     },
-    
+
     // --- ADVANCED ROLES & PERMISSIONS ---
     moderators: [
-      { 
-        type: mongoose.Schema.Types.ObjectId, 
-        ref: "User" 
-      }
-    ],
-    bannedUsers: [ // <-- NEW: Prevent kicked users from re-joining
       {
-        type: mongoose.Schema.Types.ObjectId, 
-        ref: "User" 
-      }
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
     ],
-    isChannel: { 
-        type: Boolean, 
-        default: false // If true, only Admins and Mods can send messages
+    bannedUsers: [ // Prevent kicked users from re-joining
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
+    isChannel: {
+      type: Boolean,
+      default: false, // If true, only Admins and Mods can send messages
     },
-    isPublic: { 
-        type: Boolean, 
-        default: false // If true, anyone can search and join without an invite
-    }
+    isPublic: {
+      type: Boolean,
+      default: false, // If true, anyone can search and join without an invite
+    },
   },
   {
     timestamps: true,
