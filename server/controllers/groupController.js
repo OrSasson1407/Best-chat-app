@@ -3,6 +3,28 @@ const groupService = require("../services/groupService");
 module.exports.createGroup = async (req, res, next) => {
   try {
     const group = await groupService.createGroup(req.body, req.user.id);
+
+    // Notify all group members in real-time so they see the new group without refreshing
+    const io = req.app.get("io");
+    if (io && group && group.members) {
+      const redisClient = req.app.get("redisClient") || global.redisClient;
+      group.members.forEach(async (memberId) => {
+        const memberIdStr = memberId.toString();
+        // Skip the creator — they already update their own list client-side
+        if (memberIdStr === req.user.id.toString()) return;
+        try {
+          if (redisClient) {
+            const socketId = await redisClient.hGet("online_users", memberIdStr);
+            if (socketId) {
+              io.to(socketId).emit("group-created", group);
+            }
+          }
+        } catch (err) {
+          console.error("[Socket] Failed to notify member of new group:", err);
+        }
+      });
+    }
+
     return res.json({ status: true, group });
   } catch (ex) {
     next(ex);

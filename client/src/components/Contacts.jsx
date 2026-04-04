@@ -14,7 +14,7 @@ import {
     searchMessageRoute, getStoryFeedRoute, addStoryRoute, viewStoryRoute,
     searchChannelsRoute, joinChannelRoute, publicKeyRoute
 } from "../utils/APIRoutes";
-import { ToastContainer, toast } from "react-toastify";
+import { toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
 import useChatStore from "../store/chatStore";
@@ -42,7 +42,7 @@ const formatLastSeen = (dateString) => {
     return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 };
 
-export default function Contacts({ contacts, changeChat, handleLogout }) {
+export default function Contacts({ contacts, changeChat, handleLogout, socket }) {
     const {
         currentUser, updateCurrentUser, onlineUsers, theme, setTheme,
         isCompact, setIsCompact, globalTypingUsers
@@ -69,6 +69,7 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
 
     // Modals
     const [showGroupModal, setShowGroupModal] = useState(false);
+    const [isCreatingGroup, setIsCreatingGroup] = useState(false);
     const [groupName, setGroupName] = useState("");
     const [selectedMembers, setSelectedMembers] = useState([]);
     const [groupSearchTerm, setGroupSearchTerm] = useState(""); // ✅ NEW: State for modal search
@@ -149,6 +150,21 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
         }
         return () => clearTimeout(timer);
     }, [viewingStoryUser, currentStoryIndex]);
+
+    // Real-time: receive new group created by someone else
+    useEffect(() => {
+        if (!socket?.current) return;
+        const handleGroupCreated = (newGroup) => {
+            setGroups((prev) => {
+                // Avoid duplicates
+                if (prev.some((g) => g._id === newGroup._id)) return prev;
+                return [...prev, newGroup];
+            });
+            toast.info(`📣 You were added to "${newGroup.name}"`);
+        };
+        socket.current.on("group-created", handleGroupCreated);
+        return () => { socket.current?.off("group-created", handleGroupCreated); };
+    }, [socket?.current]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Debounced Message Search
     useEffect(() => {
@@ -308,9 +324,11 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
     };
 
     const handleCreateGroup = async () => {
+        if (isCreatingGroup) return;
         if (groupName.length < 3) return toast.error("Group name must be at least 3 characters.");
         if (selectedMembers.length < 1) return toast.error("Please select at least 1 member.");
 
+        setIsCreatingGroup(true);
         try {
             const allMembers = [...selectedMembers, currentUser._id];
 
@@ -364,6 +382,8 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
         } catch (error) {
             console.error("[API] Failed to create group", error);
             toast.error("Failed to create group. Please try again.");
+        } finally {
+            setIsCreatingGroup(false);
         }
     };
 
@@ -762,7 +782,7 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
                                     </div>
                                     <div className="button-group">
                                         <button className="btn-secondary" onClick={() => { setShowGroupModal(false); setGroupSearchTerm(""); }}>Cancel</button>
-                                        <button className="btn-primary" onClick={handleCreateGroup}>Create Group</button>
+                                        <button className="btn-primary" onClick={handleCreateGroup} disabled={isCreatingGroup} style={{ opacity: isCreatingGroup ? 0.6 : 1, cursor: isCreatingGroup ? "not-allowed" : "pointer" }}>{isCreatingGroup ? "Creating..." : "Create Group"}</button>
                                     </div>
                                 </motion.div>
                             </ModalOverlay>
@@ -899,19 +919,6 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
                             </ModalOverlay>
                         )}
                     </AnimatePresence>
-
-                    <ToastContainer
-                        position="top-center"
-                        autoClose={3000}
-                        hideProgressBar={true}
-                        newestOnTop={true}
-                        closeOnClick
-                        rtl={false}
-                        pauseOnFocusLoss
-                        draggable
-                        pauseOnHover
-                        theme={theme === "light" ? "light" : "dark"}
-                    />
                 </Container>
             )}
         </>

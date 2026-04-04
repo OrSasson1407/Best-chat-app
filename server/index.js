@@ -205,6 +205,7 @@ Promise.all([
   setupMeilisearch();
 
   io.adapter(createAdapter(pubClient, subClient));
+  app.set("redisClient", pubClient);
 
   /* =========================================================
      STRICT SOCKET AUTHENTICATION

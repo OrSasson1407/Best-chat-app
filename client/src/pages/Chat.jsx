@@ -260,7 +260,7 @@ export default function Chat() {
         {isMobileMenuOpen && <div className="sidebar-backdrop" onClick={() => setIsMobileMenuOpen(false)} />}
 
         <div className={`sidebar-wrapper ${isMobileMenuOpen ? "open" : ""}`}>
-          <Contacts contacts={contacts} changeChat={handleChatChange} handleLogout={handleLogout} />
+          <Contacts contacts={contacts} changeChat={handleChatChange} handleLogout={handleLogout} socket={socket} />
         </div>
 
         <div className="chat-wrapper">
