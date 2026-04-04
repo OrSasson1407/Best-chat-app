@@ -87,6 +87,7 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
         privacySettings: { lastSeen: "everyone", readReceipts: true, profilePhoto: "everyone" }
     });
     const [hasPin, setHasPin] = useState(!!localStorage.getItem("app-pin-code"));
+    const [avatarPreview, setAvatarPreview] = useState(null);
 
     // Stories
     const [storyFeed, setStoryFeed] = useState([]);
@@ -94,6 +95,7 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
     const [currentStoryIndex, setCurrentStoryIndex] = useState(0);
     const [isUploadingStory, setIsUploadingStory] = useState(false);
     const fileInputRef = useRef(null);
+    const avatarUploadRef = useRef(null);
 
     const pressTimer = useRef(null);
     const [storyPreview, setStoryPreview] = useState(null);
@@ -400,6 +402,20 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
         }
     };
 
+    const handleAvatarUpload = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        if (file.size > 2 * 1024 * 1024) {
+            toast.error("Image must be under 2MB.");
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            setAvatarPreview(ev.target.result);
+        };
+        reader.readAsDataURL(file);
+    };
+
     const handleUpdateProfile = async () => {
         try {
             const interestsArray = profileData.interests
@@ -408,7 +424,8 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
 
             const { data } = await axios.post(`${updateProfileRoute}/${currentUser._id}`, {
                 ...profileData,
-                interests: interestsArray
+                interests: interestsArray,
+                ...(avatarPreview ? { avatarImage: avatarPreview } : {})
             }, getAuthHeader()); 
 
             if (data.status) {
@@ -416,6 +433,7 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
                 const updatedUser = { ...data.user, token: currentToken };
                 sessionStorage.setItem("chat-app-user", JSON.stringify(updatedUser));
                 updateCurrentUser(data.user); 
+                setAvatarPreview(null);
                 toast.success("Profile updated.");
                 setShowProfileModal(false);
             }
@@ -827,7 +845,28 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
                                 <motion.div className="modal-content profile" initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}>
                                     <h3>Profile & Settings</h3>
 
-                                    <div className="grid-2">
+                                    {/* Avatar Upload */}
+                                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "10px", marginBottom: "8px" }}>
+                                        <div style={{ position: "relative", width: "80px", height: "80px", cursor: "pointer" }} onClick={() => avatarUploadRef.current?.click()}>
+                                            <img
+                                                src={avatarPreview || getAvatarUrl(currentUser)}
+                                                alt="avatar"
+                                                style={{ width: "80px", height: "80px", borderRadius: "50%", objectFit: "cover", border: "3px solid var(--msg-sent)" }}
+                                            />
+                                            <div style={{ position: "absolute", bottom: 0, right: 0, width: "26px", height: "26px", borderRadius: "50%", background: "var(--msg-sent)", display: "flex", alignItems: "center", justifyContent: "center", border: "2px solid var(--bg-panel)" }}>
+                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                                            </div>
+                                        </div>
+                                        <span style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)" }}>
+                                            {avatarPreview ? "New photo selected — save to apply" : "Click to change profile photo"}
+                                        </span>
+                                        {avatarPreview && (
+                                            <button type="button" onClick={() => setAvatarPreview(null)} style={{ fontSize: "var(--text-xs)", color: "var(--text-tertiary)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
+                                                Cancel
+                                            </button>
+                                        )}
+                                        <input ref={avatarUploadRef} type="file" accept="image/*" hidden onChange={handleAvatarUpload} />
+                                    </div>
                                         <div className="input-field">
                                             <label>Theme</label>
                                             <select value={theme} onChange={(e) => setTheme(e.target.value)}>

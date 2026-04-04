@@ -290,9 +290,14 @@ module.exports.updateProfile = async (req, res, next) => {
       return res.status(403).json({ status: false, msg: "Forbidden: You cannot modify another user's profile." });
     }
 
-    const { statusMessage, statusIcon, bio, interests, privacySettings } = req.body;
+    const { statusMessage, statusIcon, bio, interests, privacySettings, avatarImage } = req.body;
     
     let updatePayload = { statusMessage, statusIcon, bio, interests };
+
+    // Allow user to update their own avatar photo
+    if (avatarImage && typeof avatarImage === "string") {
+        updatePayload.avatarImage = avatarImage;
+    }
     
     if (privacySettings) {
         Object.keys(privacySettings).forEach(key => {

@@ -199,13 +199,24 @@ export default function Register() {
 
               {/* Gender */}
               <div className="field-group">
-                <label htmlFor="gender">Gender</label>
-                <div className="input-wrap select-wrap">
-                  <svg className="field-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="8" r="4"/><path d="M16 16c0-2.21-1.79-4-4-4s-4 1.79-4 4"/></svg>
-                  <select id="gender" name="gender" value={values.gender} onChange={handleChange} disabled={isSubmitting}>
-                    <option value="male">Male</option>
-                    <option value="female">Female</option>
-                  </select>
+                <label>Gender — avatars update automatically</label>
+                <div className="gender-toggle">
+                  <button
+                    type="button"
+                    className={`gender-btn ${values.gender === "male" ? "active" : ""}`}
+                    onClick={() => !isSubmitting && setValues({ ...values, gender: "male" })}
+                    disabled={isSubmitting}
+                  >
+                    <span className="gender-icon">♂</span> Male
+                  </button>
+                  <button
+                    type="button"
+                    className={`gender-btn ${values.gender === "female" ? "active" : ""}`}
+                    onClick={() => !isSubmitting && setValues({ ...values, gender: "female" })}
+                    disabled={isSubmitting}
+                  >
+                    <span className="gender-icon">♀</span> Female
+                  </button>
                 </div>
               </div>
 
@@ -326,6 +337,10 @@ const Card = styled.div`
   .strength-bar{flex:1;height:4px;background:var(--bg-overlay);border-radius:4px;overflow:hidden;}
   .strength-fill{height:100%;border-radius:4px;transition:width 0.4s,background 0.4s;}
   .strength-label{font-size:var(--text-2xs);font-weight:700;min-width:40px;text-align:right;}
+
+  /* Gender toggle */
+  .gender-toggle{display:flex;gap:10px;}
+  .gender-btn{flex:1;padding:11px;background:var(--input-bg);border:2px solid var(--border-default);color:var(--text-secondary);border-radius:12px;font-family:'Plus Jakarta Sans',sans-serif;font-size:var(--text-sm);font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;transition:all var(--duration-base);&:hover:not(:disabled){border-color:var(--msg-sent);color:var(--msg-sent);}&.active{border-color:var(--msg-sent);background:rgba(124,58,237,0.12);color:var(--msg-sent);box-shadow:0 0 0 3px rgba(124,58,237,0.15);}&:disabled{opacity:0.5;cursor:not-allowed;}}.gender-icon{font-size:1.1rem;}
 
   /* Avatars */
   .avatar-section{display:flex;flex-direction:column;gap:10px;}
