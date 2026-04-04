@@ -882,7 +882,6 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
                                                 {isCompact ? "Enabled" : "Disabled"}
                                             </button>
                                         </div>
-                                    </div>
 
                                     <div className="section-divider"><FaShieldAlt /> Privacy & Security</div>
 
