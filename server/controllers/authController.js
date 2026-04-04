@@ -238,9 +238,11 @@ module.exports.getAllUsers = async (req, res, next) => {
     });
 
     if (cacheMisses.length > 0) {
+      // FIX: Include e2eStatus and lastSeen so frontend knows upfront who has E2E keys
       const missedUsers = await User.find({ _id: { $in: cacheMisses } }).select([
-        "email", "username", "avatarImage", "gender", "_id", 
-        "statusMessage", "statusIcon", "bio", "interests", "privacySettings" 
+        "email", "username", "avatarImage", "gender", "_id",
+        "statusMessage", "statusIcon", "bio", "interests", "privacySettings",
+        "e2eStatus", "lastSeen", "isOnline"
       ]);
 
       const msetArgs = [];

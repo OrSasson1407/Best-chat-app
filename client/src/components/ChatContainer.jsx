@@ -646,10 +646,16 @@ export default function ChatContainer({ socket, isTyping }) {
                         finalMessageContent = await encryptMessage(msg, bundle.identityKey);
                     } catch (err) {
                         console.error("[Crypto] Encryption failed, sending as plaintext:", err.message);
+                        toast.warning("⚠️ Encryption failed — message sent unencrypted.", { toastId: "enc-fail", autoClose: 4000 });
                     }
                 } else {
-                    // null = legacy user with no keys, already cached — silently send plaintext
-                    console.info("[Crypto] No E2E keys for this user — sending as plaintext.");
+                    // This user has no E2E keys in the DB (registered before E2E was enabled).
+                    // They need to log out and back in for keys to be generated automatically.
+                    toast.warning(
+                        `⚠️ ${currentChat.username} has no encryption keys yet. Ask them to log out and back in. Message sent unencrypted.`,
+                        { toastId: "no-e2e-keys", autoClose: 6000 }
+                    );
+                    console.warn("[Crypto] No E2E keys for this user — sending as plaintext.");
                 }
             } else if (currentChat.admin && activeGroupAesKey) {
                 try {

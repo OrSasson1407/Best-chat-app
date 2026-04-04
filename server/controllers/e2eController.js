@@ -23,12 +23,9 @@ module.exports.getKeyBundle = async (req, res, next) => {
     const user = await User.findById(targetUserId).select("e2eKeys");
 
     if (!user || !user.e2eKeys || !user.e2eKeys.identityKey) {
-      // Mark the target user as not having keys so frontend can cache this and skip encryption
-      await User.findByIdAndUpdate(targetUserId, {
-        "e2eStatus.hasKeys": false,
-        "e2eStatus.enabled": false,
-      });
-      return res.status(404).json({ status: false, hasKeys: false, msg: "Target user E2E keys not found." });
+      // Do NOT update the user record here — we are reading someone else's keys,
+      // not our own. Writing to their document would corrupt their e2eStatus.
+      return res.status(404).json({ status: false, hasKeys: false, msg: "Target user has no E2E keys. They need to log out and back in." });
     }
 
     // Read a one-time pre-key without consuming it.
