@@ -607,6 +607,8 @@ export default function ChatInput({
             </div>
           ) : isCodeMode ? (
             <textarea 
+              id="code-snippet-input"
+              name="code-snippet-input"
               placeholder="Paste your code snippet here..." 
               onChange={handleInput} 
               onKeyDown={handleKeyDown}
@@ -617,6 +619,8 @@ export default function ChatInput({
             />
           ) : (
             <textarea
+              id="chat-message-input"
+              name="chat-message-input"
               ref={textareaRef}
               placeholder={isUploading ? "Uploading media..." : (showCommands ? "Select a command..." : "Type a message or use '/' for commands...")}
               onChange={handleInput}
