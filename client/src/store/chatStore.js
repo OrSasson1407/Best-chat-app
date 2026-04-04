@@ -31,7 +31,11 @@ const useChatStore = create(
       setCurrentChat: (chat) => set({ currentChat: chat }),
 
       onlineUsers: [],
-      setOnlineUsers: (users) => set({ onlineUsers: users }),
+      setOnlineUsers: (usersOrUpdater) => set((state) => ({
+        onlineUsers: typeof usersOrUpdater === 'function'
+          ? usersOrUpdater(state.onlineUsers)
+          : usersOrUpdater
+      })),
 
       globalTypingUsers: [],
       setGlobalTypingUsers: (updater) => set((state) => ({

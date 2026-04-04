@@ -38,15 +38,25 @@ import { triggerHaptic } from "../utils/haptics";
 // MODULE-LEVEL E2E BUNDLE CACHE
 // Lives outside the component so it persists across re-renders
 // and chat switches. Cleared only on full page reload.
-// Map value is either a bundle object (has keys) or null (no keys).
-// null means "we already checked — don't ask again".
+// Map value:
+//   - bundle object  → user has valid keys (cached forever until reload)
+//   - { _noKeys: true, _cachedAt: timestamp } → no keys found YET
+//     (only trusted for 30s so newly-registered users get picked up quickly)
 // ============================================================
 const e2eBundleCache = new Map();
+const NULL_CACHE_TTL_MS = 30_000; // retry "no keys" users after 30 seconds
 
 async function getCachedBundle(userId, authHeader) {
-  // Cache hit — return immediately, whether it's a bundle or null
   if (e2eBundleCache.has(userId)) {
-    return e2eBundleCache.get(userId);
+    const cached = e2eBundleCache.get(userId);
+    // Real bundle — return forever
+    if (cached && !cached._noKeys) return cached;
+    // Null-sentinel — only honour it within the TTL window
+    if (cached._noKeys && Date.now() - cached._cachedAt < NULL_CACHE_TTL_MS) {
+      return null;
+    }
+    // TTL expired — fall through and re-fetch
+    e2eBundleCache.delete(userId);
   }
 
   try {
@@ -55,15 +65,15 @@ async function getCachedBundle(userId, authHeader) {
       e2eBundleCache.set(userId, res.data.bundle);
       return res.data.bundle;
     }
-    // Got a response but no valid bundle — cache null so we don't retry
-    e2eBundleCache.set(userId, null);
+    // Got a response but no valid bundle — cache with TTL
+    e2eBundleCache.set(userId, { _noKeys: true, _cachedAt: Date.now() });
     return null;
   } catch (err) {
     if (err.response?.status === 404) {
-      // User has no keys — cache null to permanently silence future attempts
-      e2eBundleCache.set(userId, null);
+      // User has no keys yet — cache with TTL (not permanently)
+      e2eBundleCache.set(userId, { _noKeys: true, _cachedAt: Date.now() });
     } else {
-      // Network error or server crash — do NOT cache, allow retry next message
+      // Network/server error — do NOT cache, allow retry next message
       console.error("[Crypto] Bundle fetch error:", err.message);
     }
     return null;

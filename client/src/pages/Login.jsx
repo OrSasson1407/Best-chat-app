@@ -66,9 +66,9 @@ export default function Login() {
             localStorage.setItem(`privateKey_${data.user._id}`, JSON.stringify(privateKeys.identityPrivateKey));
             localStorage.setItem(`fullE2EKeys_${data.user._id}`, JSON.stringify(privateKeys));
 
-            // Upload public bundle to server
-            // ✅ FIX: explicit { userId, e2eKeys } matches the authController format
-            await axios.post(updateE2EKeysRoute, { userId: data.user._id, e2eKeys: bundle }, { headers: { Authorization: `Bearer ${data.token}` } });
+            // Upload public bundle to server — e2eController.uploadKeyBundle expects
+            // the bundle fields at the top level (identityKey, registrationId, etc.)
+            await axios.post(updateE2EKeysRoute, bundle, { headers: { Authorization: `Bearer ${data.token}` } });
             console.info("[Crypto] E2E keys generated and uploaded successfully.");
           }
         } catch (e2eErr) { console.error("[Crypto] E2EE key setup failed:", e2eErr); }

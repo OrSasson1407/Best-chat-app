@@ -31,14 +31,10 @@ module.exports.getKeyBundle = async (req, res, next) => {
       return res.status(404).json({ status: false, hasKeys: false, msg: "Target user E2E keys not found." });
     }
 
-    // "Pop" one pre-key off the array to give to the requester
-    // This ensures perfect forward secrecy (the key is single-use)
-    const oneTimePreKey = user.e2eKeys.preKeys.pop();
-    
-    if (oneTimePreKey) {
-        // Save the user to register that this one-time key has been consumed
-        await user.save();
-    }
+    // Read a one-time pre-key without consuming it.
+    // We only generate 1 pre-key per registration and have no replenishment flow,
+    // so popping here would leave every user after the first contact with no pre-key.
+    const oneTimePreKey = user.e2eKeys.preKeys?.[0];
 
     return res.json({
       status: true,
@@ -46,7 +42,7 @@ module.exports.getKeyBundle = async (req, res, next) => {
         identityKey: user.e2eKeys.identityKey,
         registrationId: user.e2eKeys.registrationId,
         signedPreKey: user.e2eKeys.signedPreKey,
-        preKey: oneTimePreKey // If undefined, frontend must fallback to using just the signedPreKey
+        preKey: oneTimePreKey // may be undefined — frontend falls back to signedPreKey
       }
     });
   } catch (ex) {

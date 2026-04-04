@@ -93,9 +93,29 @@ export default function Chat() {
         }
       });
       socket.current.on("get-online-users", (users) => { setOnlineUsers(users); });
+
+      // ✅ FIX: Keep onlineUsers in sync when any user comes online or goes offline
+      socket.current.on("user-status-change", ({ userId, isOnline }) => {
+        setOnlineUsers((prev) =>
+          isOnline
+            ? prev.includes(userId) ? prev : [...prev, userId]
+            : prev.filter((id) => id !== userId)
+        );
+      });
+
+      // ✅ FIX: When a user disconnects, remove from online list AND update their
+      // lastSeen in the contacts snapshot so the UI shows the correct time
+      socket.current.on("user-offline", ({ userId, lastSeen }) => {
+        setOnlineUsers((prev) => prev.filter((id) => id !== userId));
+        setContacts((prev) =>
+          prev.map((c) =>
+            c._id === userId ? { ...c, isOnline: false, lastSeen } : c
+          )
+        );
+      });
       return () => { if (socket.current) { socket.current.disconnect(); socket.current = null; } };
     }
-  }, [currentUser, navigate, setOnlineUsers, setCurrentUser, setCurrentChat]);
+  }, [currentUser, navigate, setOnlineUsers, setCurrentUser, setCurrentChat, setContacts]);
 
   useEffect(() => {
     if (socket.current) {
