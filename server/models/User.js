@@ -101,19 +101,20 @@ const userSchema = new mongoose.Schema({
   },
 
   // --- FULL E2EE PRE-KEY BUNDLE ---
-  // Replaced the old single `publicKey` with a full bundle required for Signal-like E2EE
+  // Keys stored as Mixed so Mongoose accepts both raw JWK objects and JSON-stringified
+  // JWK strings. parseJwk() on the frontend handles both forms transparently.
   e2eKeys: {
-    identityKey: { type: String, default: "" }, // Long-term public identity key
+    identityKey: { type: mongoose.Schema.Types.Mixed, default: "" }, // JWK object or JSON string
     registrationId: { type: Number, default: 0 }, 
     signedPreKey: {
       keyId: { type: Number },
-      publicKey: { type: String },
+      publicKey: { type: mongoose.Schema.Types.Mixed },
       signature: { type: String }
     },
     preKeys: [ // A batch of one-time use keys for perfect forward secrecy
       {
         keyId: { type: Number },
-        publicKey: { type: String }
+        publicKey: { type: mongoose.Schema.Types.Mixed }
       }
     ]
   },

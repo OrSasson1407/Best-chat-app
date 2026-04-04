@@ -74,15 +74,15 @@ export const generateE2EBundle = async () => {
         const oneTimePreKey = await generateKeyPair();
 
         const bundle = {
-            identityKey: identityKeyPair.publicKey,         // raw JWK object — NOT stringified
+            identityKey: JSON.stringify(identityKeyPair.publicKey),
             registrationId: Math.floor(Math.random() * 10000),
             signedPreKey: {
                 keyId: 1,
-                publicKey: signedPreKeyPair.publicKey,       // raw JWK object
+                publicKey: JSON.stringify(signedPreKeyPair.publicKey),
                 signature: "verified"
             },
             preKeys: [
-                { keyId: 1, publicKey: oneTimePreKey.publicKey } // raw JWK object
+                { keyId: 1, publicKey: JSON.stringify(oneTimePreKey.publicKey) }
             ]
         };
 
