@@ -133,7 +133,10 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
             });
             fetchGroupsAndStories();
         }
-    }, [currentUser, getAuthHeader]);
+    // ✅ FIX: Depend only on the stable user ID, not the whole currentUser object or
+    // getAuthHeader callback. The whole-object dep caused getAuthHeader to be recreated
+    // on every render, re-triggering this effect and appending duplicate groups.
+    }, [currentUser?._id]); // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         if (currentUser) localStorage.setItem(`pinned-chats-${currentUser._id}`, JSON.stringify(pinnedIds));
@@ -331,6 +334,13 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
             const resolvedKeys = await Promise.all(keyPromises);
             const groupKeys = resolvedKeys.filter(k => k !== null);
 
+            // ✅ FIX: Block group creation if any member is missing E2E keys.
+            // Silently skipping them meant those members could never decrypt messages.
+            if (groupKeys.length < allMembers.length) {
+                toast.error("Some members don't have E2E keys yet. Ask them to log out and back in to fix this.");
+                return;
+            }
+
             const { data } = await axios.post(createGroupRoute, {
                 name: groupName,
                 members: allMembers,
@@ -339,11 +349,16 @@ export default function Contacts({ contacts, changeChat, handleLogout }) {
             }, getAuthHeader()); 
 
             if (data.status) {
-                setGroups([...groups, data.group]);
+                // ✅ FIX: Re-fetch groups from the server instead of locally appending data.group.
+                // Appending caused duplicates for User B who was already a member in the DB
+                // response, and could cause stale group objects with missing fields.
+                const groupRes = await axios.get(getUserGroupsRoute, getAuthHeader());
+                setGroups(groupRes.data || []);
+
                 setShowGroupModal(false);
                 setGroupName("");
                 setSelectedMembers([]);
-                setGroupSearchTerm(""); // ✅ FIX: Clear search term on success
+                setGroupSearchTerm("");
                 toast.success("Group created successfully.");
             }
         } catch (error) {

@@ -51,25 +51,36 @@ export default function Login() {
         setCurrentUser(userData);
         
         try {
-          // Check BOTH local private key AND server-side key status
-          // A legacy user can be missing either one, or both
+          // Check local private key AND verify the server actually has a valid identityKey.
+          // e2eStatus.hasKeys can be true even when the stored key is corrupt or empty string,
+          // so we do a live bundle fetch to confirm the key is actually usable.
           const existingLocalKey = localStorage.getItem(`privateKey_${data.user._id}`);
           const serverHasKeys = data.user?.e2eStatus?.hasKeys === true;
 
-          if (!existingLocalKey || !serverHasKeys) {
-            // Either local or server keys are missing — regenerate the full bundle
-            // This silently upgrades legacy users on first login after the fix
-            console.info("[Crypto] Generating E2E keys — missing locally:", !existingLocalKey, "/ missing on server:", !serverHasKeys);
+          let serverKeyIsValid = false;
+          if (existingLocalKey && serverHasKeys) {
+            try {
+              const verifyRes = await axios.get(
+                `${updateE2EKeysRoute.replace("upload-bundle", "bundle")}/${data.user._id}`,
+                { headers: { Authorization: `Bearer ${data.token}` } }
+              );
+              serverKeyIsValid = !!(verifyRes.data?.bundle?.identityKey);
+            } catch (_) {
+              serverKeyIsValid = false;
+            }
+          }
+
+          if (!existingLocalKey || !serverHasKeys || !serverKeyIsValid) {
+            console.info("[Crypto] Generating E2E keys — missing locally:", !existingLocalKey, "/ server flag off:", !serverHasKeys, "/ server key invalid:", !serverKeyIsValid);
             const { bundle, privateKeys } = await generateE2EBundle();
 
-            // Store the full private key set locally (never sent to server)
             localStorage.setItem(`privateKey_${data.user._id}`, JSON.stringify(privateKeys.identityPrivateKey));
             localStorage.setItem(`fullE2EKeys_${data.user._id}`, JSON.stringify(privateKeys));
 
-            // Upload public bundle to server — e2eController.uploadKeyBundle expects
-            // the bundle fields at the top level (identityKey, registrationId, etc.)
             await axios.post(updateE2EKeysRoute, bundle, { headers: { Authorization: `Bearer ${data.token}` } });
             console.info("[Crypto] E2E keys generated and uploaded successfully.");
+          } else {
+            console.info("[Crypto] E2E keys verified — all good.");
           }
         } catch (e2eErr) { console.error("[Crypto] E2EE key setup failed:", e2eErr); }
         navigate("/");
