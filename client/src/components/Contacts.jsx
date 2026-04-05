@@ -5,7 +5,7 @@ import {
     FaUserFriends, FaPlus, FaSearch, FaCog, FaThumbtack,
     FaRegEnvelope, FaTimes, FaSpinner, FaShieldAlt, FaEye, FaGlobe,
     FaSun, FaMoon, FaSignOutAlt, FaCheck, FaChevronLeft, FaChevronRight,
-    FaArchive, FaBoxOpen,
+    FaArchive, FaBoxOpen, FaBellSlash, FaFolder, FaUserCircle,
 } from "react-icons/fa";
 import { BsChatDotsFill, BsPeopleFill } from "react-icons/bs";
 import { MdOutlineAllInclusive } from "react-icons/md";
@@ -15,11 +15,14 @@ import {
     searchMessageRoute, getStoryFeedRoute, addStoryRoute, viewStoryRoute,
     searchChannelsRoute, joinChannelRoute, publicKeyRoute,
     archiveChatRoute,  // Sprint 1
+    muteChatRoute, saveChatFolderRoute, deleteChatFolderRoute, toggleChatInFolderRoute, // Sprint 2
 } from "../utils/APIRoutes";
 import { toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
 import useChatStore from "../store/chatStore";
+import UserProfile from "./UserProfile";
+import FriendRequests from "./FriendRequests";
 import { generateGroupAESKey, encryptMessage } from "../utils/crypto";
 
 const femaleTops = "longHairBob,longHairBun,longHairCurly,longHairCurvy,longHairStraight,longHairNotTooLong";
@@ -47,7 +50,9 @@ const formatLastSeen = (dateString) => {
 export default function Contacts({ contacts, changeChat, handleLogout, socket }) {
     const {
         currentUser, updateCurrentUser, onlineUsers, theme, setTheme,
-        isCompact, setIsCompact, globalTypingUsers
+        isCompact, setIsCompact, globalTypingUsers,
+        // Sprint 2
+        mutedChats, setMutedChats, isChatMuted, chatFolders, setChatFolders, pendingRequestCount, setPendingRequestCount,
     } = useChatStore();
 
     const [currentUserName, setCurrentUserName] = useState(currentUser?.username);
@@ -73,6 +78,12 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
     // Context menu (right-click) state
     const [contextMenu, setContextMenu] = useState(null); // { x, y, item }
     const contextMenuRef = useRef(null);
+
+    // Sprint 2 state
+    const [showUserProfile, setShowUserProfile] = useState(null); // userId to show
+    const [showFriendRequests, setShowFriendRequests] = useState(false);
+    const [showFolderManager, setShowFolderManager] = useState(false);
+    const [activeFolderCustomId, setActiveFolderCustomId] = useState(null); // custom folder _id
 
     const [groups, setGroups] = useState([]);
     const [searchTerm, setSearchTerm] = useState("");
@@ -266,6 +277,24 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
             toast.error("Failed to update archive.");
         }
     }, [currentUser]);
+
+    // Sprint 2: mute chat
+    const handleMuteChat = useCallback(async (item, durationMinutes) => {
+        setContextMenu(null);
+        const chatId = item._id;
+        const token = currentUser?.token || sessionStorage.getItem("chat-app-token");
+        try {
+            const { data } = await axios.post(
+                muteChatRoute,
+                { chatId, duration: durationMinutes },
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            if (data.status) {
+                setMutedChats(data.mutedChats);
+                toast.success(durationMinutes === null ? "Chat unmuted." : "Chat muted.");
+            }
+        } catch { toast.error("Failed to mute chat."); }
+    }, [currentUser, setMutedChats]);
 
     // Dismiss context menu on outside click
     useEffect(() => {
@@ -514,8 +543,13 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
 
         if (searchTerm) all = all.filter(item => item.username?.toLowerCase()?.includes(searchTerm.toLowerCase()));
 
+        // Sprint 2: custom folder filter
+        if (activeFolderCustomId) {
+            const folder = chatFolders.find(f => f._id === activeFolderCustomId);
+            const ids = (folder?.chatIds || []).map(String);
+            all = all.filter(i => ids.includes(String(i._id)));
         // Sprint 1: split archived vs active
-        if (activeFolder === "archived") {
+        } else if (activeFolder === "archived") {
             all = all.filter(i => archivedIds.includes(String(i._id)));
         } else {
             all = all.filter(i => !archivedIds.includes(String(i._id)));
@@ -535,7 +569,7 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
 
             return (a.username || "").localeCompare(b.username || "");
         });
-    }, [contacts, groups, searchTerm, activeFolder, pinnedIds, onlineUsers, archivedIds]);
+    }, [contacts, groups, searchTerm, activeFolder, activeFolderCustomId, pinnedIds, onlineUsers, archivedIds, chatFolders]);
 
     const folders = [
         { id: "all", icon: <MdOutlineAllInclusive />, title: "All", badge: totalUnreadChatsCount },
@@ -550,12 +584,24 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
             {currentUser && (
                 <>
                     <Container $isCompact={isCompact} $themeType={theme}>
-
                         <div className="sidebar-dynamic-layout" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                             
                             {/* 1. BRAND & TOGGLE SECTION */}
                             <div className="brand-area" style={{ padding: isCompact ? "20px 0" : "24px", display: 'flex', justifyContent: isCompact ? 'center' : 'space-between', alignItems: 'center', flexShrink: 0 }}>
-                                {!isCompact && <motion.h3 style={{ color: 'var(--text-main)', fontSize: '1.4rem', fontWeight: '800', letterSpacing: '2px', margin: 0 }} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>SNAPPY</motion.h3>}
+                                {!isCompact && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                        <motion.h3 style={{ color: 'var(--text-main)', fontSize: '1.4rem', fontWeight: '800', letterSpacing: '2px', margin: 0 }} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>SNAPPY</motion.h3>
+                                        {/* Sprint 2: Friend requests badge */}
+                                        <div style={{ position: 'relative', cursor: 'pointer' }} onClick={() => setShowFriendRequests(!showFriendRequests)} title="Contact requests">
+                                            <FaUserFriends style={{ color: 'var(--text-secondary)', fontSize: '1rem' }} />
+                                            {pendingRequestCount > 0 && (
+                                                <span style={{ position: 'absolute', top: -6, right: -6, background: 'var(--msg-sent)', color: 'white', fontSize: '0.6rem', fontWeight: 800, width: 16, height: 16, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                    {pendingRequestCount}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
                                 <button 
                                     className="sidebar-toggle-trigger" 
                                     onClick={() => setIsCompact(!isCompact)}
@@ -753,7 +799,8 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
                                                                     <button className="pin-btn" onClick={(e) => togglePin(e, item._id)} style={{ background: 'none', border: 'none', color: isPinned ? 'var(--msg-sent)' : 'var(--text-dim)', cursor: 'pointer', opacity: isPinned ? 1 : 0, transition: '0.2s' }}>
                                                                         <FaThumbtack />
                                                                     </button>
-                                                                    {item.unreadCount > 0 && <span className="unread-count" style={{ background: 'var(--msg-sent)', color: 'white', fontSize: '0.7rem', fontWeight: 'bold', padding: '2px 8px', borderRadius: '12px' }}>{item.unreadCount}</span>}
+                                                                    {isChatMuted(item._id) && <FaBellSlash style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)' }} title="Muted" />}
+                                                                    {item.unreadCount > 0 && !isChatMuted(item._id) && <span className="unread-count" style={{ background: 'var(--msg-sent)', color: 'white', fontSize: '0.7rem', fontWeight: 'bold', padding: '2px 8px', borderRadius: '12px' }}>{item.unreadCount}</span>}
                                                                 </div>
                                                             </>
                                                         )}
@@ -1020,6 +1067,25 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
                         </AnimatePresence>
                     </Container>
 
+                    {/* Sprint 2 — UserProfile modal */}
+                    {showUserProfile && (
+                        <UserProfile
+                            userId={showUserProfile}
+                            onClose={() => setShowUserProfile(null)}
+                            onStartChat={(user) => { changeChat(user, false); setShowUserProfile(null); }}
+                        />
+                    )}
+
+                    {/* Sprint 2 — Friend requests panel */}
+                    {showFriendRequests && (
+                        <div style={{ position: 'fixed', top: '70px', right: '20px', zIndex: 1000 }}>
+                            <FriendRequests
+                                onClose={() => setShowFriendRequests(false)}
+                                onAccepted={() => {/* contacts refresh handled by socket/re-fetch */}}
+                            />
+                        </div>
+                    )}
+
                     {/* Sprint 1 — Right-click context menu */}
                     {contextMenu && (
                         <ContextMenu
@@ -1030,6 +1096,20 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
                                 <FaThumbtack />
                                 {pinnedIds.includes(contextMenu.item._id) ? "Unpin chat" : "Pin chat"}
                             </div>
+                            <div className="ctx-item" onClick={() => { setContextMenu(null); setShowUserProfile(contextMenu.item._id); }}>
+                                <FaUserCircle />View profile
+                            </div>
+                            {isChatMuted(contextMenu.item._id) ? (
+                                <div className="ctx-item" onClick={() => handleMuteChat(contextMenu.item, null)}>
+                                    <FaBellSlash />Unmute
+                                </div>
+                            ) : (
+                                <>
+                                    <div className="ctx-item" onClick={() => handleMuteChat(contextMenu.item, 60)}><FaBellSlash />Mute 1 hour</div>
+                                    <div className="ctx-item" onClick={() => handleMuteChat(contextMenu.item, 10080)}><FaBellSlash />Mute 1 week</div>
+                                    <div className="ctx-item" onClick={() => handleMuteChat(contextMenu.item, 0)}><FaBellSlash />Mute forever</div>
+                                </>
+                            )}
                             <div className="ctx-item" onClick={() => toggleArchive(contextMenu.item)}>
                                 {archivedIds.includes(String(contextMenu.item._id)) ? <><FaBoxOpen /> Unarchive</> : <><FaArchive /> Archive chat</>}
                             </div>
@@ -1251,7 +1331,7 @@ const ModalOverlay = styled.div`
         width: 24px; height: 24px; background: white; border-radius: 50%;
         transition: 0.3s; box-shadow: 0 2px 6px rgba(0,0,0,0.2);
       }
-      &.on { background: var(--color-success); .knob { left: 22px; } }
+      &.on { background: #10b981; .knob { left: 22px; } }
     }
 
     .toggle-btn {
@@ -1292,18 +1372,6 @@ const ModalOverlay = styled.div`
         &:hover { background: var(--bg-overlay); }
         &.selected { background: rgba(124,58,237,0.08); }
       }
-
-      .channel-item {
-        display: flex; justify-content: space-between; align-items: center;
-        padding: 14px; border-bottom: 1px solid var(--border-subtle);
-        .info {
-          h4 { color: var(--text-primary); font-size: var(--text-sm); font-weight: 700; }
-          p { color: var(--text-secondary); font-size: var(--text-xs); margin-top: 2px; }
-        }
-      }
-
-      .center-loading { display: flex; justify-content: center; align-items: center; height: 90px; font-size: 1.4rem; color: var(--msg-sent); }
-      .empty-text { text-align: center; color: var(--text-secondary); padding: 28px; font-style: italic; font-size: var(--text-sm); }
     }
 
     .button-group {
@@ -1325,8 +1393,6 @@ const ModalOverlay = styled.div`
         color: var(--text-primary);
         &:hover { background: var(--input-bg); }
       }
-      .small { padding: 8px 14px; flex: none; border-radius: var(--radius-full); font-size: var(--text-xs); }
-      .full-width { flex: 1; width: 100%; }
     }
   }
 `;

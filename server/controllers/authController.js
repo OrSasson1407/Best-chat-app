@@ -12,14 +12,8 @@ const crypto = require("crypto");
 
 const { createRedisClient } = require("../config/redis");
 const cacheClient = createRedisClient();
-
-cacheClient.on("error", (err) => {
-  console.warn("[Redis] Auth Cache Client Error:", err.message);
-});
-
-cacheClient.connect().catch(() => {
-  console.warn("[Redis] Failed to connect on startup. Operating in degraded mode.");
-});
+cacheClient.on("error", (err) => console.warn("[Redis] Auth Cache Client Error:", err.message));
+cacheClient.connect().catch(() => console.warn("[Redis] Failed to connect on startup. Operating in degraded mode."));
 
 const { userIndex } = require("../utils/meilisearch");
 
@@ -29,7 +23,7 @@ const backgroundColors = "b6e3f4,c0aede,d1d4f9,ffdfbf,ffd5dc";
 
 const generateTokens = (userId) => {
   const idStr = String(userId);
-  const accessToken = jwt.sign({ id: idStr }, process.env.JWT_SECRET, { expiresIn: "15m" });
+  const accessToken  = jwt.sign({ id: idStr }, process.env.JWT_SECRET,    { expiresIn: "15m" });
   const refreshToken = jwt.sign({ id: idStr }, process.env.REFRESH_SECRET, { expiresIn: "7d" });
   return { accessToken, refreshToken };
 };
@@ -43,46 +37,29 @@ module.exports.register = async (req, res, next) => {
 
     const { username, email, password, gender, avatarImage, e2eKeys } = req.body;
 
-    const usernameCheck = await User.findOne({ username });
-    if (usernameCheck) return res.status(409).json({ msg: "Username already used", status: false });
-
-    const emailCheck = await User.findOne({ email });
-    if (emailCheck) return res.status(409).json({ msg: "Email already used", status: false });
+    if (await User.findOne({ username })) return res.status(409).json({ msg: "Username already used", status: false });
+    if (await User.findOne({ email }))    return res.status(409).json({ msg: "Email already used", status: false });
 
     const hashedPassword = await bcrypt.hash(password, 10);
-
     const tops = gender === "female" ? femaleTops : maleTops;
-    const finalAvatar =
-      avatarImage ||
-      `https://api.dicebear.com/9.x/avataaars/svg?seed=${username}&top=${tops}&backgroundColor=${backgroundColors}`;
+    const finalAvatar = avatarImage || `https://api.dicebear.com/9.x/avataaars/svg?seed=${username}&top=${tops}&backgroundColor=${backgroundColors}`;
 
     const user = await User.create({
-      email,
-      username,
-      password: hashedPassword,
-      gender,
-      avatarImage: finalAvatar,
-      isAvatarImageSet: true,
-      e2eKeys,
-      e2eStatus: { hasKeys: true, enabled: true },
+      email, username, password: hashedPassword, gender,
+      avatarImage: finalAvatar, isAvatarImageSet: true,
+      e2eKeys, e2eStatus: { hasKeys: true, enabled: true },
     });
 
-    try {
-      await userIndex.addDocuments([{ id: user._id.toString(), username: user.username, email: user.email }]);
-    } catch (e) {
-      console.error("[Meilisearch] Failed to sync new user:", e.message);
-    }
+    try { await userIndex.addDocuments([{ id: user._id.toString(), username: user.username, email: user.email }]); }
+    catch (e) { console.error("[Meilisearch] Failed to sync new user:", e.message); }
 
     const { accessToken, refreshToken } = generateTokens(user._id);
     const userResponse = user.toObject();
     delete userResponse.password;
 
-    console.log(`[Auth] User registered successfully: ${username}`);
+    console.log(`[Auth] User registered: ${username}`);
     return res.json({ status: true, user: userResponse, token: accessToken, refreshToken });
-  } catch (ex) {
-    console.error("[Auth] Registration error:", ex);
-    next(ex);
-  }
+  } catch (ex) { console.error("[Auth] Registration error:", ex); next(ex); }
 };
 
 // ─── LOGIN ───────────────────────────────────────────────────────────────────
@@ -99,33 +76,23 @@ module.exports.login = async (req, res, next) => {
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) return res.json({ msg: "Incorrect Username or Password", status: false });
 
-    // Sprint 1: 2FA challenge — don't issue tokens yet
-    if (user.twoFactor?.enabled) {
-      return res.json({ status: "2fa_required", userId: user._id });
-    }
+    if (user.twoFactor?.enabled) return res.json({ status: "2fa_required", userId: user._id });
 
     const { accessToken, refreshToken } = generateTokens(user._id);
 
-    // Sync e2eStatus on login — fixes legacy accounts
     const hasValidKeys = !!(user.e2eKeys && user.e2eKeys.identityKey);
     const e2eStatusSynced = { hasKeys: hasValidKeys, enabled: hasValidKeys };
     if (user.e2eStatus?.hasKeys !== hasValidKeys) {
-      await User.findByIdAndUpdate(user._id, {
-        "e2eStatus.hasKeys": hasValidKeys,
-        "e2eStatus.enabled": hasValidKeys,
-      });
+      await User.findByIdAndUpdate(user._id, { "e2eStatus.hasKeys": hasValidKeys, "e2eStatus.enabled": hasValidKeys });
     }
 
     const userResponse = user.toObject();
     delete userResponse.password;
     userResponse.e2eStatus = e2eStatusSynced;
 
-    console.log(`[Auth] User logged in successfully: ${username}`);
+    console.log(`[Auth] User logged in: ${username}`);
     return res.json({ status: true, user: userResponse, token: accessToken, refreshToken });
-  } catch (ex) {
-    console.error("[Auth] Login error:", ex);
-    next(ex);
-  }
+  } catch (ex) { console.error("[Auth] Login error:", ex); next(ex); }
 };
 
 // ─── LOGOUT ──────────────────────────────────────────────────────────────────
@@ -133,34 +100,24 @@ module.exports.login = async (req, res, next) => {
 module.exports.logout = async (req, res, next) => {
   try {
     let accessToken = req.header("Authorization");
-    if (accessToken && accessToken.startsWith("Bearer ")) {
-      accessToken = accessToken.replace("Bearer ", "").trim();
-    }
+    if (accessToken?.startsWith("Bearer ")) accessToken = accessToken.replace("Bearer ", "").trim();
     const refreshToken = req.body.refreshToken;
 
     if (cacheClient.isReady) {
-      if (refreshToken) {
-        const decoded = jwt.decode(refreshToken);
+      const blacklist = async (token) => {
+        const decoded = jwt.decode(token);
         if (decoded?.exp) {
           const ttl = decoded.exp - Math.floor(Date.now() / 1000);
-          if (ttl > 0) await cacheClient.setEx(`bl_${refreshToken}`, ttl, "revoked");
+          if (ttl > 0) await cacheClient.setEx(`bl_${token}`, ttl, "revoked");
         }
-      }
-      if (accessToken) {
-        const decodedAccess = jwt.decode(accessToken);
-        if (decodedAccess?.exp) {
-          const ttl = decodedAccess.exp - Math.floor(Date.now() / 1000);
-          if (ttl > 0) await cacheClient.setEx(`bl_${accessToken}`, ttl, "revoked");
-        }
-      }
+      };
+      if (refreshToken) await blacklist(refreshToken);
+      if (accessToken)  await blacklist(accessToken);
     }
 
     console.log("[Auth] User logged out and tokens blacklisted.");
     return res.json({ status: true, msg: "Logged out successfully" });
-  } catch (ex) {
-    console.error("[Auth] Logout error:", ex);
-    next(ex);
-  }
+  } catch (ex) { console.error("[Auth] Logout error:", ex); next(ex); }
 };
 
 // ─── REFRESH TOKEN ───────────────────────────────────────────────────────────
@@ -168,12 +125,10 @@ module.exports.logout = async (req, res, next) => {
 module.exports.refreshToken = async (req, res) => {
   const refreshToken = req.body.refreshToken;
   if (!refreshToken) return res.sendStatus(401);
-
   if (cacheClient.isReady) {
     const isBlacklisted = await cacheClient.get(`bl_${refreshToken}`);
     if (isBlacklisted) return res.sendStatus(403);
   }
-
   jwt.verify(refreshToken, process.env.REFRESH_SECRET, (err, decoded) => {
     if (err) return res.sendStatus(403);
     const accessToken = jwt.sign({ id: String(decoded.id) }, process.env.JWT_SECRET, { expiresIn: "15m" });
@@ -192,92 +147,50 @@ module.exports.getAllUsers = async (req, res, next) => {
     const skip = (page - 1) * limit;
 
     let userIds = [];
-
     if (searchQuery) {
       try {
         const searchResults = await userIndex.search(searchQuery, { limit, offset: skip });
-        userIds = searchResults.hits.map((hit) => hit.id).filter((id) => id !== currentUserId);
-      } catch (meiliErr) {
-        console.warn("[Meilisearch] Failed, falling back to MongoDB Regex:", meiliErr.message);
-        const usersBasic = await User.find({
-          _id: { $ne: currentUserId },
-          username: { $regex: searchQuery, $options: "i" },
-        })
-          .select("_id")
-          .skip(skip)
-          .limit(limit);
+        userIds = searchResults.hits.map((h) => h.id).filter((id) => id !== currentUserId);
+      } catch {
+        const usersBasic = await User.find({ _id: { $ne: currentUserId }, username: { $regex: searchQuery, $options: "i" } }).select("_id").skip(skip).limit(limit);
         userIds = usersBasic.map((u) => u._id.toString());
       }
     } else {
-      const usersBasic = await User.find({ _id: { $ne: currentUserId } })
-        .select("_id")
-        .skip(skip)
-        .limit(limit);
+      const usersBasic = await User.find({ _id: { $ne: currentUserId } }).select("_id").skip(skip).limit(limit);
       userIds = usersBasic.map((u) => u._id.toString());
     }
 
     if (userIds.length === 0) return res.json([]);
 
     const cacheKeys = userIds.map((id) => `user_profile:${id}`);
-    let cachedProfiles = [];
-    let finalUsersRaw = [];
-    let cacheMisses = [];
+    let cachedProfiles = [], finalUsersRaw = [], cacheMisses = [];
 
     try {
-      if (cacheClient.isReady) {
-        cachedProfiles = await cacheClient.mGet(cacheKeys);
-      } else {
-        throw new Error("Redis client not connected");
-      }
+      cachedProfiles = cacheClient.isReady ? await cacheClient.mGet(cacheKeys) : new Array(userIds.length).fill(null);
     } catch {
-      console.warn("[Redis] Cache unavailable, falling back to DB directly.");
       cachedProfiles = new Array(userIds.length).fill(null);
     }
 
-    cachedProfiles.forEach((profileStr, index) => {
-      if (profileStr) finalUsersRaw.push(JSON.parse(profileStr));
-      else cacheMisses.push(userIds[index]);
-    });
+    cachedProfiles.forEach((p, i) => { if (p) finalUsersRaw.push(JSON.parse(p)); else cacheMisses.push(userIds[i]); });
 
     if (cacheMisses.length > 0) {
-      const missedUsers = await User.find({ _id: { $in: cacheMisses } }).select([
-        "email", "username", "avatarImage", "gender", "_id",
-        "statusMessage", "statusIcon", "bio", "interests", "privacySettings",
-        "e2eStatus", "lastSeen", "isOnline",
-      ]);
-
+      const missedUsers = await User.find({ _id: { $in: cacheMisses } }).select(["email","username","avatarImage","gender","_id","statusMessage","statusIcon","bio","interests","privacySettings","e2eStatus","lastSeen","isOnline"]);
       const msetArgs = [];
-      missedUsers.forEach((user) => {
-        const userObj = user.toObject();
-        finalUsersRaw.push(userObj);
-        msetArgs.push(`user_profile:${user._id.toString()}`);
-        msetArgs.push(JSON.stringify(userObj));
+      missedUsers.forEach((u) => {
+        const obj = u.toObject();
+        finalUsersRaw.push(obj);
+        msetArgs.push(`user_profile:${u._id}`, JSON.stringify(obj));
       });
-
-      if (msetArgs.length > 0) {
+      if (msetArgs.length && cacheClient.isReady) {
         try {
-          if (cacheClient.isReady) {
-            await cacheClient.mSet(msetArgs);
-            await Promise.all(
-              missedUsers.map((user) => cacheClient.expire(`user_profile:${user._id.toString()}`, 3600))
-            );
-          }
-        } catch (redisSaveErr) {
-          console.warn("[Redis] Failed to cache user profiles:", redisSaveErr.message);
-        }
+          await cacheClient.mSet(msetArgs);
+          await Promise.all(missedUsers.map((u) => cacheClient.expire(`user_profile:${u._id}`, 3600)));
+        } catch {}
       }
     }
 
-    const finalUsers = finalUsersRaw.map((u) => {
-      if (u.privacySettings?.profilePhoto === "nobody") u.avatarImage = "";
-      return u;
-    });
-
-    return res.json(finalUsers);
-  } catch (ex) {
-    console.error("[API] Failed to get all users:", ex);
-    next(ex);
-  }
+    return res.json(finalUsersRaw.map((u) => { if (u.privacySettings?.profilePhoto === "nobody") u.avatarImage = ""; return u; }));
+  } catch (ex) { console.error("[API] Failed to get all users:", ex); next(ex); }
 };
 
 // ─── UPDATE PROFILE ──────────────────────────────────────────────────────────
@@ -285,283 +198,326 @@ module.exports.getAllUsers = async (req, res, next) => {
 module.exports.updateProfile = async (req, res, next) => {
   try {
     const userId = req.params.id;
-    if (String(userId) !== String(req.user.id)) {
-      return res.status(403).json({ status: false, msg: "Forbidden: You cannot modify another user's profile." });
-    }
+    if (String(userId) !== String(req.user.id)) return res.status(403).json({ status: false, msg: "Forbidden" });
 
     const { statusMessage, statusIcon, bio, interests, privacySettings, avatarImage } = req.body;
     let updatePayload = { statusMessage, statusIcon, bio, interests };
+    if (avatarImage && typeof avatarImage === "string") updatePayload.avatarImage = avatarImage;
+    if (privacySettings) Object.keys(privacySettings).forEach((k) => { updatePayload[`privacySettings.${k}`] = privacySettings[k]; });
 
-    if (avatarImage && typeof avatarImage === "string") {
-      updatePayload.avatarImage = avatarImage;
-    }
-    if (privacySettings) {
-      Object.keys(privacySettings).forEach((key) => {
-        updatePayload[`privacySettings.${key}`] = privacySettings[key];
-      });
-    }
-
-    const user = await User.findByIdAndUpdate(userId, updatePayload, { new: true }).select([
-      "email", "username", "avatarImage", "gender", "_id",
-      "statusMessage", "statusIcon", "bio", "interests", "privacySettings", "chatCustomizations",
-    ]);
-
+    const user = await User.findByIdAndUpdate(userId, updatePayload, { new: true }).select(["email","username","avatarImage","gender","_id","statusMessage","statusIcon","bio","interests","privacySettings","chatCustomizations"]);
     if (!user) return res.status(404).json({ status: false, msg: "User not found." });
 
-    try {
-      await userIndex.updateDocuments([{ id: userId, username: user.username }]);
-    } catch (e) {
-      console.error("[Meilisearch] Failed to update user docs:", e.message);
-    }
-
+    try { await userIndex.updateDocuments([{ id: userId, username: user.username }]); } catch {}
     const userResponse = user.toObject();
-    try {
-      if (cacheClient.isReady) await cacheClient.setEx(`user_profile:${userId}`, 3600, JSON.stringify(userResponse));
-    } catch {
-      console.warn("[Redis] Unavailable, skipping profile cache update.");
-    }
+    try { if (cacheClient.isReady) await cacheClient.setEx(`user_profile:${userId}`, 3600, JSON.stringify(userResponse)); } catch {}
 
     return res.json({ status: true, user: userResponse });
-  } catch (ex) {
-    next(ex);
-  }
+  } catch (ex) { next(ex); }
 };
 
-// ─── BLOCK USER ──────────────────────────────────────────────────────────────
+// ─── OTHER EXISTING ENDPOINTS ─────────────────────────────────────────────────
 
 module.exports.toggleBlockUser = async (req, res, next) => {
   try {
     const { userId, blockedUserId } = req.body;
-    if (String(userId) !== String(req.user.id)) {
-      return res.status(403).json({ status: false, msg: "Forbidden: You cannot modify another user's block list." });
-    }
+    if (String(userId) !== String(req.user.id)) return res.status(403).json({ status: false, msg: "Forbidden" });
     const user = await User.findById(userId);
     if (user.blockedUsers.includes(blockedUserId)) user.blockedUsers.pull(blockedUserId);
     else user.blockedUsers.push(blockedUserId);
     await user.save();
     return res.json({ status: true, blockedUsers: user.blockedUsers });
-  } catch (ex) {
-    next(ex);
-  }
+  } catch (ex) { next(ex); }
 };
-
-// ─── FCM TOKEN ───────────────────────────────────────────────────────────────
 
 module.exports.updateFcmToken = async (req, res, next) => {
   try {
     const { userId, fcmToken } = req.body;
-    if (String(userId) !== String(req.user.id)) {
-      return res.status(403).json({ status: false, msg: "Forbidden." });
-    }
+    if (String(userId) !== String(req.user.id)) return res.status(403).json({ status: false, msg: "Forbidden" });
     await User.findByIdAndUpdate(userId, { $addToSet: { fcmTokens: fcmToken } });
     return res.json({ status: true, msg: "FCM Token registered" });
-  } catch (ex) {
-    next(ex);
-  }
+  } catch (ex) { next(ex); }
 };
-
-// ─── E2E KEYS ────────────────────────────────────────────────────────────────
 
 module.exports.updateE2EKeys = async (req, res, next) => {
   try {
     const { userId, e2eKeys } = req.body;
     if (!userId || !e2eKeys) return res.status(400).json({ status: false, msg: "Missing data" });
-    if (String(userId) !== String(req.user.id)) {
-      return res.status(403).json({ status: false, msg: "Forbidden: You cannot register keys for another user." });
-    }
+    if (String(userId) !== String(req.user.id)) return res.status(403).json({ status: false, msg: "Forbidden" });
     await User.findByIdAndUpdate(userId, { e2eKeys, "e2eStatus.hasKeys": true, "e2eStatus.enabled": true });
-    console.log(`[Crypto] E2E Keys Bundle registered for user ${userId}`);
     return res.json({ status: true, msg: "E2E Keys Bundle registered" });
-  } catch (ex) {
-    next(ex);
-  }
+  } catch (ex) { next(ex); }
 };
 
 module.exports.getPublicKey = async (req, res, next) => {
   try {
     const targetId = req.params.id;
-    if (!mongoose.Types.ObjectId.isValid(targetId)) {
-      return res.json({ status: false, msg: "Invalid User ID format" });
-    }
+    if (!mongoose.Types.ObjectId.isValid(targetId)) return res.json({ status: false, msg: "Invalid User ID format" });
     const user = await User.findById(targetId).select("e2eKeys");
     if (!user) return res.json({ status: false, msg: "User not found" });
-    if (!user.e2eKeys?.identityKey) return res.json({ status: false, msg: "E2E keys not registered for this user yet" });
+    if (!user.e2eKeys?.identityKey) return res.json({ status: false, msg: "E2E keys not registered" });
     return res.json({ status: true, bundle: user.e2eKeys });
-  } catch (ex) {
-    console.error("[Crypto] Failed to fetch public key bundle:", ex);
-    next(ex);
-  }
+  } catch (ex) { next(ex); }
 };
-
-// ─── GET USER BY ID ──────────────────────────────────────────────────────────
 
 module.exports.getUserById = async (req, res, next) => {
   try {
-    const user = await User.findById(req.params.id).select([
-      "email", "username", "avatarImage", "_id", "statusIcon", "statusMessage", "bio", "lastSeen",
-    ]);
+    const user = await User.findById(req.params.id).select(["email","username","avatarImage","_id","statusIcon","statusMessage","bio","lastSeen","interests","privacySettings"]);
     if (!user) return res.status(404).json({ status: false, msg: "User not found." });
     return res.status(200).json({ status: true, user });
-  } catch (ex) {
-    next(ex);
-  }
+  } catch (ex) { next(ex); }
 };
-
-// ─── CHAT CUSTOMIZATION ──────────────────────────────────────────────────────
 
 module.exports.updateChatCustomization = async (req, res, next) => {
   try {
     const { userId, chatId, wallpaper, themeColor } = req.body;
-    if (String(userId) !== String(req.user.id)) {
-      return res.status(403).json({ status: false, msg: "Forbidden." });
-    }
+    if (String(userId) !== String(req.user.id)) return res.status(403).json({ status: false, msg: "Forbidden" });
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ msg: "User not found", status: false });
-
     const index = user.chatCustomizations.findIndex((c) => c.chatId.toString() === chatId);
     if (index !== -1) {
       if (wallpaper !== undefined) user.chatCustomizations[index].wallpaper = wallpaper;
       if (themeColor !== undefined) user.chatCustomizations[index].themeColor = themeColor;
-    } else {
-      user.chatCustomizations.push({ chatId, wallpaper, themeColor });
-    }
+    } else { user.chatCustomizations.push({ chatId, wallpaper, themeColor }); }
     await user.save();
-
-    const userResponse = user.toObject();
-    try {
-      if (cacheClient.isReady) await cacheClient.setEx(`user_profile:${userId}`, 3600, JSON.stringify(userResponse));
-    } catch {}
-
+    try { if (cacheClient.isReady) await cacheClient.setEx(`user_profile:${userId}`, 3600, JSON.stringify(user.toObject())); } catch {}
     return res.json({ status: true, customizations: user.chatCustomizations });
-  } catch (ex) {
-    next(ex);
-  }
+  } catch (ex) { next(ex); }
 };
 
-// =============================================================================
-// SPRINT 1 — FEATURE 1: Two-Factor Authentication (2FA)
-// =============================================================================
+// ─── SPRINT 1: 2FA ───────────────────────────────────────────────────────────
 
-// Step 1: Generate TOTP secret + QR code for setup
 module.exports.setup2FA = async (req, res, next) => {
   try {
-    const userId = req.user.id;
-    const user = await User.findById(userId);
+    const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ status: false, msg: "User not found" });
-
     const secret = speakeasy.generateSecret({ name: `BestChat (${user.username})`, length: 20 });
-
-    // Store unverified secret — activated only after verification
     user.twoFactor.secret = secret.base32;
     await user.save();
-
     const qrCodeDataUrl = await QRCode.toDataURL(secret.otpauth_url);
     return res.json({ status: true, qrCode: qrCodeDataUrl, secret: secret.base32 });
-  } catch (ex) {
-    next(ex);
-  }
+  } catch (ex) { next(ex); }
 };
 
-// Step 2: Verify TOTP and activate 2FA
 module.exports.verify2FA = async (req, res, next) => {
   try {
-    const userId = req.user.id;
     const { token } = req.body;
-    const user = await User.findById(userId);
-    if (!user?.twoFactor?.secret) {
-      return res.status(400).json({ status: false, msg: "2FA not initialized. Run setup first." });
-    }
-
-    const isValid = speakeasy.totp.verify({
-      secret: user.twoFactor.secret,
-      encoding: "base32",
-      token,
-      window: 1,
-    });
+    const user = await User.findById(req.user.id);
+    if (!user?.twoFactor?.secret) return res.status(400).json({ status: false, msg: "2FA not initialized." });
+    const isValid = speakeasy.totp.verify({ secret: user.twoFactor.secret, encoding: "base32", token, window: 1 });
     if (!isValid) return res.status(400).json({ status: false, msg: "Invalid code. Try again." });
-
-    const backupCodes = Array.from({ length: 8 }, () =>
-      crypto.randomBytes(4).toString("hex").toUpperCase()
-    );
-
+    const backupCodes = Array.from({ length: 8 }, () => crypto.randomBytes(4).toString("hex").toUpperCase());
     user.twoFactor.enabled = true;
     user.twoFactor.backupCodes = backupCodes;
     await user.save();
-
     return res.json({ status: true, msg: "2FA enabled!", backupCodes });
-  } catch (ex) {
-    next(ex);
-  }
+  } catch (ex) { next(ex); }
 };
 
-// Step 3: Validate TOTP at login time (public route — password already verified)
 module.exports.validate2FALogin = async (req, res, next) => {
   try {
     const { userId, token } = req.body;
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ status: false, msg: "User not found" });
-
-    // Allow backup code
     const backupIndex = user.twoFactor.backupCodes.indexOf(token.toUpperCase());
     if (backupIndex !== -1) {
       user.twoFactor.backupCodes.splice(backupIndex, 1);
       await user.save();
       const { accessToken, refreshToken } = generateTokens(user._id);
-      const userResponse = user.toObject();
-      delete userResponse.password;
+      const userResponse = user.toObject(); delete userResponse.password;
       return res.json({ status: true, user: userResponse, token: accessToken, refreshToken });
     }
-
-    const isValid = speakeasy.totp.verify({
-      secret: user.twoFactor.secret,
-      encoding: "base32",
-      token,
-      window: 1,
-    });
+    const isValid = speakeasy.totp.verify({ secret: user.twoFactor.secret, encoding: "base32", token, window: 1 });
     if (!isValid) return res.status(400).json({ status: false, msg: "Invalid 2FA code." });
-
     const { accessToken, refreshToken } = generateTokens(user._id);
-    const userResponse = user.toObject();
-    delete userResponse.password;
+    const userResponse = user.toObject(); delete userResponse.password;
     return res.json({ status: true, user: userResponse, token: accessToken, refreshToken });
-  } catch (ex) {
-    next(ex);
-  }
+  } catch (ex) { next(ex); }
 };
 
-// Disable 2FA
 module.exports.disable2FA = async (req, res, next) => {
   try {
-    const userId = req.user.id;
-    await User.findByIdAndUpdate(userId, {
-      "twoFactor.enabled": false,
-      "twoFactor.secret": "",
-      "twoFactor.backupCodes": [],
-    });
+    await User.findByIdAndUpdate(req.user.id, { "twoFactor.enabled": false, "twoFactor.secret": "", "twoFactor.backupCodes": [] });
     return res.json({ status: true, msg: "2FA disabled." });
-  } catch (ex) {
-    next(ex);
-  }
+  } catch (ex) { next(ex); }
 };
 
-// =============================================================================
-// SPRINT 1 — FEATURE 4: Archive Chats
-// =============================================================================
+// ─── SPRINT 1: ARCHIVE ───────────────────────────────────────────────────────
 
 module.exports.archiveChat = async (req, res, next) => {
   try {
-    const userId = req.user.id;
     const { chatId } = req.body;
-    const user = await User.findById(userId);
+    const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ status: false, msg: "User not found" });
-
     const idx = user.archivedChats.findIndex((id) => id.toString() === String(chatId));
     if (idx !== -1) user.archivedChats.splice(idx, 1);
     else user.archivedChats.push(chatId);
-
     await user.save();
     return res.json({ status: true, archivedChats: user.archivedChats });
-  } catch (ex) {
-    next(ex);
-  }
+  } catch (ex) { next(ex); }
+};
+
+// =============================================================================
+// SPRINT 2 — FEATURE 1: Contact Request / Friend System
+// =============================================================================
+
+// Send a friend request
+module.exports.sendFriendRequest = async (req, res, next) => {
+  try {
+    const fromId = req.user.id;
+    const { toId } = req.body;
+
+    if (String(fromId) === String(toId)) return res.status(400).json({ status: false, msg: "Cannot send a request to yourself." });
+
+    const target = await User.findById(toId);
+    if (!target) return res.status(404).json({ status: false, msg: "User not found." });
+
+    // Already friends?
+    if (target.contacts.map(String).includes(String(fromId))) {
+      return res.json({ status: false, msg: "You are already contacts." });
+    }
+
+    // Already a pending request?
+    const alreadyPending = target.friendRequests.some(
+      (r) => String(r.from) === String(fromId) && r.status === "pending"
+    );
+    if (alreadyPending) return res.json({ status: false, msg: "Request already sent." });
+
+    target.friendRequests.push({ from: fromId, status: "pending" });
+    await target.save();
+
+    return res.json({ status: true, msg: "Friend request sent." });
+  } catch (ex) { next(ex); }
+};
+
+// Accept or decline a request
+module.exports.respondFriendRequest = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const { fromId, action } = req.body; // action: "accept" | "decline"
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ status: false, msg: "User not found." });
+
+    const reqIdx = user.friendRequests.findIndex((r) => String(r.from) === String(fromId) && r.status === "pending");
+    if (reqIdx === -1) return res.status(404).json({ status: false, msg: "Request not found." });
+
+    user.friendRequests[reqIdx].status = action === "accept" ? "accepted" : "declined";
+
+    if (action === "accept") {
+      // Add each other as contacts
+      if (!user.contacts.map(String).includes(String(fromId))) user.contacts.push(fromId);
+      await User.findByIdAndUpdate(fromId, { $addToSet: { contacts: userId } });
+    }
+
+    await user.save();
+    return res.json({ status: true, msg: action === "accept" ? "Request accepted." : "Request declined." });
+  } catch (ex) { next(ex); }
+};
+
+// Get all pending friend requests for the current user
+module.exports.getFriendRequests = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.id)
+      .populate("friendRequests.from", "username avatarImage statusMessage statusIcon");
+    if (!user) return res.status(404).json({ status: false, msg: "User not found." });
+    const pending = user.friendRequests.filter((r) => r.status === "pending");
+    return res.json({ status: true, requests: pending });
+  } catch (ex) { next(ex); }
+};
+
+// =============================================================================
+// SPRINT 2 — FEATURE 2: Mute Notifications Per Chat
+// =============================================================================
+
+module.exports.muteChat = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const { chatId, duration } = req.body;
+    // duration in minutes: 60=1h, 10080=1 week, 0=forever (null until)
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ status: false, msg: "User not found." });
+
+    const idx = user.mutedChats.findIndex((m) => m.chatId.toString() === String(chatId));
+    if (duration === null) {
+      // Unmute
+      if (idx !== -1) user.mutedChats.splice(idx, 1);
+    } else {
+      const until = duration === 0 ? null : new Date(Date.now() + duration * 60 * 1000);
+      if (idx !== -1) { user.mutedChats[idx].until = until; }
+      else { user.mutedChats.push({ chatId, until }); }
+    }
+
+    await user.save();
+    return res.json({ status: true, mutedChats: user.mutedChats });
+  } catch (ex) { next(ex); }
+};
+
+// =============================================================================
+// SPRINT 2 — FEATURE 3: Chat Folders
+// =============================================================================
+
+// Create or update a chat folder
+module.exports.saveChatFolder = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const { folderId, name, icon, chatIds } = req.body;
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ status: false, msg: "User not found." });
+
+    if (folderId) {
+      // Update existing
+      const idx = user.chatFolders.findIndex((f) => f._id.toString() === String(folderId));
+      if (idx !== -1) {
+        if (name)    user.chatFolders[idx].name    = name;
+        if (icon)    user.chatFolders[idx].icon    = icon;
+        if (chatIds) user.chatFolders[idx].chatIds = chatIds;
+      }
+    } else {
+      // Create new (max 10 folders)
+      if (user.chatFolders.length >= 10) return res.status(400).json({ status: false, msg: "Maximum 10 folders allowed." });
+      user.chatFolders.push({ name: name || "New Folder", icon: icon || "📁", chatIds: chatIds || [] });
+    }
+
+    await user.save();
+    return res.json({ status: true, chatFolders: user.chatFolders });
+  } catch (ex) { next(ex); }
+};
+
+// Delete a chat folder
+module.exports.deleteChatFolder = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const { folderId } = req.body;
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ status: false, msg: "User not found." });
+
+    user.chatFolders = user.chatFolders.filter((f) => f._id.toString() !== String(folderId));
+    await user.save();
+    return res.json({ status: true, chatFolders: user.chatFolders });
+  } catch (ex) { next(ex); }
+};
+
+// Add/remove a chat from a folder
+module.exports.toggleChatInFolder = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const { folderId, chatId } = req.body;
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ status: false, msg: "User not found." });
+
+    const folder = user.chatFolders.find((f) => f._id.toString() === String(folderId));
+    if (!folder) return res.status(404).json({ status: false, msg: "Folder not found." });
+
+    const idxInFolder = folder.chatIds.findIndex((id) => id.toString() === String(chatId));
+    if (idxInFolder !== -1) folder.chatIds.splice(idxInFolder, 1);
+    else folder.chatIds.push(chatId);
+
+    await user.save();
+    return res.json({ status: true, chatFolders: user.chatFolders });
+  } catch (ex) { next(ex); }
 };

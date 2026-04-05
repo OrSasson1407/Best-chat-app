@@ -1,5 +1,5 @@
-// client/src/pages/Chat.jsx — REDESIGNED: Obsidian Aurora
-import React, { useEffect, useState, useRef, useCallback, useMemo } from "react";
+// client/src/pages/Chat.jsx — Sprint 1 + Sprint 2 merged
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { io } from "socket.io-client";
@@ -20,7 +20,10 @@ export default function Chat() {
   const {
     currentUser, setCurrentUser, currentChat, setCurrentChat,
     setOnlineUsers, setGlobalTypingUsers, theme, setTheme, isCompact, _hasHydrated,
+    // Sprint 1
     unreadCounts, incrementUnread, clearUnread,
+    // Sprint 2
+    setMutedChats, setChatFolders, setPendingRequestCount,
   } = useChatStore();
 
   const [contacts, setContacts] = useState([]);
@@ -29,15 +32,15 @@ export default function Chat() {
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
 
   useEffect(() => { document.documentElement.setAttribute("data-theme", theme); }, [theme]);
-  const toggleTheme = () => { triggerHaptic('light'); setTheme(theme === "light" ? "glass" : "light"); };
+  const toggleTheme = () => { triggerHaptic("light"); setTheme(theme === "light" ? "glass" : "light"); };
 
-  // ── Sprint 1: Update browser tab title with total unread count ──
+  // ── Sprint 1: Browser tab unread badge ────────────────────────────────────
   useEffect(() => {
     const total = Object.values(unreadCounts).reduce((a, b) => a + b, 0);
     document.title = total > 0 ? `(${total}) Snappy` : "Snappy";
   }, [unreadCounts]);
 
-  // ── Sprint 1: Clear unread badge when user opens a chat ──
+  // ── Sprint 1: Clear unread when chat opens ────────────────────────────────
   useEffect(() => {
     if (currentChat) {
       const chatId = currentChat._id || currentChat.name;
@@ -45,93 +48,120 @@ export default function Chat() {
     }
   }, [currentChat]);
 
+  // ── Sprint 2: Bootstrap muted chats + folders + pending requests from user ─
   useEffect(() => {
-    const handleOffline = () => { setIsOffline(true); triggerHaptic('warning'); toast.warning("📶 You are offline.", { autoClose: false, toastId: "offline-toast" }); };
+    if (currentUser) {
+      if (currentUser.mutedChats) setMutedChats(currentUser.mutedChats);
+      if (currentUser.chatFolders) setChatFolders(currentUser.chatFolders);
+      // Pending friend requests count shown in sidebar badge
+      const pendingCount = (currentUser.friendRequests || []).filter(
+        (r) => r.status === "pending"
+      ).length;
+      setPendingRequestCount(pendingCount);
+    }
+  }, [currentUser?._id]);
+
+  // ── Offline detection ─────────────────────────────────────────────────────
+  useEffect(() => {
+    const handleOffline = () => {
+      setIsOffline(true);
+      triggerHaptic("warning");
+      toast.warning("📶 You are offline.", { autoClose: false, toastId: "offline-toast" });
+    };
     const handleOnline = () => {
-      setIsOffline(false); triggerHaptic('success'); toast.dismiss("offline-toast"); toast.success("🌐 Back online!", { autoClose: 3000 });
+      setIsOffline(false);
+      triggerHaptic("success");
+      toast.dismiss("offline-toast");
+      toast.success("🌐 Back online!", { autoClose: 3000 });
       if (socket.current && !socket.current.connected) socket.current.connect();
     };
     window.addEventListener("offline", handleOffline);
     window.addEventListener("online", handleOnline);
-    return () => { window.removeEventListener("offline", handleOffline); window.removeEventListener("online", handleOnline); };
+    return () => {
+      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("online", handleOnline);
+    };
   }, []);
 
+  // ── Session bootstrap ─────────────────────────────────────────────────────
   const hasRedirected = useRef(false);
-  // FIX: sessionStorage is tab-isolated by the browser spec, making it the only
-  // correct source for per-tab identity. We removed currentUser from the Zustand
-  // IDB persist config because IDB is shared across ALL tabs — persisting there
-  // caused Tab B to rehydrate with Tab A's user on mount.
-  // This effect runs once and bootstraps the tab's identity from sessionStorage.
   useEffect(() => {
     const stored = sessionStorage.getItem("chat-app-user");
-    if (stored && stored !== "null" && stored !== "undefined") { 
-      try { 
+    if (stored && stored !== "null" && stored !== "undefined") {
+      try {
         const parsed = JSON.parse(stored);
-        // Always sync from sessionStorage — overrides any stale IDB rehydration
-        setCurrentUser(parsed); 
-      } catch (e) { 
+        setCurrentUser(parsed);
+      } catch (e) {
         console.error("[Auth] Failed to parse stored user:", e);
         sessionStorage.clear();
-      } 
+      }
     } else if (!currentUser) {
-      // No session data and no in-memory user → redirect to login
       navigate("/login");
     }
   }, []);
 
+  // ── Socket setup ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (currentUser && currentUser._id && !socket.current) {
       const rawToken = currentUser.token || sessionStorage.getItem("chat-app-token") || "";
       const cleanToken = rawToken.replace(/(Bearer\s*)+/gi, "").trim();
-      
-      // ✅ FIX: Wipe bad data so Login doesn't bounce you right back into a loop
-      if (!cleanToken || cleanToken === "null" || cleanToken === "undefined") { 
-        sessionStorage.clear(); 
-        navigate("/login"); 
-        return; 
+
+      if (!cleanToken || cleanToken === "null" || cleanToken === "undefined") {
+        sessionStorage.clear();
+        navigate("/login");
+        return;
       }
-      
-      socket.current = io(host, { auth: { token: cleanToken }, parser: customParser, reconnection: true, reconnectionAttempts: Infinity, reconnectionDelay: 1000, reconnectionDelayMax: 5000 });
+
+      socket.current = io(host, {
+        auth: { token: cleanToken },
+        parser: customParser,
+        reconnection: true,
+        reconnectionAttempts: Infinity,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+      });
+
       socket.current.on("connect", () => { socket.current.emit("add-user", currentUser._id); });
       socket.current.on("disconnect", (reason) => { if (reason === "io server disconnect") socket.current.connect(); });
       socket.current.on("reconnect_attempt", () => {
         const freshToken = (currentUser?.token || sessionStorage.getItem("chat-app-token") || "").replace(/(Bearer\s*)+/gi, "").trim();
         if (freshToken) socket.current.auth.token = freshToken;
       });
-      socket.current.on("reconnect", (n) => { console.log(`[Socket] Reconnected on attempt ${n}`); socket.current.emit("add-user", currentUser._id); });
+      socket.current.on("reconnect", (n) => {
+        console.log(`[Socket] Reconnected on attempt ${n}`);
+        socket.current.emit("add-user", currentUser._id);
+      });
       socket.current.on("connect_error", (err) => {
         if (err.message.includes("Authentication error") || err.message.includes("Invalid token")) {
-          if (hasRedirected.current) return; hasRedirected.current = true;
-          sessionStorage.clear(); setCurrentUser(undefined); setCurrentChat(undefined);
+          if (hasRedirected.current) return;
+          hasRedirected.current = true;
+          sessionStorage.clear();
+          setCurrentUser(undefined);
+          setCurrentChat(undefined);
           if (socket.current) socket.current.disconnect();
-          toast.error("Session expired. Please log in again."); navigate("/login");
+          toast.error("Session expired. Please log in again.");
+          navigate("/login");
         }
       });
-      socket.current.on("get-online-users", (users) => { setOnlineUsers(users); });
 
-      // ✅ FIX: Keep onlineUsers in sync when any user comes online or goes offline
+      socket.current.on("get-online-users", (users) => { setOnlineUsers(users); });
       socket.current.on("user-status-change", ({ userId, isOnline }) => {
         setOnlineUsers((prev) =>
-          isOnline
-            ? prev.includes(userId) ? prev : [...prev, userId]
-            : prev.filter((id) => id !== userId)
+          isOnline ? (prev.includes(userId) ? prev : [...prev, userId]) : prev.filter((id) => id !== userId)
         );
       });
-
-      // ✅ FIX: When a user disconnects, remove from online list AND update their
-      // lastSeen in the contacts snapshot so the UI shows the correct time
       socket.current.on("user-offline", ({ userId, lastSeen }) => {
         setOnlineUsers((prev) => prev.filter((id) => id !== userId));
-        setContacts((prev) =>
-          prev.map((c) =>
-            c._id === userId ? { ...c, isOnline: false, lastSeen } : c
-          )
-        );
+        setContacts((prev) => prev.map((c) => c._id === userId ? { ...c, isOnline: false, lastSeen } : c));
       });
-      return () => { if (socket.current) { socket.current.disconnect(); socket.current = null; } };
-    }
-  }, [currentUser, navigate, setOnlineUsers, setCurrentUser, setCurrentChat, setContacts]);
 
+      return () => {
+        if (socket.current) { socket.current.disconnect(); socket.current = null; }
+      };
+    }
+  }, [currentUser, navigate, setOnlineUsers, setCurrentUser, setCurrentChat]);
+
+  // ── Typing status ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (socket.current) {
       const handleTypingStatus = (data) => {
@@ -149,7 +179,7 @@ export default function Chat() {
     }
   }, [currentChat, setGlobalTypingUsers]);
 
-  // ✅ Setup Push Notifications with Auth Header
+  // ── Push notifications ────────────────────────────────────────────────────
   useEffect(() => {
     if (currentUser && currentUser._id) {
       const setupPushNotifications = async () => {
@@ -158,67 +188,66 @@ export default function Chat() {
           try {
             const rawToken = currentUser.token || sessionStorage.getItem("chat-app-token") || "";
             const cleanToken = rawToken.replace(/(Bearer\s*)+/gi, "").trim();
-            
             await axios.post(
-              updateFcmTokenRoute, 
+              updateFcmTokenRoute,
               { userId: currentUser._id, fcmToken: token },
               { headers: { Authorization: `Bearer ${cleanToken}` } }
             );
-          } catch (err) {
-            console.error("Failed to save FCM token to DB", err);
-          }
+          } catch (err) { console.error("Failed to save FCM token to DB", err); }
         }
       };
       setupPushNotifications();
-      
       const unsubscribe = onMessageListener((payload) => {
-        toast.info(`📬 ${payload.notification.title}: ${payload.notification.body}`, { position: "top-right", autoClose: 5000, theme: theme === "light" ? "light" : "dark" });
+        toast.info(`📬 ${payload.notification.title}: ${payload.notification.body}`, {
+          position: "top-right", autoClose: 5000, theme: theme === "light" ? "light" : "dark",
+        });
       });
       return () => { if (typeof unsubscribe === "function") unsubscribe(); };
     }
   }, [currentUser, theme]);
 
+  // ── Fetch contacts ────────────────────────────────────────────────────────
   useEffect(() => {
     async function fetchContacts() {
       if (currentUser && currentUser._id && !isOffline) {
-        try { 
-          // FIX Bug C1: allUsersRoute is a protected endpoint — the global Axios
-          // interceptor in App.jsx attaches the Authorization header automatically,
-          // so no manual header is needed here. Previously this was missing entirely.
+        try {
           const response = await axios.get(`${allUsersRoute}/${currentUser._id}`);
           setContacts(response.data);
-        }
-        catch (error) { console.error("Error fetching contacts:", error); }
+        } catch (error) { console.error("Error fetching contacts:", error); }
       }
     }
     fetchContacts();
   }, [currentUser, navigate, isOffline]);
 
+  // ── Logout ────────────────────────────────────────────────────────────────
   const handleLogout = useCallback(async () => {
     const userId = currentUser?._id;
     try {
       const refreshToken = sessionStorage.getItem("chat-app-refresh-token");
       await axios.post(`${host}/api/auth/logout`, { refreshToken });
-    } catch (err) { 
-      console.error("Logout API failed:", err); 
+    } catch (err) {
+      console.error("Logout API failed:", err);
     } finally {
-      // FIX: Clear only this user's IDB keys (not other tabs') + clear private keys
       const { clearCache } = useChatStore.getState();
       await clearCache(userId);
-      // FIX (Bug C5): remove E2E private keys so they don't persist after logout
       if (userId) {
         localStorage.removeItem(`privateKey_${userId}`);
         localStorage.removeItem(`fullE2EKeys_${userId}`);
       }
-      sessionStorage.clear(); 
-      setCurrentUser(undefined); 
-      setCurrentChat(undefined); 
-      navigate("/login"); 
+      sessionStorage.clear();
+      setCurrentUser(undefined);
+      setCurrentChat(undefined);
+      navigate("/login");
     }
   }, [navigate, setCurrentUser, setCurrentChat, currentUser]);
 
-  const handleChatChange = useCallback((chat) => { setCurrentChat(chat); setIsTyping(false); setIsMobileMenuOpen(false); }, [setCurrentChat]);
+  const handleChatChange = useCallback((chat) => {
+    setCurrentChat(chat);
+    setIsTyping(false);
+    setIsMobileMenuOpen(false);
+  }, [setCurrentChat]);
 
+  // ── Loading screen ────────────────────────────────────────────────────────
   if (!_hasHydrated) {
     return (
       <LoadingScreen>
@@ -233,7 +262,6 @@ export default function Chat() {
   return (
     <AppShell $isOffline={isOffline} $theme={theme}>
 
-      {/* Aurora Orbs Background */}
       {theme !== "light" && (
         <div className="aurora-bg" aria-hidden="true">
           <div className="orb orb-1" />
@@ -242,7 +270,6 @@ export default function Chat() {
         </div>
       )}
 
-      {/* Offline Banner */}
       {isOffline && (
         <div className="offline-banner">
           <span className="dot" />
@@ -250,7 +277,6 @@ export default function Chat() {
         </div>
       )}
 
-      {/* Theme Toggle */}
       <button className="theme-toggle" onClick={toggleTheme} aria-label="Toggle theme">
         {theme === "light" ? (
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
@@ -260,18 +286,14 @@ export default function Chat() {
         <span>{theme === "light" ? "Dark" : "Light"}</span>
       </button>
 
-      {/* Mobile Sidebar Toggle */}
-      <button className="mobile-nav-btn" onClick={() => { triggerHaptic('light'); setIsMobileMenuOpen(!isMobileMenuOpen); }} aria-label="Toggle navigation">
+      <button className="mobile-nav-btn" onClick={() => { triggerHaptic("light"); setIsMobileMenuOpen(!isMobileMenuOpen); }} aria-label="Toggle navigation">
         {isMobileMenuOpen
           ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
         }
       </button>
 
-      {/* Main App Card */}
       <div className={`app-card glass-container ${isCompact ? "compact" : ""}`}>
-
-        {/* Sidebar Overlay (mobile) */}
         {isMobileMenuOpen && <div className="sidebar-backdrop" onClick={() => setIsMobileMenuOpen(false)} />}
 
         <div className={`sidebar-wrapper ${isMobileMenuOpen ? "open" : ""}`}>
@@ -288,33 +310,27 @@ export default function Chat() {
   );
 }
 
-/* ── STYLED COMPONENTS ────────────────────────── */
+/* ── STYLED COMPONENTS ───────────────────────────────────────────────────────*/
+
 const AppShell = styled.div`
-  height: 100vh;
-  width: 100vw;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  overflow: hidden;
-  background: ${({ $theme }) => $theme === 'light' ? 'var(--bg-root)' : 'var(--bg-root)'};
-  background-image: ${({ $theme }) => $theme !== 'light' ? 'var(--mesh-gradient)' : 'none'};
+  height: 100vh; width: 100vw;
+  display: flex; align-items: center; justify-content: center;
+  position: relative; overflow: hidden;
+  background: var(--bg-root);
+  background-image: ${({ $theme }) => $theme !== "light" ? "var(--mesh-gradient)" : "none"};
   transition: filter var(--duration-slow) var(--ease-out);
-  filter: ${({ $isOffline }) => $isOffline ? 'saturate(0.3) brightness(0.85)' : 'none'};
+  filter: ${({ $isOffline }) => $isOffline ? "saturate(0.3) brightness(0.85)" : "none"};
 
   .aurora-bg {
     position: absolute; inset: 0; pointer-events: none; z-index: 0; overflow: hidden;
-    .orb {
-      position: absolute; border-radius: 50%; pointer-events: none;
-      animation: orbFloat 22s ease-in-out infinite;
-    }
-    .orb-1 { width: min(700px, 80vw); height: min(700px, 80vw); top: -15%; left: -12%;
+    .orb { position: absolute; border-radius: 50%; pointer-events: none; animation: orbFloat 22s ease-in-out infinite; }
+    .orb-1 { width: min(700px,80vw); height: min(700px,80vw); top: -15%; left: -12%;
               background: radial-gradient(circle, rgba(124,58,237,0.28), transparent 70%);
               filter: blur(70px); animation-duration: 20s; }
-    .orb-2 { width: min(600px, 70vw); height: min(600px, 70vw); bottom: -18%; right: -12%;
+    .orb-2 { width: min(600px,70vw); height: min(600px,70vw); bottom: -18%; right: -12%;
               background: radial-gradient(circle, rgba(99,102,241,0.22), transparent 70%);
               filter: blur(80px); animation-duration: 27s; animation-delay: -8s; }
-    .orb-3 { width: min(400px, 50vw); height: min(400px, 50vw); top: 40%; left: 42%;
+    .orb-3 { width: min(400px,50vw); height: min(400px,50vw); top: 40%; left: 42%;
               background: radial-gradient(circle, rgba(34,211,238,0.18), transparent 70%);
               filter: blur(90px); animation-duration: 35s; animation-delay: -15s; }
   }
@@ -325,7 +341,6 @@ const AppShell = styled.div`
     color: white; text-align: center;
     padding: 8px 16px; font-size: var(--text-xs); font-weight: 600;
     display: flex; align-items: center; justify-content: center; gap: 8px;
-    letter-spacing: 0.2px;
     .dot { width: 7px; height: 7px; border-radius: 50%; background: white; animation: pulse 1.5s infinite; }
     @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
   }
@@ -336,11 +351,10 @@ const AppShell = styled.div`
     background: var(--glass-bg); color: var(--text-primary);
     border: 1px solid var(--glass-border);
     padding: 7px 14px; border-radius: var(--radius-full);
-    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-family: "Plus Jakarta Sans", sans-serif;
     font-size: var(--text-xs); font-weight: 600; cursor: pointer;
     backdrop-filter: var(--glass-blur); transition: all var(--duration-base) var(--ease-out);
     &:hover { transform: translateY(-2px); background: var(--msg-sent); color: white; border-color: transparent; box-shadow: 0 8px 24px rgba(124,58,237,0.35); }
-    svg { flex-shrink: 0; }
     @media (max-width: 480px) { span { display: none; } padding: 8px; }
   }
 
@@ -432,13 +446,10 @@ const LoadingScreen = styled.div`
     position:relative; display:flex; align-items:center; justify-content:center;
     width:80px; height:80px;
   }
-
   .logo-mark {
-    font-family:'Plus Jakarta Sans',sans-serif;
-    font-size:1.8rem; font-weight:800; color:var(--text-primary);
-    z-index:2;
+    font-family:"Plus Jakarta Sans",sans-serif;
+    font-size:1.8rem; font-weight:800; color:var(--text-primary); z-index:2;
   }
-
   .spinner {
     position:absolute; inset:0;
     border:2.5px solid var(--glass-border);
@@ -446,6 +457,5 @@ const LoadingScreen = styled.div`
     border-radius:50%;
     animation:spin 0.9s linear infinite;
   }
-
   @keyframes spin { to{transform:rotate(360deg);} }
 `;
