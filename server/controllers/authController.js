@@ -2,8 +2,13 @@
 const User = require("../models/User");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const mongoose = require("mongoose"); 
-const { registerSchema, loginSchema } = require("../utils/validation"); 
+const mongoose = require("mongoose");
+const { registerSchema, loginSchema } = require("../utils/validation");
+
+// Sprint 1 — 2FA
+const speakeasy = require("speakeasy");
+const QRCode = require("qrcode");
+const crypto = require("crypto");
 
 const { createRedisClient } = require("../config/redis");
 const cacheClient = createRedisClient();
@@ -22,13 +27,14 @@ const femaleTops = "longHairBob,longHairBun,longHairCurly,longHairCurvy,longHair
 const maleTops = "shortHairDreads01,shortHairDreads02,shortHairFrizzle,shortHairShaggy,shortHairShortCurly,shortHairShortFlat,shortHairShortRound,shortHairShortWaved,shortHairSides";
 const backgroundColors = "b6e3f4,c0aede,d1d4f9,ffdfbf,ffd5dc";
 
-// ✅ FIX: Cast userId to String() before creating the JWT to prevent BSON Object errors
 const generateTokens = (userId) => {
   const idStr = String(userId);
   const accessToken = jwt.sign({ id: idStr }, process.env.JWT_SECRET, { expiresIn: "15m" });
   const refreshToken = jwt.sign({ id: idStr }, process.env.REFRESH_SECRET, { expiresIn: "7d" });
   return { accessToken, refreshToken };
 };
+
+// ─── REGISTER ────────────────────────────────────────────────────────────────
 
 module.exports.register = async (req, res, next) => {
   try {
@@ -45,8 +51,10 @@ module.exports.register = async (req, res, next) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    const tops = gender === 'female' ? femaleTops : maleTops;
-    const finalAvatar = avatarImage || `https://api.dicebear.com/9.x/avataaars/svg?seed=${username}&top=${tops}&backgroundColor=${backgroundColors}`;
+    const tops = gender === "female" ? femaleTops : maleTops;
+    const finalAvatar =
+      avatarImage ||
+      `https://api.dicebear.com/9.x/avataaars/svg?seed=${username}&top=${tops}&backgroundColor=${backgroundColors}`;
 
     const user = await User.create({
       email,
@@ -56,37 +64,28 @@ module.exports.register = async (req, res, next) => {
       avatarImage: finalAvatar,
       isAvatarImageSet: true,
       e2eKeys,
-      e2eStatus: { hasKeys: true, enabled: true } // ✅ FIX: Explicitly activate keys on registration
+      e2eStatus: { hasKeys: true, enabled: true },
     });
 
     try {
-      await userIndex.addDocuments([{
-        id: user._id.toString(),
-        username: user.username,
-        email: user.email 
-      }]);
+      await userIndex.addDocuments([{ id: user._id.toString(), username: user.username, email: user.email }]);
     } catch (e) {
       console.error("[Meilisearch] Failed to sync new user:", e.message);
     }
 
     const { accessToken, refreshToken } = generateTokens(user._id);
-
     const userResponse = user.toObject();
     delete userResponse.password;
 
     console.log(`[Auth] User registered successfully: ${username}`);
-    
-    return res.json({ 
-      status: true, 
-      user: userResponse, 
-      token: accessToken, 
-      refreshToken: refreshToken 
-    }); 
+    return res.json({ status: true, user: userResponse, token: accessToken, refreshToken });
   } catch (ex) {
     console.error("[Auth] Registration error:", ex);
     next(ex);
   }
 };
+
+// ─── LOGIN ───────────────────────────────────────────────────────────────────
 
 module.exports.login = async (req, res, next) => {
   try {
@@ -100,9 +99,14 @@ module.exports.login = async (req, res, next) => {
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) return res.json({ msg: "Incorrect Username or Password", status: false });
 
+    // Sprint 1: 2FA challenge — don't issue tokens yet
+    if (user.twoFactor?.enabled) {
+      return res.json({ status: "2fa_required", userId: user._id });
+    }
+
     const { accessToken, refreshToken } = generateTokens(user._id);
 
-    // Sync e2eStatus on login — fixes legacy accounts that predate E2E
+    // Sync e2eStatus on login — fixes legacy accounts
     const hasValidKeys = !!(user.e2eKeys && user.e2eKeys.identityKey);
     const e2eStatusSynced = { hasKeys: hasValidKeys, enabled: hasValidKeys };
     if (user.e2eStatus?.hasKeys !== hasValidKeys) {
@@ -112,24 +116,19 @@ module.exports.login = async (req, res, next) => {
       });
     }
 
-    // Build response AFTER sync so frontend always receives the correct e2eStatus
     const userResponse = user.toObject();
     delete userResponse.password;
     userResponse.e2eStatus = e2eStatusSynced;
 
     console.log(`[Auth] User logged in successfully: ${username}`);
-    
-    return res.json({ 
-      status: true, 
-      user: userResponse, 
-      token: accessToken,
-      refreshToken: refreshToken
-    });
+    return res.json({ status: true, user: userResponse, token: accessToken, refreshToken });
   } catch (ex) {
     console.error("[Auth] Login error:", ex);
     next(ex);
   }
 };
+
+// ─── LOGOUT ──────────────────────────────────────────────────────────────────
 
 module.exports.logout = async (req, res, next) => {
   try {
@@ -137,29 +136,23 @@ module.exports.logout = async (req, res, next) => {
     if (accessToken && accessToken.startsWith("Bearer ")) {
       accessToken = accessToken.replace("Bearer ", "").trim();
     }
-    
-    const refreshToken = req.body.refreshToken; 
-    
+    const refreshToken = req.body.refreshToken;
+
     if (cacheClient.isReady) {
-        if (refreshToken) {
-            const decoded = jwt.decode(refreshToken);
-            if (decoded && decoded.exp) {
-                const timeToLive = decoded.exp - Math.floor(Date.now() / 1000);
-                if (timeToLive > 0) {
-                    await cacheClient.setEx(`bl_${refreshToken}`, timeToLive, "revoked");
-                }
-            }
+      if (refreshToken) {
+        const decoded = jwt.decode(refreshToken);
+        if (decoded?.exp) {
+          const ttl = decoded.exp - Math.floor(Date.now() / 1000);
+          if (ttl > 0) await cacheClient.setEx(`bl_${refreshToken}`, ttl, "revoked");
         }
-        
-        if (accessToken) {
-            const decodedAccess = jwt.decode(accessToken);
-            if (decodedAccess && decodedAccess.exp) {
-                const timeToLiveAccess = decodedAccess.exp - Math.floor(Date.now() / 1000);
-                if (timeToLiveAccess > 0) {
-                    await cacheClient.setEx(`bl_${accessToken}`, timeToLiveAccess, "revoked");
-                }
-            }
+      }
+      if (accessToken) {
+        const decodedAccess = jwt.decode(accessToken);
+        if (decodedAccess?.exp) {
+          const ttl = decodedAccess.exp - Math.floor(Date.now() / 1000);
+          if (ttl > 0) await cacheClient.setEx(`bl_${accessToken}`, ttl, "revoked");
         }
+      }
     }
 
     console.log("[Auth] User logged out and tokens blacklisted.");
@@ -170,29 +163,32 @@ module.exports.logout = async (req, res, next) => {
   }
 };
 
+// ─── REFRESH TOKEN ───────────────────────────────────────────────────────────
+
 module.exports.refreshToken = async (req, res) => {
   const refreshToken = req.body.refreshToken;
   if (!refreshToken) return res.sendStatus(401);
 
   if (cacheClient.isReady) {
-      const isBlacklisted = await cacheClient.get(`bl_${refreshToken}`);
-      if (isBlacklisted) return res.sendStatus(403); 
+    const isBlacklisted = await cacheClient.get(`bl_${refreshToken}`);
+    if (isBlacklisted) return res.sendStatus(403);
   }
 
   jwt.verify(refreshToken, process.env.REFRESH_SECRET, (err, decoded) => {
     if (err) return res.sendStatus(403);
     const accessToken = jwt.sign({ id: String(decoded.id) }, process.env.JWT_SECRET, { expiresIn: "15m" });
-    
     res.json({ status: true, token: accessToken });
   });
 };
+
+// ─── GET ALL USERS ───────────────────────────────────────────────────────────
 
 module.exports.getAllUsers = async (req, res, next) => {
   try {
     const currentUserId = req.params.id;
     const searchQuery = req.query.search || "";
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 50; 
+    const limit = parseInt(req.query.limit) || 50;
     const skip = (page - 1) * limit;
 
     let userIds = [];
@@ -200,26 +196,32 @@ module.exports.getAllUsers = async (req, res, next) => {
     if (searchQuery) {
       try {
         const searchResults = await userIndex.search(searchQuery, { limit, offset: skip });
-        userIds = searchResults.hits.map(hit => hit.id).filter(id => id !== currentUserId);
+        userIds = searchResults.hits.map((hit) => hit.id).filter((id) => id !== currentUserId);
       } catch (meiliErr) {
         console.warn("[Meilisearch] Failed, falling back to MongoDB Regex:", meiliErr.message);
-        const usersBasic = await User.find({ 
-          _id: { $ne: currentUserId }, username: { $regex: searchQuery, $options: "i" } 
-        }).select("_id").skip(skip).limit(limit);
-        userIds = usersBasic.map(u => u._id.toString());
+        const usersBasic = await User.find({
+          _id: { $ne: currentUserId },
+          username: { $regex: searchQuery, $options: "i" },
+        })
+          .select("_id")
+          .skip(skip)
+          .limit(limit);
+        userIds = usersBasic.map((u) => u._id.toString());
       }
     } else {
-      const usersBasic = await User.find({ _id: { $ne: currentUserId } }).select("_id").skip(skip).limit(limit);
-      userIds = usersBasic.map(u => u._id.toString());
+      const usersBasic = await User.find({ _id: { $ne: currentUserId } })
+        .select("_id")
+        .skip(skip)
+        .limit(limit);
+      userIds = usersBasic.map((u) => u._id.toString());
     }
-                                         
+
     if (userIds.length === 0) return res.json([]);
 
-    const cacheKeys = userIds.map(id => `user_profile:${id}`);
-
+    const cacheKeys = userIds.map((id) => `user_profile:${id}`);
     let cachedProfiles = [];
     let finalUsersRaw = [];
-    let cacheMisses = []; 
+    let cacheMisses = [];
 
     try {
       if (cacheClient.isReady) {
@@ -227,7 +229,7 @@ module.exports.getAllUsers = async (req, res, next) => {
       } else {
         throw new Error("Redis client not connected");
       }
-    } catch (redisErr) {
+    } catch {
       console.warn("[Redis] Cache unavailable, falling back to DB directly.");
       cachedProfiles = new Array(userIds.length).fill(null);
     }
@@ -238,15 +240,14 @@ module.exports.getAllUsers = async (req, res, next) => {
     });
 
     if (cacheMisses.length > 0) {
-      // FIX: Include e2eStatus and lastSeen so frontend knows upfront who has E2E keys
       const missedUsers = await User.find({ _id: { $in: cacheMisses } }).select([
         "email", "username", "avatarImage", "gender", "_id",
         "statusMessage", "statusIcon", "bio", "interests", "privacySettings",
-        "e2eStatus", "lastSeen", "isOnline"
+        "e2eStatus", "lastSeen", "isOnline",
       ]);
 
       const msetArgs = [];
-      missedUsers.forEach(user => {
+      missedUsers.forEach((user) => {
         const userObj = user.toObject();
         finalUsersRaw.push(userObj);
         msetArgs.push(`user_profile:${user._id.toString()}`);
@@ -258,20 +259,18 @@ module.exports.getAllUsers = async (req, res, next) => {
           if (cacheClient.isReady) {
             await cacheClient.mSet(msetArgs);
             await Promise.all(
-              missedUsers.map(user =>
-                cacheClient.expire(`user_profile:${user._id.toString()}`, 3600)
-              )
+              missedUsers.map((user) => cacheClient.expire(`user_profile:${user._id.toString()}`, 3600))
             );
           }
         } catch (redisSaveErr) {
-            console.warn("[Redis] Failed to cache user profiles:", redisSaveErr.message);
+          console.warn("[Redis] Failed to cache user profiles:", redisSaveErr.message);
         }
       }
     }
 
-    const finalUsers = finalUsersRaw.map(u => {
-        if (u.privacySettings?.profilePhoto === "nobody") u.avatarImage = ""; 
-        return u;
+    const finalUsers = finalUsersRaw.map((u) => {
+      if (u.privacySettings?.profilePhoto === "nobody") u.avatarImage = "";
+      return u;
     });
 
     return res.json(finalUsers);
@@ -281,47 +280,44 @@ module.exports.getAllUsers = async (req, res, next) => {
   }
 };
 
+// ─── UPDATE PROFILE ──────────────────────────────────────────────────────────
+
 module.exports.updateProfile = async (req, res, next) => {
   try {
     const userId = req.params.id;
-
-    // ✅ FIX: Strict String casting to prevent MongoDB object equality mismatch
     if (String(userId) !== String(req.user.id)) {
       return res.status(403).json({ status: false, msg: "Forbidden: You cannot modify another user's profile." });
     }
 
     const { statusMessage, statusIcon, bio, interests, privacySettings, avatarImage } = req.body;
-    
     let updatePayload = { statusMessage, statusIcon, bio, interests };
 
-    // Allow user to update their own avatar photo
     if (avatarImage && typeof avatarImage === "string") {
-        updatePayload.avatarImage = avatarImage;
+      updatePayload.avatarImage = avatarImage;
     }
-    
     if (privacySettings) {
-        Object.keys(privacySettings).forEach(key => {
-            updatePayload[`privacySettings.${key}`] = privacySettings[key];
-        });
+      Object.keys(privacySettings).forEach((key) => {
+        updatePayload[`privacySettings.${key}`] = privacySettings[key];
+      });
     }
 
     const user = await User.findByIdAndUpdate(userId, updatePayload, { new: true }).select([
-        "email", "username", "avatarImage", "gender", "_id", 
-        "statusMessage", "statusIcon", "bio", "interests", "privacySettings", "chatCustomizations"
+      "email", "username", "avatarImage", "gender", "_id",
+      "statusMessage", "statusIcon", "bio", "interests", "privacySettings", "chatCustomizations",
     ]);
 
     if (!user) return res.status(404).json({ status: false, msg: "User not found." });
 
-    if (user.username) {
-        try { await userIndex.updateDocuments([{ id: userId, username: user.username }]); } 
-        catch (e) { console.error("[Meilisearch] Failed to update user docs:", e.message); }
+    try {
+      await userIndex.updateDocuments([{ id: userId, username: user.username }]);
+    } catch (e) {
+      console.error("[Meilisearch] Failed to update user docs:", e.message);
     }
 
     const userResponse = user.toObject();
-    
     try {
       if (cacheClient.isReady) await cacheClient.setEx(`user_profile:${userId}`, 3600, JSON.stringify(userResponse));
-    } catch (e) {
+    } catch {
       console.warn("[Redis] Unavailable, skipping profile cache update.");
     }
 
@@ -331,20 +327,17 @@ module.exports.updateProfile = async (req, res, next) => {
   }
 };
 
+// ─── BLOCK USER ──────────────────────────────────────────────────────────────
+
 module.exports.toggleBlockUser = async (req, res, next) => {
   try {
     const { userId, blockedUserId } = req.body;
-
-    // ✅ FIX: Strict String casting
     if (String(userId) !== String(req.user.id)) {
       return res.status(403).json({ status: false, msg: "Forbidden: You cannot modify another user's block list." });
     }
-
     const user = await User.findById(userId);
-    
-    if (user.blockedUsers.includes(blockedUserId)) user.blockedUsers.pull(blockedUserId); 
+    if (user.blockedUsers.includes(blockedUserId)) user.blockedUsers.pull(blockedUserId);
     else user.blockedUsers.push(blockedUserId);
-    
     await user.save();
     return res.json({ status: true, blockedUsers: user.blockedUsers });
   } catch (ex) {
@@ -352,15 +345,14 @@ module.exports.toggleBlockUser = async (req, res, next) => {
   }
 };
 
+// ─── FCM TOKEN ───────────────────────────────────────────────────────────────
+
 module.exports.updateFcmToken = async (req, res, next) => {
   try {
     const { userId, fcmToken } = req.body;
-
-    // ✅ FIX: Strict String casting prevents false-positive 403s
     if (String(userId) !== String(req.user.id)) {
       return res.status(403).json({ status: false, msg: "Forbidden." });
     }
-
     await User.findByIdAndUpdate(userId, { $addToSet: { fcmTokens: fcmToken } });
     return res.json({ status: true, msg: "FCM Token registered" });
   } catch (ex) {
@@ -368,23 +360,16 @@ module.exports.updateFcmToken = async (req, res, next) => {
   }
 };
 
+// ─── E2E KEYS ────────────────────────────────────────────────────────────────
+
 module.exports.updateE2EKeys = async (req, res, next) => {
   try {
     const { userId, e2eKeys } = req.body;
-    if (!userId || !e2eKeys) {
-        return res.status(400).json({ status: false, msg: "Missing data" });
-    }
-    
-    // ✅ FIX: Strict String casting
+    if (!userId || !e2eKeys) return res.status(400).json({ status: false, msg: "Missing data" });
     if (String(userId) !== String(req.user.id)) {
-        return res.status(403).json({ status: false, msg: "Forbidden: You cannot register keys for another user." });
+      return res.status(403).json({ status: false, msg: "Forbidden: You cannot register keys for another user." });
     }
-    
-    await User.findByIdAndUpdate(userId, {
-      e2eKeys,
-      "e2eStatus.hasKeys": true,
-      "e2eStatus.enabled": true,
-    });
+    await User.findByIdAndUpdate(userId, { e2eKeys, "e2eStatus.hasKeys": true, "e2eStatus.enabled": true });
     console.log(`[Crypto] E2E Keys Bundle registered for user ${userId}`);
     return res.json({ status: true, msg: "E2E Keys Bundle registered" });
   } catch (ex) {
@@ -395,21 +380,12 @@ module.exports.updateE2EKeys = async (req, res, next) => {
 module.exports.getPublicKey = async (req, res, next) => {
   try {
     const targetId = req.params.id;
-    
     if (!mongoose.Types.ObjectId.isValid(targetId)) {
-        return res.json({ status: false, msg: "Invalid User ID format" });
+      return res.json({ status: false, msg: "Invalid User ID format" });
     }
-
     const user = await User.findById(targetId).select("e2eKeys");
-    
-    if (!user) {
-        return res.json({ status: false, msg: "User not found" });
-    }
-
-    if (!user.e2eKeys || !user.e2eKeys.identityKey) {
-        return res.json({ status: false, msg: "E2E keys not registered for this user yet" });
-    }
-
+    if (!user) return res.json({ status: false, msg: "User not found" });
+    if (!user.e2eKeys?.identityKey) return res.json({ status: false, msg: "E2E keys not registered for this user yet" });
     return res.json({ status: true, bundle: user.e2eKeys });
   } catch (ex) {
     console.error("[Crypto] Failed to fetch public key bundle:", ex);
@@ -417,50 +393,174 @@ module.exports.getPublicKey = async (req, res, next) => {
   }
 };
 
+// ─── GET USER BY ID ──────────────────────────────────────────────────────────
+
 module.exports.getUserById = async (req, res, next) => {
   try {
     const user = await User.findById(req.params.id).select([
-      "email", "username", "avatarImage", "_id", "statusIcon", "statusMessage", "bio", "lastSeen"
+      "email", "username", "avatarImage", "_id", "statusIcon", "statusMessage", "bio", "lastSeen",
     ]);
     if (!user) return res.status(404).json({ status: false, msg: "User not found." });
-    
     return res.status(200).json({ status: true, user });
   } catch (ex) {
     next(ex);
   }
 };
 
+// ─── CHAT CUSTOMIZATION ──────────────────────────────────────────────────────
+
 module.exports.updateChatCustomization = async (req, res, next) => {
   try {
     const { userId, chatId, wallpaper, themeColor } = req.body;
-
-    // ✅ FIX: Strict String casting
     if (String(userId) !== String(req.user.id)) {
       return res.status(403).json({ status: false, msg: "Forbidden." });
     }
-
     const user = await User.findById(userId);
-
     if (!user) return res.status(404).json({ msg: "User not found", status: false });
 
-    const index = user.chatCustomizations.findIndex(c => c.chatId.toString() === chatId);
+    const index = user.chatCustomizations.findIndex((c) => c.chatId.toString() === chatId);
     if (index !== -1) {
       if (wallpaper !== undefined) user.chatCustomizations[index].wallpaper = wallpaper;
       if (themeColor !== undefined) user.chatCustomizations[index].themeColor = themeColor;
     } else {
       user.chatCustomizations.push({ chatId, wallpaper, themeColor });
     }
-
     await user.save();
-    
+
     const userResponse = user.toObject();
     try {
-      if (cacheClient.isReady) {
-        await cacheClient.setEx(`user_profile:${userId}`, 3600, JSON.stringify(userResponse));
-      }
-    } catch (e) {}
+      if (cacheClient.isReady) await cacheClient.setEx(`user_profile:${userId}`, 3600, JSON.stringify(userResponse));
+    } catch {}
 
     return res.json({ status: true, customizations: user.chatCustomizations });
+  } catch (ex) {
+    next(ex);
+  }
+};
+
+// =============================================================================
+// SPRINT 1 — FEATURE 1: Two-Factor Authentication (2FA)
+// =============================================================================
+
+// Step 1: Generate TOTP secret + QR code for setup
+module.exports.setup2FA = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ status: false, msg: "User not found" });
+
+    const secret = speakeasy.generateSecret({ name: `BestChat (${user.username})`, length: 20 });
+
+    // Store unverified secret — activated only after verification
+    user.twoFactor.secret = secret.base32;
+    await user.save();
+
+    const qrCodeDataUrl = await QRCode.toDataURL(secret.otpauth_url);
+    return res.json({ status: true, qrCode: qrCodeDataUrl, secret: secret.base32 });
+  } catch (ex) {
+    next(ex);
+  }
+};
+
+// Step 2: Verify TOTP and activate 2FA
+module.exports.verify2FA = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const { token } = req.body;
+    const user = await User.findById(userId);
+    if (!user?.twoFactor?.secret) {
+      return res.status(400).json({ status: false, msg: "2FA not initialized. Run setup first." });
+    }
+
+    const isValid = speakeasy.totp.verify({
+      secret: user.twoFactor.secret,
+      encoding: "base32",
+      token,
+      window: 1,
+    });
+    if (!isValid) return res.status(400).json({ status: false, msg: "Invalid code. Try again." });
+
+    const backupCodes = Array.from({ length: 8 }, () =>
+      crypto.randomBytes(4).toString("hex").toUpperCase()
+    );
+
+    user.twoFactor.enabled = true;
+    user.twoFactor.backupCodes = backupCodes;
+    await user.save();
+
+    return res.json({ status: true, msg: "2FA enabled!", backupCodes });
+  } catch (ex) {
+    next(ex);
+  }
+};
+
+// Step 3: Validate TOTP at login time (public route — password already verified)
+module.exports.validate2FALogin = async (req, res, next) => {
+  try {
+    const { userId, token } = req.body;
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ status: false, msg: "User not found" });
+
+    // Allow backup code
+    const backupIndex = user.twoFactor.backupCodes.indexOf(token.toUpperCase());
+    if (backupIndex !== -1) {
+      user.twoFactor.backupCodes.splice(backupIndex, 1);
+      await user.save();
+      const { accessToken, refreshToken } = generateTokens(user._id);
+      const userResponse = user.toObject();
+      delete userResponse.password;
+      return res.json({ status: true, user: userResponse, token: accessToken, refreshToken });
+    }
+
+    const isValid = speakeasy.totp.verify({
+      secret: user.twoFactor.secret,
+      encoding: "base32",
+      token,
+      window: 1,
+    });
+    if (!isValid) return res.status(400).json({ status: false, msg: "Invalid 2FA code." });
+
+    const { accessToken, refreshToken } = generateTokens(user._id);
+    const userResponse = user.toObject();
+    delete userResponse.password;
+    return res.json({ status: true, user: userResponse, token: accessToken, refreshToken });
+  } catch (ex) {
+    next(ex);
+  }
+};
+
+// Disable 2FA
+module.exports.disable2FA = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    await User.findByIdAndUpdate(userId, {
+      "twoFactor.enabled": false,
+      "twoFactor.secret": "",
+      "twoFactor.backupCodes": [],
+    });
+    return res.json({ status: true, msg: "2FA disabled." });
+  } catch (ex) {
+    next(ex);
+  }
+};
+
+// =============================================================================
+// SPRINT 1 — FEATURE 4: Archive Chats
+// =============================================================================
+
+module.exports.archiveChat = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const { chatId } = req.body;
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ status: false, msg: "User not found" });
+
+    const idx = user.archivedChats.findIndex((id) => id.toString() === String(chatId));
+    if (idx !== -1) user.archivedChats.splice(idx, 1);
+    else user.archivedChats.push(chatId);
+
+    await user.save();
+    return res.json({ status: true, archivedChats: user.archivedChats });
   } catch (ex) {
     next(ex);
   }

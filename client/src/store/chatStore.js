@@ -42,6 +42,17 @@ const useChatStore = create(
         globalTypingUsers: typeof updater === 'function' ? updater(state.globalTypingUsers) : updater
       })),
 
+      // ── Sprint 1: Unread counts per chatId ──
+      unreadCounts: {},
+      incrementUnread: (chatId) => set((state) => ({
+        unreadCounts: { ...state.unreadCounts, [chatId]: (state.unreadCounts[chatId] || 0) + 1 }
+      })),
+      clearUnread: (chatId) => set((state) => {
+        const next = { ...state.unreadCounts };
+        delete next[chatId];
+        return { unreadCounts: next };
+      }),
+
       // --- 3. UI PREFERENCES (Persisted globally) ---
       theme: "glass", 
       setTheme: (theme) => set({ theme }),

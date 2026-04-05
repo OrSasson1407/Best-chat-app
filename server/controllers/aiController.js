@@ -164,3 +164,39 @@ module.exports.summarizeChat = async (req, res, next) => {
       .json({ status: false, msg: "AI summary currently unavailable due to API limits." });
   }
 };
+// =============================================================
+// SPRINT 1 — FEATURE 5: Spell Check & Grammar Correction
+// =============================================================
+module.exports.grammarCheck = async (req, res, next) => {
+  try {
+    const { message } = req.body;
+    if (!message || typeof message !== "string" || message.trim().length < 3) {
+      return res.json({ status: false, corrected: message });
+    }
+
+    if (!hasApiKey()) {
+      return res.json({ status: false, corrected: message });
+    }
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-3.5-turbo",
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are a grammar and spell-check assistant. Fix any spelling or grammar mistakes in the user's message. If the message is already correct, return it unchanged. Return ONLY the corrected text — no explanations, no quotes, no extra words.",
+        },
+        { role: "user", content: message },
+      ],
+      temperature: 0.1,
+      max_tokens: 200,
+    });
+
+    const corrected = response.choices[0].message.content.trim();
+    const wasChanged = corrected.toLowerCase() !== message.toLowerCase();
+    return res.json({ status: true, corrected, wasChanged });
+  } catch (error) {
+    console.error("[AI] Grammar check error:", error.message);
+    return res.json({ status: false, corrected: message });
+  }
+};

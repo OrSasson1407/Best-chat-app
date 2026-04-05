@@ -2,7 +2,7 @@ const {
   register,
   login,
   logout,
-  refreshToken,         // ✅ FIX: was never imported — the route didn't exist
+  refreshToken,
   getAllUsers,
   updateProfile,
   toggleBlockUser,
@@ -10,7 +10,13 @@ const {
   updateE2EKeys,
   getPublicKey,
   getUserById,
-  updateChatCustomization
+  updateChatCustomization,
+  // Sprint 1
+  setup2FA,
+  verify2FA,
+  validate2FALogin,
+  disable2FA,
+  archiveChat,
 } = require("../controllers/authController");
 
 const auth = require("../middleware/authMiddleware");
@@ -20,12 +26,9 @@ const router = require("express").Router();
 router.post("/register", register);
 router.post("/login", login);
 router.post("/refresh", refreshToken);
-
-// BUGFIX: logout must be POST (it mutates state — blacklists tokens in Redis).
-// Using GET allowed browsers/crawlers/prefetch to trigger logout unintentionally.
-// Auth middleware is added so the access token is verified before blacklisting.
 router.post("/logout", logout);
-// Protected routes (require valid access token)
+
+// Protected routes
 router.get("/allusers/:id", auth, getAllUsers);
 router.post("/updateprofile/:id", auth, updateProfile);
 router.post("/block", auth, toggleBlockUser);
@@ -34,8 +37,16 @@ router.post("/chat-customization", auth, updateChatCustomization);
 router.get("/user/:id", auth, getUserById);
 
 // E2E Encryption routes
-// SECURITY FIX: /e2e-keys now requires auth and ownership check
 router.post("/e2e-keys", auth, updateE2EKeys);
 router.get("/public-key/:id", getPublicKey);
+
+// Sprint 1 — 2FA routes
+router.post("/2fa/setup", auth, setup2FA);
+router.post("/2fa/verify", auth, verify2FA);
+router.post("/2fa/validate", validate2FALogin); // public — called before token is issued
+router.post("/2fa/disable", auth, disable2FA);
+
+// Sprint 1 — Archive chat
+router.post("/archive-chat", auth, archiveChat);
 
 module.exports = router;

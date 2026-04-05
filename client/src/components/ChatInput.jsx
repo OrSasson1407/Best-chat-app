@@ -6,7 +6,7 @@ import {
     BsEmojiSmileFill, BsPaperclip, BsMicFill, 
     BsStopCircleFill, BsCodeSlash, BsClockHistory, BsTerminal 
 } from "react-icons/bs";
-import { FaBomb, FaFire, FaCalendarAlt, FaLink, FaSpinner, FaLock, FaMagic } from "react-icons/fa";
+import { FaBomb, FaFire, FaCalendarAlt, FaLink, FaSpinner, FaLock, FaMagic, FaSpellCheck } from "react-icons/fa";
 import { toast } from "react-toastify"; 
 
 // --- TRIPLE HANDSHAKE MERGE: IMPORT UUID ---
@@ -61,6 +61,52 @@ export default function ChatInput({
 
   const [showCommands, setShowCommands] = useState(false);
   const [audioLevels, setAudioLevels] = useState(Array(15).fill(10));
+
+
+  // ── Sprint 1: Grammar check ──
+  const [grammarSuggestion, setGrammarSuggestion] = useState(null);
+  const [isCheckingGrammar, setIsCheckingGrammar] = useState(false);
+
+  const handleGrammarCheck = async () => {
+    if (!msg.trim() || msg.trim().length < 3 || isCheckingGrammar) return;
+    setIsCheckingGrammar(true);
+    try {
+      const token = currentUser?.token || sessionStorage.getItem("chat-app-token");
+      const { grammarCheckRoute } = await import("../utils/APIRoutes");
+      const { data } = await axios.post(
+        grammarCheckRoute,
+        { message: msg },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (data.status && data.wasChanged) {
+        setGrammarSuggestion({ original: msg, corrected: data.corrected });
+      } else {
+        toast.success("✓ No issues found!");
+      }
+    } catch { toast.error("Grammar check unavailable."); }
+    finally { setIsCheckingGrammar(false); }
+  };
+
+  // ── Sprint 1: Draft restore on mount, save on change ──
+  const draftKey = currentChat ? `draft_${currentChat._id || currentChat.name}` : null;
+
+  useEffect(() => {
+    if (!draftKey) return;
+    const saved = localStorage.getItem(draftKey);
+    if (saved) {
+      setMsg(saved);
+      // Resize textarea to fit the restored draft
+      requestAnimationFrame(() => {
+        if (textareaRef.current) {
+          textareaRef.current.style.height = "auto";
+          textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 150)}px`;
+        }
+      });
+    } else {
+      setMsg("");
+      if (textareaRef.current) textareaRef.current.style.height = "auto";
+    }
+  }, [draftKey]);
   
   const streamRef = useRef(null);
   const textareaRef = useRef(null); 
@@ -184,7 +230,9 @@ export default function ChatInput({
       setScheduleDate(""); 
       setShowScheduleMenu(false);
       setDetectedUrl(null);
-      setShowCommands(false); 
+      setShowCommands(false);
+      // Sprint 1: clear saved draft on send
+      if (draftKey) localStorage.removeItem(draftKey);
     }
   };
 
@@ -192,6 +240,12 @@ export default function ChatInput({
       const val = e.target.value;
       setMsg(val);
       handleTyping(val.length > 0);
+
+      // Sprint 1: persist draft per chat
+      if (draftKey) {
+        if (val) localStorage.setItem(draftKey, val);
+        else localStorage.removeItem(draftKey);
+      }
       
       if (val.startsWith("/")) setShowCommands(true);
       else setShowCommands(false);
@@ -519,6 +573,21 @@ export default function ChatInput({
           </PreviewOverlay>
       )}
 
+
+      {/* Sprint 1: Grammar suggestion banner */}
+      {grammarSuggestion && (
+        <div className="reply-banner" style={{background:"rgba(34,211,165,0.06)",borderTop:"1px solid rgba(34,211,165,0.2)"}}>
+          <span>✨ Suggestion: <strong>{grammarSuggestion.corrected}</strong></span>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            <button
+              onClick={() => { setMsg(grammarSuggestion.corrected); if (draftKey) localStorage.setItem(draftKey, grammarSuggestion.corrected); setGrammarSuggestion(null); }}
+              style={{background:"none",border:"none",color:"var(--color-success)",cursor:"pointer",fontWeight:700,fontSize:"var(--text-xs)",fontFamily:"inherit"}}
+            >Apply</button>
+            <IoMdClose onClick={() => setGrammarSuggestion(null)} className="close-btn" />
+          </div>
+        </div>
+      )}
+
       <Container $isRecording={isRecording}>
         <div className="button-container">
           <div className="emoji tool-toggle">
@@ -592,6 +661,15 @@ export default function ChatInput({
 
           <div className={`code-toggle tool-toggle ${isCodeMode ? 'active' : ''}`} onClick={() => { triggerHaptic('light'); setIsCodeMode(!isCodeMode); }} title="Send Code Snippet">
               <BsCodeSlash />
+          </div>
+
+          <div
+            className={`tool-toggle ${isCheckingGrammar ? 'active' : ''}`}
+            onClick={handleGrammarCheck}
+            title="Check grammar & spelling"
+            style={{opacity: msg.trim().length < 3 ? 0.4 : 1}}
+          >
+            {isCheckingGrammar ? <FaSpinner className="spin-icon" /> : <FaSpellCheck />}
           </div>
         </div>
 

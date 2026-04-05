@@ -119,6 +119,19 @@ const userSchema = new mongoose.Schema({
     ]
   },
 
+  // --- TWO-FACTOR AUTHENTICATION ---
+  twoFactor: {
+    enabled: { type: Boolean, default: false },
+    secret: { type: String, default: "" },        // TOTP secret (store encrypted in prod)
+    backupCodes: { type: [String], default: [] },  // One-time backup codes
+  },
+
+  // --- ARCHIVED CHATS (Sprint 1) ---
+  archivedChats: [{ type: mongoose.Schema.Types.ObjectId }],
+
+  // --- ONBOARDING ---
+  onboardingDone: { type: Boolean, default: false },
+
   // --- CHAT CUSTOMIZATIONS ---
   chatCustomizations: [
     {

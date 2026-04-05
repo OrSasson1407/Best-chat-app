@@ -5,7 +5,7 @@ import styled, { keyframes } from "styled-components";
 import { useNavigate, Link } from "react-router-dom";
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
-import { loginRoute, updateE2EKeysRoute } from "../utils/APIRoutes";
+import { loginRoute, updateE2EKeysRoute, validate2FALoginRoute } from "../utils/APIRoutes";
 import { generateE2EBundle } from "../utils/crypto";
 import useChatStore from "../store/chatStore";
 
@@ -16,6 +16,11 @@ export default function Login() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPass, setShowPass] = useState(false);
   const [focused, setFocused] = useState(null);
+
+  // Sprint 1: 2FA challenge state
+  const [twoFactorPending, setTwoFactorPending] = useState(false);
+  const [twoFactorUserId, setTwoFactorUserId] = useState(null);
+  const [twoFactorCode, setTwoFactorCode] = useState("");
 
   // ✅ FIX: Use sessionStorage and guard against string "null" / "undefined"
   useEffect(() => {
@@ -34,6 +39,36 @@ export default function Login() {
     return true;
   };
 
+  // Shared helper: store session + E2E setup then navigate
+  const finalizeLogin = async (data) => {
+    sessionStorage.setItem("chat-app-token", data.token);
+    sessionStorage.setItem("chat-app-refresh-token", data.refreshToken);
+    const userData = { ...data.user, token: data.token };
+    sessionStorage.setItem("chat-app-user", JSON.stringify(userData));
+    setCurrentUser(userData);
+    try {
+      const existingLocalKey = localStorage.getItem(`privateKey_${data.user._id}`);
+      const serverHasKeys = data.user?.e2eStatus?.hasKeys === true;
+      let serverKeyIsValid = false;
+      if (existingLocalKey && serverHasKeys) {
+        try {
+          const verifyRes = await axios.get(
+            `${updateE2EKeysRoute.replace("upload-bundle", "bundle")}/${data.user._id}`,
+            { headers: { Authorization: `Bearer ${data.token}` } }
+          );
+          serverKeyIsValid = !!(verifyRes.data?.bundle?.identityKey);
+        } catch (_) { serverKeyIsValid = false; }
+      }
+      if (!existingLocalKey || !serverHasKeys || !serverKeyIsValid) {
+        const { bundle, privateKeys } = await generateE2EBundle();
+        localStorage.setItem(`privateKey_${data.user._id}`, JSON.stringify(privateKeys.identityPrivateKey));
+        localStorage.setItem(`fullE2EKeys_${data.user._id}`, JSON.stringify(privateKeys));
+        await axios.post(updateE2EKeysRoute, bundle, { headers: { Authorization: `Bearer ${data.token}` } });
+      }
+    } catch (e2eErr) { console.error("[Crypto] E2EE key setup failed:", e2eErr); }
+    navigate("/");
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!validateForm()) return;
@@ -41,52 +76,29 @@ export default function Login() {
     try {
       const { data } = await axios.post(loginRoute, { username: values.username, password: values.password });
       if (data.status === false) { toast.error(data.msg || "Invalid credentials."); return; }
-      if (data.status === true) {
-        
-        // ✅ FIX: Store session data in sessionStorage
-        sessionStorage.setItem("chat-app-token", data.token);
-        sessionStorage.setItem("chat-app-refresh-token", data.refreshToken);
-        const userData = { ...data.user, token: data.token };
-        sessionStorage.setItem("chat-app-user", JSON.stringify(userData));
-        setCurrentUser(userData);
-        
-        try {
-          // Check local private key AND verify the server actually has a valid identityKey.
-          // e2eStatus.hasKeys can be true even when the stored key is corrupt or empty string,
-          // so we do a live bundle fetch to confirm the key is actually usable.
-          const existingLocalKey = localStorage.getItem(`privateKey_${data.user._id}`);
-          const serverHasKeys = data.user?.e2eStatus?.hasKeys === true;
-
-          let serverKeyIsValid = false;
-          if (existingLocalKey && serverHasKeys) {
-            try {
-              const verifyRes = await axios.get(
-                `${updateE2EKeysRoute.replace("upload-bundle", "bundle")}/${data.user._id}`,
-                { headers: { Authorization: `Bearer ${data.token}` } }
-              );
-              serverKeyIsValid = !!(verifyRes.data?.bundle?.identityKey);
-            } catch (_) {
-              serverKeyIsValid = false;
-            }
-          }
-
-          if (!existingLocalKey || !serverHasKeys || !serverKeyIsValid) {
-            console.info("[Crypto] Generating E2E keys — missing locally:", !existingLocalKey, "/ server flag off:", !serverHasKeys, "/ server key invalid:", !serverKeyIsValid);
-            const { bundle, privateKeys } = await generateE2EBundle();
-
-            localStorage.setItem(`privateKey_${data.user._id}`, JSON.stringify(privateKeys.identityPrivateKey));
-            localStorage.setItem(`fullE2EKeys_${data.user._id}`, JSON.stringify(privateKeys));
-
-            await axios.post(updateE2EKeysRoute, bundle, { headers: { Authorization: `Bearer ${data.token}` } });
-            console.info("[Crypto] E2E keys generated and uploaded successfully.");
-          } else {
-            console.info("[Crypto] E2E keys verified — all good.");
-          }
-        } catch (e2eErr) { console.error("[Crypto] E2EE key setup failed:", e2eErr); }
-        navigate("/");
+      // ── Sprint 1: 2FA challenge ──
+      if (data.status === "2fa_required") {
+        setTwoFactorUserId(data.userId);
+        setTwoFactorPending(true);
+        return;
       }
+      if (data.status === true) await finalizeLogin(data);
     } catch (err) {
       toast.error(err.response?.data?.msg || "Login failed. Please try again.");
+    } finally { setIsSubmitting(false); }
+  };
+
+  // Sprint 1: submit the 6-digit TOTP code after password was accepted
+  const handleTwoFactorSubmit = async (e) => {
+    e?.preventDefault();
+    if (twoFactorCode.length !== 6) { toast.warning("Enter the 6-digit code from your authenticator app."); return; }
+    setIsSubmitting(true);
+    try {
+      const { data } = await axios.post(validate2FALoginRoute, { userId: twoFactorUserId, token: twoFactorCode });
+      if (!data.status) { toast.error(data.msg || "Invalid code. Try again."); return; }
+      await finalizeLogin(data);
+    } catch (err) {
+      toast.error(err.response?.data?.msg || "2FA verification failed.");
     } finally { setIsSubmitting(false); }
   };
 
@@ -112,6 +124,38 @@ export default function Login() {
           <p>Sign in to continue your conversations</p>
         </div>
 
+        {/* ── Sprint 1: 2FA challenge screen ── */}
+        {twoFactorPending ? (
+          <form onSubmit={handleTwoFactorSubmit} noValidate>
+            <div className="twofa-prompt">
+              <div className="twofa-icon">🔐</div>
+              <p className="twofa-title">Two-factor authentication</p>
+              <p className="twofa-sub">Enter the 6-digit code from your authenticator app, or a backup code.</p>
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={8}
+                placeholder="000000"
+                value={twoFactorCode}
+                onChange={e => setTwoFactorCode(e.target.value.replace(/\s/g, ""))}
+                className="twofa-input"
+                autoFocus
+                disabled={isSubmitting}
+              />
+            </div>
+            <button type="submit" className="btn-submit" disabled={isSubmitting || twoFactorCode.length < 6}>
+              {isSubmitting
+                ? <><div className="btn-spinner" /><span>Verifying...</span></>
+                : <><span>Verify</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></>
+              }
+            </button>
+            <p className="footer-link" style={{marginTop:"1rem"}}>
+              <button type="button" style={{background:"none",border:"none",color:"var(--msg-sent)",cursor:"pointer",font:"inherit",fontSize:"var(--text-sm)"}} onClick={() => { setTwoFactorPending(false); setTwoFactorCode(""); }}>
+                ← Back to login
+              </button>
+            </p>
+          </form>
+        ) : (
         <form onSubmit={handleSubmit} noValidate>
           {/* Username */}
           <div className={`field-group ${focused === 'username' ? 'focused' : ''}`}>
@@ -163,6 +207,7 @@ export default function Login() {
             )}
           </button>
         </form>
+        )} {/* end twoFactorPending conditional */}
 
         <p className="footer-link">
           New to Snappy? <Link to="/register">Create an account</Link>
@@ -303,6 +348,25 @@ const Card = styled.div`
     font-size: var(--text-sm); color: var(--text-secondary);
     a { color: var(--msg-sent); font-weight: 600; text-decoration: none; transition:opacity var(--duration-fast); }
     a:hover { opacity:0.8; text-decoration:underline; }
+  }
+
+  /* Sprint 1 — 2FA challenge styles */
+  .twofa-prompt {
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    text-align: center; padding: 0.5rem 0 1.25rem;
+    .twofa-icon { font-size: 2.5rem; line-height: 1; margin-bottom: 4px; }
+    .twofa-title { font-size: var(--text-base); font-weight: 700; color: var(--text-primary); }
+    .twofa-sub { font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.5; max-width: 280px; }
+  }
+  .twofa-input {
+    width: 100%; padding: 14px; text-align: center;
+    font-size: 2rem; letter-spacing: 14px; font-family: monospace; font-weight: 700;
+    background: var(--input-bg); border: 1.5px solid var(--border-default);
+    border-radius: var(--radius-md); color: var(--text-primary); outline: none;
+    transition: border-color var(--duration-base);
+    &:focus { border-color: var(--msg-sent); box-shadow: 0 0 0 3px rgba(124,58,237,0.15); }
+    &:disabled { opacity: 0.5; }
+    &::placeholder { font-size: 1.5rem; letter-spacing: 8px; color: var(--text-tertiary); }
   }
 
   .security-badge {

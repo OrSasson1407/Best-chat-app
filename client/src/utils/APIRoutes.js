@@ -110,3 +110,18 @@ export const summarizeChatRoute = `${host}/api/ai/summarize`;
 // ✅ FIX: Matched exactly with backend e2eRoutes.js
 export const publicKeyRoute = `${host}/api/e2e/bundle`;
 export const updateE2EKeysRoute = `${host}/api/e2e/upload-bundle`;
+// =======================================================
+// SPRINT 1 — NEW ROUTES
+// =======================================================
+
+// 2FA
+export const setup2FARoute = `${host}/api/auth/2fa/setup`;
+export const verify2FARoute = `${host}/api/auth/2fa/verify`;
+export const validate2FALoginRoute = `${host}/api/auth/2fa/validate`;
+export const disable2FARoute = `${host}/api/auth/2fa/disable`;
+
+// Archive chats
+export const archiveChatRoute = `${host}/api/auth/archive-chat`;
+
+// AI grammar check (uses existing AI route)
+export const grammarCheckRoute = `${host}/api/ai/grammar-check`;

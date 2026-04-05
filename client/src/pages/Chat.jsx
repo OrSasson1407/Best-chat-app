@@ -20,6 +20,7 @@ export default function Chat() {
   const {
     currentUser, setCurrentUser, currentChat, setCurrentChat,
     setOnlineUsers, setGlobalTypingUsers, theme, setTheme, isCompact, _hasHydrated,
+    unreadCounts, incrementUnread, clearUnread,
   } = useChatStore();
 
   const [contacts, setContacts] = useState([]);
@@ -29,6 +30,20 @@ export default function Chat() {
 
   useEffect(() => { document.documentElement.setAttribute("data-theme", theme); }, [theme]);
   const toggleTheme = () => { triggerHaptic('light'); setTheme(theme === "light" ? "glass" : "light"); };
+
+  // ── Sprint 1: Update browser tab title with total unread count ──
+  useEffect(() => {
+    const total = Object.values(unreadCounts).reduce((a, b) => a + b, 0);
+    document.title = total > 0 ? `(${total}) Snappy` : "Snappy";
+  }, [unreadCounts]);
+
+  // ── Sprint 1: Clear unread badge when user opens a chat ──
+  useEffect(() => {
+    if (currentChat) {
+      const chatId = currentChat._id || currentChat.name;
+      clearUnread(chatId);
+    }
+  }, [currentChat]);
 
   useEffect(() => {
     const handleOffline = () => { setIsOffline(true); triggerHaptic('warning'); toast.warning("📶 You are offline.", { autoClose: false, toastId: "offline-toast" }); };
