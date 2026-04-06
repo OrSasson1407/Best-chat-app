@@ -1,4 +1,4 @@
-// client/src/pages/Chat.jsx — Sprint 1 + Sprint 2 merged
+// client/src/pages/Chat.jsx — Sprint 1 + Sprint 2 + Sprint 3
 import React, { useEffect, useState, useRef, useCallback } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
@@ -9,6 +9,7 @@ import { allUsersRoute, host, updateFcmTokenRoute } from "../utils/APIRoutes";
 import Contacts from "../components/Contacts";
 import Welcome from "../components/Welcome";
 import ChatContainer from "../components/ChatContainer";
+import Onboarding from "../components/Onboarding"; // Sprint 3
 import useChatStore from "../store/chatStore";
 import { ToastContainer, toast } from "react-toastify";
 import { requestForToken, onMessageListener } from "../firebase";
@@ -31,6 +32,9 @@ export default function Chat() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
 
+  // Sprint 3: onboarding
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
   useEffect(() => { document.documentElement.setAttribute("data-theme", theme); }, [theme]);
   const toggleTheme = () => { triggerHaptic("light"); setTheme(theme === "light" ? "glass" : "light"); };
 
@@ -48,16 +52,20 @@ export default function Chat() {
     }
   }, [currentChat]);
 
-  // ── Sprint 2: Bootstrap muted chats + folders + pending requests from user ─
+  // ── Sprint 2: Bootstrap muted chats + folders + pending requests ──────────
   useEffect(() => {
     if (currentUser) {
       if (currentUser.mutedChats) setMutedChats(currentUser.mutedChats);
       if (currentUser.chatFolders) setChatFolders(currentUser.chatFolders);
-      // Pending friend requests count shown in sidebar badge
-      const pendingCount = (currentUser.friendRequests || []).filter(
-        (r) => r.status === "pending"
-      ).length;
+      const pendingCount = (currentUser.friendRequests || []).filter((r) => r.status === "pending").length;
       setPendingRequestCount(pendingCount);
+
+      // Sprint 3: show onboarding for new users who haven't completed it
+      if (currentUser.onboardingDone === false) {
+        // Small delay so the chat UI renders first
+        const t = setTimeout(() => setShowOnboarding(true), 800);
+        return () => clearTimeout(t);
+      }
     }
   }, [currentUser?._id]);
 
@@ -305,6 +313,11 @@ export default function Chat() {
         </div>
       </div>
 
+      {/* Sprint 3: First-time onboarding tutorial */}
+      {showOnboarding && (
+        <Onboarding onComplete={() => setShowOnboarding(false)} />
+      )}
+
       <ToastContainer position="top-right" autoClose={4000} hideProgressBar newestOnTop theme={theme === "light" ? "light" : "dark"} />
     </AppShell>
   );
@@ -439,8 +452,7 @@ const AppShell = styled.div`
 const LoadingScreen = styled.div`
   height:100vh; width:100vw;
   display:flex; align-items:center; justify-content:center;
-  background:var(--bg-root);
-  background-image:var(--mesh-gradient);
+  background:var(--bg-root); background-image:var(--mesh-gradient);
 
   .spinner-wrap {
     position:relative; display:flex; align-items:center; justify-content:center;

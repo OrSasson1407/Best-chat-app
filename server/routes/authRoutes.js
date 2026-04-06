@@ -9,6 +9,8 @@ const {
   sendFriendRequest, respondFriendRequest, getFriendRequests,
   muteChat,
   saveChatFolder, deleteChatFolder, toggleChatInFolder,
+  // Sprint 3
+  completeOnboarding, getProfileQRData,
 } = require("../controllers/authController");
 
 const auth = require("../middleware/authMiddleware");
@@ -20,7 +22,7 @@ router.post("/login", login);
 router.post("/refresh", refreshToken);
 router.post("/logout", logout);
 
-// ── Sprint 1 2FA (validate is public — called before token is issued) ─────────
+// ── Sprint 1: 2FA (validate is public) ───────────────────────────────────────
 router.post("/2fa/validate", validate2FALogin);
 
 // ── Protected ─────────────────────────────────────────────────────────────────
@@ -32,8 +34,8 @@ router.post("/chat-customization", auth, updateChatCustomization);
 router.get("/user/:id",            auth, getUserById);
 
 // E2E
-router.post("/e2e-keys",       auth, updateE2EKeys);
-router.get("/public-key/:id",  getPublicKey);
+router.post("/e2e-keys",      auth, updateE2EKeys);
+router.get("/public-key/:id", getPublicKey);
 
 // Sprint 1 — 2FA (protected)
 router.post("/2fa/setup",   auth, setup2FA);
@@ -44,9 +46,9 @@ router.post("/2fa/disable", auth, disable2FA);
 router.post("/archive-chat", auth, archiveChat);
 
 // Sprint 2 — Friend system
-router.post("/friends/request",  auth, sendFriendRequest);
-router.post("/friends/respond",  auth, respondFriendRequest);
-router.get("/friends/requests",  auth, getFriendRequests);
+router.post("/friends/request", auth, sendFriendRequest);
+router.post("/friends/respond", auth, respondFriendRequest);
+router.get("/friends/requests", auth, getFriendRequests);
 
 // Sprint 2 — Mute
 router.post("/mute-chat", auth, muteChat);
@@ -55,5 +57,11 @@ router.post("/mute-chat", auth, muteChat);
 router.post("/folders/save",   auth, saveChatFolder);
 router.post("/folders/delete", auth, deleteChatFolder);
 router.post("/folders/toggle", auth, toggleChatInFolder);
+
+// Sprint 3 — Onboarding
+router.post("/onboarding/complete", auth, completeOnboarding);
+
+// Sprint 3 — Profile QR data
+router.get("/qr-data", auth, getProfileQRData);
 
 module.exports = router;

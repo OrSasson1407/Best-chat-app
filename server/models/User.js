@@ -56,17 +56,12 @@ const userSchema = new mongoose.Schema({
   // --- ARCHIVED CHATS (Sprint 1) ---
   archivedChats: [{ type: mongoose.Schema.Types.ObjectId }],
 
-  // --- ONBOARDING ---
+  // --- ONBOARDING (Sprint 3) ---
+  // Set to true after user completes the first-time walkthrough
   onboardingDone: { type: Boolean, default: false },
 
-  // =============================================================
-  // SPRINT 2 NEW FIELDS
-  // =============================================================
-
-  // --- FRIEND / CONTACT REQUEST SYSTEM ---
-  // contacts: confirmed friends (previously open list — now gated by requests)
+  // --- FRIEND / CONTACT REQUEST SYSTEM (Sprint 2) ---
   contacts: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
-
   friendRequests: [
     {
       from:   { type: mongoose.Schema.Types.ObjectId, ref: "User" },
@@ -75,15 +70,15 @@ const userSchema = new mongoose.Schema({
     },
   ],
 
-  // --- MUTE NOTIFICATIONS PER CHAT ---
+  // --- MUTE NOTIFICATIONS PER CHAT (Sprint 2) ---
   mutedChats: [
     {
       chatId: { type: mongoose.Schema.Types.ObjectId },
-      until:  { type: Date }, // null/undefined = muted forever
+      until:  { type: Date },
     },
   ],
 
-  // --- CHAT FOLDERS ---
+  // --- CHAT FOLDERS (Sprint 2) ---
   chatFolders: [
     {
       name:    { type: String, maxlength: 30 },

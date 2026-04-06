@@ -1,4 +1,4 @@
-// server/controllers/authController.js
+// server/controllers/authController.js — Sprint 1 + Sprint 2 + Sprint 3
 const User = require("../models/User");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
@@ -357,118 +357,81 @@ module.exports.archiveChat = async (req, res, next) => {
   } catch (ex) { next(ex); }
 };
 
-// =============================================================================
-// SPRINT 2 — FEATURE 1: Contact Request / Friend System
-// =============================================================================
+// ─── SPRINT 2: FRIEND SYSTEM ─────────────────────────────────────────────────
 
-// Send a friend request
 module.exports.sendFriendRequest = async (req, res, next) => {
   try {
     const fromId = req.user.id;
     const { toId } = req.body;
-
     if (String(fromId) === String(toId)) return res.status(400).json({ status: false, msg: "Cannot send a request to yourself." });
-
     const target = await User.findById(toId);
     if (!target) return res.status(404).json({ status: false, msg: "User not found." });
-
-    // Already friends?
-    if (target.contacts.map(String).includes(String(fromId))) {
-      return res.json({ status: false, msg: "You are already contacts." });
-    }
-
-    // Already a pending request?
-    const alreadyPending = target.friendRequests.some(
-      (r) => String(r.from) === String(fromId) && r.status === "pending"
-    );
+    if (target.contacts.map(String).includes(String(fromId))) return res.json({ status: false, msg: "You are already contacts." });
+    const alreadyPending = target.friendRequests.some((r) => String(r.from) === String(fromId) && r.status === "pending");
     if (alreadyPending) return res.json({ status: false, msg: "Request already sent." });
-
     target.friendRequests.push({ from: fromId, status: "pending" });
     await target.save();
-
     return res.json({ status: true, msg: "Friend request sent." });
   } catch (ex) { next(ex); }
 };
 
-// Accept or decline a request
 module.exports.respondFriendRequest = async (req, res, next) => {
   try {
     const userId = req.user.id;
-    const { fromId, action } = req.body; // action: "accept" | "decline"
-
+    const { fromId, action } = req.body;
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ status: false, msg: "User not found." });
-
     const reqIdx = user.friendRequests.findIndex((r) => String(r.from) === String(fromId) && r.status === "pending");
     if (reqIdx === -1) return res.status(404).json({ status: false, msg: "Request not found." });
-
     user.friendRequests[reqIdx].status = action === "accept" ? "accepted" : "declined";
-
     if (action === "accept") {
-      // Add each other as contacts
       if (!user.contacts.map(String).includes(String(fromId))) user.contacts.push(fromId);
       await User.findByIdAndUpdate(fromId, { $addToSet: { contacts: userId } });
     }
-
     await user.save();
     return res.json({ status: true, msg: action === "accept" ? "Request accepted." : "Request declined." });
   } catch (ex) { next(ex); }
 };
 
-// Get all pending friend requests for the current user
 module.exports.getFriendRequests = async (req, res, next) => {
   try {
-    const user = await User.findById(req.user.id)
-      .populate("friendRequests.from", "username avatarImage statusMessage statusIcon");
+    const user = await User.findById(req.user.id).populate("friendRequests.from", "username avatarImage statusMessage statusIcon");
     if (!user) return res.status(404).json({ status: false, msg: "User not found." });
     const pending = user.friendRequests.filter((r) => r.status === "pending");
     return res.json({ status: true, requests: pending });
   } catch (ex) { next(ex); }
 };
 
-// =============================================================================
-// SPRINT 2 — FEATURE 2: Mute Notifications Per Chat
-// =============================================================================
+// ─── SPRINT 2: MUTE ──────────────────────────────────────────────────────────
 
 module.exports.muteChat = async (req, res, next) => {
   try {
     const userId = req.user.id;
     const { chatId, duration } = req.body;
-    // duration in minutes: 60=1h, 10080=1 week, 0=forever (null until)
-
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ status: false, msg: "User not found." });
-
     const idx = user.mutedChats.findIndex((m) => m.chatId.toString() === String(chatId));
     if (duration === null) {
-      // Unmute
       if (idx !== -1) user.mutedChats.splice(idx, 1);
     } else {
       const until = duration === 0 ? null : new Date(Date.now() + duration * 60 * 1000);
       if (idx !== -1) { user.mutedChats[idx].until = until; }
       else { user.mutedChats.push({ chatId, until }); }
     }
-
     await user.save();
     return res.json({ status: true, mutedChats: user.mutedChats });
   } catch (ex) { next(ex); }
 };
 
-// =============================================================================
-// SPRINT 2 — FEATURE 3: Chat Folders
-// =============================================================================
+// ─── SPRINT 2: CHAT FOLDERS ──────────────────────────────────────────────────
 
-// Create or update a chat folder
 module.exports.saveChatFolder = async (req, res, next) => {
   try {
     const userId = req.user.id;
     const { folderId, name, icon, chatIds } = req.body;
-
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ status: false, msg: "User not found." });
-
     if (folderId) {
-      // Update existing
       const idx = user.chatFolders.findIndex((f) => f._id.toString() === String(folderId));
       if (idx !== -1) {
         if (name)    user.chatFolders[idx].name    = name;
@@ -476,48 +439,64 @@ module.exports.saveChatFolder = async (req, res, next) => {
         if (chatIds) user.chatFolders[idx].chatIds = chatIds;
       }
     } else {
-      // Create new (max 10 folders)
       if (user.chatFolders.length >= 10) return res.status(400).json({ status: false, msg: "Maximum 10 folders allowed." });
       user.chatFolders.push({ name: name || "New Folder", icon: icon || "📁", chatIds: chatIds || [] });
     }
-
     await user.save();
     return res.json({ status: true, chatFolders: user.chatFolders });
   } catch (ex) { next(ex); }
 };
 
-// Delete a chat folder
 module.exports.deleteChatFolder = async (req, res, next) => {
   try {
     const userId = req.user.id;
     const { folderId } = req.body;
-
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ status: false, msg: "User not found." });
-
     user.chatFolders = user.chatFolders.filter((f) => f._id.toString() !== String(folderId));
     await user.save();
     return res.json({ status: true, chatFolders: user.chatFolders });
   } catch (ex) { next(ex); }
 };
 
-// Add/remove a chat from a folder
 module.exports.toggleChatInFolder = async (req, res, next) => {
   try {
     const userId = req.user.id;
     const { folderId, chatId } = req.body;
-
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ status: false, msg: "User not found." });
-
     const folder = user.chatFolders.find((f) => f._id.toString() === String(folderId));
     if (!folder) return res.status(404).json({ status: false, msg: "Folder not found." });
-
     const idxInFolder = folder.chatIds.findIndex((id) => id.toString() === String(chatId));
     if (idxInFolder !== -1) folder.chatIds.splice(idxInFolder, 1);
     else folder.chatIds.push(chatId);
-
     await user.save();
     return res.json({ status: true, chatFolders: user.chatFolders });
+  } catch (ex) { next(ex); }
+};
+
+// =============================================================================
+// SPRINT 3 — ONBOARDING
+// =============================================================================
+
+// Mark onboarding tutorial as complete for this user
+module.exports.completeOnboarding = async (req, res, next) => {
+  try {
+    await User.findByIdAndUpdate(req.user.id, { onboardingDone: true });
+    return res.json({ status: true, msg: "Onboarding complete." });
+  } catch (ex) { next(ex); }
+};
+
+// =============================================================================
+// SPRINT 3 — QR CODE: get current user's profile QR payload
+// =============================================================================
+
+module.exports.getProfileQRData = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.id).select("username avatarImage statusMessage _id");
+    if (!user) return res.status(404).json({ status: false, msg: "User not found" });
+    // The QR encodes a JSON string the scanning app can parse to open a profile
+    const qrPayload = JSON.stringify({ type: "profile", userId: String(user._id), username: user.username });
+    return res.json({ status: true, qrPayload, username: user.username });
   } catch (ex) { next(ex); }
 };

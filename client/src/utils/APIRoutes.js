@@ -76,15 +76,27 @@ export const disable2FARoute         = `${host}/api/auth/2fa/disable`;
 export const archiveChatRoute        = `${host}/api/auth/archive-chat`;
 
 // ── Sprint 2 ──────────────────────────────────────────────────────────────────
-// Friend / contact request system
 export const sendFriendRequestRoute    = `${host}/api/auth/friends/request`;
 export const respondFriendRequestRoute = `${host}/api/auth/friends/respond`;
 export const getFriendRequestsRoute    = `${host}/api/auth/friends/requests`;
-
-// Mute notifications per chat
 export const muteChatRoute             = `${host}/api/auth/mute-chat`;
-
-// Chat folders
 export const saveChatFolderRoute       = `${host}/api/auth/folders/save`;
 export const deleteChatFolderRoute     = `${host}/api/auth/folders/delete`;
 export const toggleChatInFolderRoute   = `${host}/api/auth/folders/toggle`;
+
+// ── Sprint 3 ──────────────────────────────────────────────────────────────────
+// Onboarding
+export const completeOnboardingRoute   = `${host}/api/auth/onboarding/complete`;
+
+// QR code — profile share
+export const profileQRDataRoute        = `${host}/api/auth/qr-data`;
+
+// Group rules
+export const setGroupRulesRoute        = `${host}/api/groups/set-rules`;
+
+// Max member limit
+export const setMaxMembersRoute        = `${host}/api/groups/set-max-members`;
+
+// Group invite QR / code
+export const getGroupInviteCodeRoute   = `${host}/api/groups/invite-code`; // + /:groupId
+export const joinViaInviteCodeRoute    = `${host}/api/groups/join-via-code`;
