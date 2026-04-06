@@ -161,9 +161,6 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
             });
             fetchGroupsAndStories();
         }
-    // ✅ FIX: Depend only on the stable user ID, not the whole currentUser object or
-    // getAuthHeader callback. The whole-object dep caused getAuthHeader to be recreated
-    // on every render, re-triggering this effect and appending duplicate groups.
     }, [currentUser?._id]); // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
@@ -1331,7 +1328,7 @@ const ModalOverlay = styled.div`
         width: 24px; height: 24px; background: white; border-radius: 50%;
         transition: 0.3s; box-shadow: 0 2px 6px rgba(0,0,0,0.2);
       }
-      &.on { background: #10b981; .knob { left: 22px; } }
+      &.on { background: var(--color-success); .knob { left: 22px; } }
     }
 
     .toggle-btn {
@@ -1372,6 +1369,18 @@ const ModalOverlay = styled.div`
         &:hover { background: var(--bg-overlay); }
         &.selected { background: rgba(124,58,237,0.08); }
       }
+
+      .channel-item {
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 14px; border-bottom: 1px solid var(--border-subtle);
+        .info {
+          h4 { color: var(--text-primary); font-size: var(--text-sm); font-weight: 700; }
+          p { color: var(--text-secondary); font-size: var(--text-xs); margin-top: 2px; }
+        }
+      }
+
+      .center-loading { display: flex; justify-content: center; align-items: center; height: 90px; font-size: 1.4rem; color: var(--msg-sent); }
+      .empty-text { text-align: center; color: var(--text-secondary); padding: 28px; font-style: italic; font-size: var(--text-sm); }
     }
 
     .button-group {
@@ -1393,6 +1402,8 @@ const ModalOverlay = styled.div`
         color: var(--text-primary);
         &:hover { background: var(--input-bg); }
       }
+      .small { padding: 8px 14px; flex: none; border-radius: var(--radius-full); font-size: var(--text-xs); }
+      .full-width { flex: 1; width: 100%; }
     }
   }
 `;
