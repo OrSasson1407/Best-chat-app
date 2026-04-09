@@ -9,7 +9,7 @@ const StorySchema = new mongoose.Schema({
   },
   mediaUrl: { 
     type: String, 
-    required: false // Optional if it's a text-only story
+    required: false // Optional if it's a text-only storyy
   },
   mediaType: { 
     type: String, 
