@@ -18,7 +18,6 @@ axios.interceptors.request.use(
   (config) => {
     const token = sessionStorage.getItem("chat-app-token");
     if (token) {
-      // Strip any accidental "Bearer Bearer ..." duplication saved in storage
       const cleanToken = token.replace(/(Bearer\s*)+/gi, "").trim();
       config.headers.Authorization = `Bearer ${cleanToken}`;
     }
@@ -28,8 +27,8 @@ axios.interceptors.request.use(
 );
 
 // 2. SILENT REFRESH STATE
-let isRefreshing = false;         // prevents multiple simultaneous refresh calls
-let failedQueue = [];             // queues requests that arrive while refresh is in flight
+let isRefreshing = false;         
+let failedQueue = [];             
 
 const processQueue = (error, token = null) => {
   failedQueue.forEach((prom) => {
@@ -43,9 +42,34 @@ const processQueue = (error, token = null) => {
 };
 
 const forceLogout = () => {
+  // FIX: Prevent Incomplete Forced Logout by clearing local storage items (E2E Keys, Drafts)
+  const storedUser = sessionStorage.getItem("chat-app-user");
+  if (storedUser) {
+    try {
+      const parsed = JSON.parse(storedUser);
+      if (parsed._id) {
+        localStorage.removeItem(`privateKey_${parsed._id}`);
+        localStorage.removeItem(`fullE2EKeys_${parsed._id}`);
+      }
+    } catch (e) {
+      console.error("Failed to parse user for logout cleanup", e);
+    }
+  }
+
+  // Cleanup any remaining draft or encryption keys from other sessions locally
+  const keysToRemove = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && (key.startsWith('draft_') || key.startsWith('privateKey_') || key.startsWith('fullE2EKeys_'))) {
+      keysToRemove.push(key);
+    }
+  }
+  keysToRemove.forEach(k => localStorage.removeItem(k));
+
   sessionStorage.removeItem("chat-app-user");
   sessionStorage.removeItem("chat-app-token");
   sessionStorage.removeItem("chat-app-refresh-token");
+  
   if (window.location.pathname !== ROUTES.LOGIN) {
     window.location.href = ROUTES.LOGIN;
   }
@@ -68,7 +92,6 @@ axios.interceptors.response.use(
     // Case 1: Token expired → attempt silent refresh
     // --------------------------------------------------
     if (errorCode === "TOKEN_EXPIRED" && !originalRequest._retry) {
-      // If a refresh is already in flight, queue this request
       if (isRefreshing) {
         return new Promise((resolve, reject) => {
           failedQueue.push({ resolve, reject });
@@ -80,13 +103,12 @@ axios.interceptors.response.use(
           .catch((err) => Promise.reject(err));
       }
 
-      originalRequest._retry = true; // mark so we don't loop
+      originalRequest._retry = true; 
       isRefreshing = true;
 
       const storedRefreshToken = sessionStorage.getItem("chat-app-refresh-token");
 
       if (!storedRefreshToken) {
-        // No refresh token saved → can't recover, logout
         isRefreshing = false;
         forceLogout();
         return Promise.reject(error);
@@ -96,15 +118,12 @@ axios.interceptors.response.use(
         const { data } = await axios.post(
           refreshTokenRoute,
           { refreshToken: storedRefreshToken },
-          { _retry: true } // prevent this refresh call itself from being intercepted
+          { _retry: true } 
         );
 
         const newAccessToken = data.token;
-
-        // Save new access token for this tab
         sessionStorage.setItem("chat-app-token", newAccessToken);
 
-        // Also update the token inside the stored user object
         const storedUser = sessionStorage.getItem("chat-app-user");
         if (storedUser) {
           const parsed = JSON.parse(storedUser);
@@ -112,15 +131,11 @@ axios.interceptors.response.use(
           sessionStorage.setItem("chat-app-user", JSON.stringify(parsed));
         }
 
-        // Flush the queue with the new token
         processQueue(null, newAccessToken);
-
-        // Retry the original request with the new token
         originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
         return axios(originalRequest);
 
       } catch (refreshError) {
-        // Refresh token itself is expired or invalid → logout
         processQueue(refreshError, null);
         forceLogout();
         return Promise.reject(refreshError);
@@ -143,14 +158,12 @@ axios.interceptors.response.use(
 // REACT ROUTING & UI
 // =======================================================
 
-// --- LAZY LOADING ---
 const Chat = lazy(() => import("./pages/Chat"));
 const Login = lazy(() => import("./pages/Login"));
 const Register = lazy(() => import("./pages/Register"));
 
 const PublicRoute = ({ children }) => {
   const stored = sessionStorage.getItem("chat-app-user");
-  // ✅ FIX: Guard against string "null" or "undefined"
   const isAuthenticated = stored && stored !== "null" && stored !== "undefined";
   
   if (isAuthenticated) {

@@ -1,7 +1,6 @@
-// client/src/pages/Login.jsx — Sprint 1 + Sprint 2 (no Login changes in sprint 2)
 import React, { useState, useEffect } from "react";
 import axios from "axios";
-import styled, { keyframes } from "styled-components";
+import styled from "styled-components";
 import { useNavigate, Link } from "react-router-dom";
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -34,17 +33,18 @@ export default function Login() {
     return true;
   };
 
-  // Shared helper: store session + E2E setup then navigate
   const finalizeLogin = async (data) => {
     sessionStorage.setItem("chat-app-token", data.token);
     sessionStorage.setItem("chat-app-refresh-token", data.refreshToken);
     const userData = { ...data.user, token: data.token };
     sessionStorage.setItem("chat-app-user", JSON.stringify(userData));
     setCurrentUser(userData);
+    
     try {
       const existingLocalKey = localStorage.getItem(`privateKey_${data.user._id}`);
       const serverHasKeys = data.user?.e2eStatus?.hasKeys === true;
       let serverKeyIsValid = false;
+      
       if (existingLocalKey && serverHasKeys) {
         try {
           const verifyRes = await axios.get(
@@ -54,6 +54,13 @@ export default function Login() {
           serverKeyIsValid = !!(verifyRes.data?.bundle?.identityKey);
         } catch (_) { serverKeyIsValid = false; }
       }
+      
+      // FIX: Notify user of Destructive E2E Multi-Device Overwrite condition
+      if (!existingLocalKey && serverHasKeys) {
+          toast.warn("New device login detected. E2E keys regenerated; old messages may become unreadable.", { autoClose: 6000 });
+          console.warn("[Crypto] Missing local keys. Generating new E2E bundle. Old messages may become unreadable.");
+      }
+
       if (!existingLocalKey || !serverHasKeys || !serverKeyIsValid) {
         const { bundle, privateKeys } = await generateE2EBundle();
         localStorage.setItem(`privateKey_${data.user._id}`, JSON.stringify(privateKeys.identityPrivateKey));
@@ -61,6 +68,7 @@ export default function Login() {
         await axios.post(updateE2EKeysRoute, bundle, { headers: { Authorization: `Bearer ${data.token}` } });
       }
     } catch (e2eErr) { console.error("[Crypto] E2EE key setup failed:", e2eErr); }
+    
     navigate("/");
   };
 

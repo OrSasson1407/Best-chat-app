@@ -30,8 +30,8 @@ const TONE_META = {
   harsh:     { label: "Might come across harsh", color: "#f97316", emoji: "😤" },
   sarcastic: { label: "Could read as sarcastic", color: "#eab308", emoji: "🙃" },
   sad:       { label: "Sounds sad", color: "#60a5fa", emoji: "😢" },
-  positive:  { label: null, color: null, emoji: null }, // never warn
-  neutral:   { label: null, color: null, emoji: null }, // never warn
+  positive:  { label: null, color: null, emoji: null }, 
+  neutral:   { label: null, color: null, emoji: null }, 
 };
 
 export default function ChatInput({
@@ -57,8 +57,15 @@ export default function ChatInput({
   const [showCommands, setShowCommands] = useState(false);
   const [audioLevels, setAudioLevels]   = useState(Array(15).fill(10));
 
-  // ── Sprint 1: Drafts ────────────────────────────────────────────────────────
-  const draftKey = currentChat ? `draft_${currentChat._id || currentChat.name}` : null;
+  // Current message ref strictly for preventing ghost warnings after sent messages
+  const currentMsgRef = useRef(msg);
+  useEffect(() => { currentMsgRef.current = msg; }, [msg]);
+
+  // ── FIX: Draft Key Bleed ───────────────────────────────────────────────────
+  // Isolated to both the user and the chat to prevent cross-account leakage.
+  const draftKey = (currentUser && currentChat) 
+    ? `draft_${currentUser._id}_${currentChat._id || currentChat.name}` 
+    : null;
 
   useEffect(() => {
     if (!draftKey) return;
@@ -82,42 +89,57 @@ export default function ChatInput({
   const [isCheckingGrammar, setIsCheckingGrammar]   = useState(false);
 
   const handleGrammarCheck = async () => {
-    if (!msg.trim() || msg.trim().length < 3 || isCheckingGrammar) return;
+    const msgToCheck = msg;
+    if (!msgToCheck.trim() || msgToCheck.trim().length < 3 || isCheckingGrammar) return;
     setIsCheckingGrammar(true);
     try {
       const token = currentUser?.token || sessionStorage.getItem("chat-app-token");
-      const { data } = await axios.post(grammarCheckRoute, { message: msg }, { headers: { Authorization: `Bearer ${token}` } });
-      if (data.status && data.wasChanged) {
-        setGrammarSuggestion({ original: msg, corrected: data.corrected });
-      } else {
-        toast.success("✓ No issues found!");
+      const { data } = await axios.post(grammarCheckRoute, { message: msgToCheck }, { headers: { Authorization: `Bearer ${token}` } });
+      
+      // FIX: Tone/Grammar Checker Ghost Warnings - Only apply if the message hasn't been sent/changed
+      if (currentMsgRef.current === msgToCheck) {
+          if (data.status && data.wasChanged) {
+            setGrammarSuggestion({ original: msgToCheck, corrected: data.corrected });
+          } else {
+            toast.success("✓ No issues found!");
+          }
       }
     } catch { toast.error("Grammar check unavailable."); }
-    finally { setIsCheckingGrammar(false); }
+    finally { 
+        if (currentMsgRef.current === msgToCheck) setIsCheckingGrammar(false); 
+    }
   };
 
   // ── Sprint 2: Tone indicator ────────────────────────────────────────────────
-  const [toneWarning, setToneWarning]   = useState(null); // { tone, label, color, emoji }
+  const [toneWarning, setToneWarning]   = useState(null); 
   const [isCheckingTone, setIsCheckingTone] = useState(false);
   const toneDebounceRef = useRef(null);
 
-  // Debounce tone check as the user types — fires 1.5s after they stop typing
   useEffect(() => {
     clearTimeout(toneDebounceRef.current);
-    if (!msg.trim() || msg.trim().length < 15) { setToneWarning(null); return; }
+    const msgToCheck = msg;
+    
+    if (!msgToCheck.trim() || msgToCheck.trim().length < 15) { setToneWarning(null); return; }
+    
     toneDebounceRef.current = setTimeout(async () => {
       setIsCheckingTone(true);
       try {
         const token = currentUser?.token || sessionStorage.getItem("chat-app-token");
-        const { data } = await axios.post(toneCheckRoute, { message: msg }, { headers: { Authorization: `Bearer ${token}` } });
-        if (data.status && data.warning) {
-          const meta = TONE_META[data.tone] || {};
-          setToneWarning({ tone: data.tone, label: meta.label, color: meta.color, emoji: meta.emoji });
-        } else {
-          setToneWarning(null);
+        const { data } = await axios.post(toneCheckRoute, { message: msgToCheck }, { headers: { Authorization: `Bearer ${token}` } });
+        
+        // FIX: Tone/Grammar Checker Ghost Warnings
+        if (currentMsgRef.current === msgToCheck) {
+            if (data.status && data.warning) {
+              const meta = TONE_META[data.tone] || {};
+              setToneWarning({ tone: data.tone, label: meta.label, color: meta.color, emoji: meta.emoji });
+            } else {
+              setToneWarning(null);
+            }
         }
       } catch { /* fail silently */ }
-      finally { setIsCheckingTone(false); }
+      finally { 
+          if (currentMsgRef.current === msgToCheck) setIsCheckingTone(false); 
+      }
     }, 1500);
     return () => clearTimeout(toneDebounceRef.current);
   }, [msg]);
@@ -274,17 +296,33 @@ export default function ChatInput({
 
     const cloudUrl = await uploadToCloudinary(fileToUpload, resType);
     setIsUploading(false);
+    
     if (cloudUrl) {
       const pendingReply = replyingTo;
       handleSendMsg(cloudUrl, mediaPreview.type, replyingTo?.id, { isViewOnce: isViewOnceMedia, fileName: mediaPreview.fileName, fileSize: formatFileSize(fileToUpload.size), localId: uuidv4() });
-      setMediaPreview(null); setReplyingTo(null);
-      if (msg.trim().length > 0) setTimeout(() => { handleSendMsg(msg, "text", pendingReply?.id, {}); setMsg(""); resetTextarea(); }, 200);
+      
+      // FIX: Lost Context on "Reply To"
+      // Ensure the text message is queued with the reply ID BEFORE we nullify it locally.
+      if (msg.trim().length > 0) {
+          const textToSend = msg;
+          setMsg(""); 
+          resetTextarea();
+          setMediaPreview(null);
+          setTimeout(() => { 
+              handleSendMsg(textToSend, "text", pendingReply?.id, {}); 
+              setReplyingTo(null); 
+          }, 200);
+      } else {
+          setMediaPreview(null);
+          setReplyingTo(null);
+      }
     } else { toast.error("Media upload failed. Please try again."); }
   };
 
   const startRecording = async () => {
     if (!canPost) return;
     try {
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
       const mediaRecorder = new MediaRecorder(stream);
@@ -296,6 +334,7 @@ export default function ChatInput({
       audioContextRef.current.createMediaStreamSource(stream).connect(analyzerRef.current);
       analyzerRef.current.fftSize = 64;
       const dataArray = new Uint8Array(analyzerRef.current.frequencyBinCount);
+      
       const updateWaveform = () => {
         if (!analyzerRef.current) return;
         analyzerRef.current.getByteFrequencyData(dataArray);
@@ -303,6 +342,7 @@ export default function ChatInput({
         setAudioLevels(Array.from({ length: 15 }, (_, i) => Math.max(10, dataArray[i * step] / 2)));
         animationFrameRef.current = requestAnimationFrame(updateWaveform);
       };
+      
       updateWaveform();
       mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
       mediaRecorder.onstop = async () => {
@@ -319,7 +359,10 @@ export default function ChatInput({
       };
       triggerHaptic("medium"); mediaRecorder.start(); setIsRecording(true);
     } catch (error) {
+      // FIX: Undefined Behavior on Cancelled Audio - clean up state so UI isn't stuck
       if (streamRef.current) { streamRef.current.getTracks().forEach((t) => t.stop()); streamRef.current = null; }
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+      setIsRecording(false);
       toast.warning("Microphone access denied.");
     }
   };
@@ -363,7 +406,6 @@ export default function ChatInput({
         )}
       </div>
 
-      {/* Sprint 2: Tone warning banner */}
       {toneWarning && toneWarning.label && (
         <div className="reply-banner" style={{ background: `${toneWarning.color}14`, borderTop: `1px solid ${toneWarning.color}33` }}>
           <MdSentimentDissatisfied style={{ color: toneWarning.color, marginRight: 6, fontSize: "1rem" }} />
@@ -374,7 +416,6 @@ export default function ChatInput({
         </div>
       )}
 
-      {/* Sprint 1: Grammar suggestion banner */}
       {grammarSuggestion && (
         <div className="reply-banner" style={{ background: "rgba(34,211,165,0.06)", borderTop: "1px solid rgba(34,211,165,0.2)" }}>
           <span>✨ Suggestion: <strong>{grammarSuggestion.corrected}</strong></span>
@@ -486,7 +527,6 @@ export default function ChatInput({
             <BsCodeSlash />
           </div>
 
-          {/* Sprint 1: Grammar check button */}
           <div className={`tool-toggle ${isCheckingGrammar ? "active" : ""}`} onClick={handleGrammarCheck} title="Check grammar & spelling" style={{ opacity: msg.trim().length < 3 ? 0.4 : 1 }}>
             {isCheckingGrammar ? <FaSpinner className="spin-icon" /> : <FaSpellCheck />}
           </div>

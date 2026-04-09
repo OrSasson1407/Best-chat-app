@@ -134,6 +134,7 @@ export default function ChatContainer({ socket, isTyping }) {
   const [highlightedMsgId, setHighlightedMsgId] = useState(null);
   const myPrivateKeyRef = useRef(null);
   const activeGroupAesKeyRef = useRef(null);
+  const last5MessagesRef = useRef(""); // Used for sentiment logic
 
   const skeletonWidths = useMemo(() => ['45%', '65%', '35%', '80%', '50%'], []);
   
@@ -197,7 +198,6 @@ export default function ChatContainer({ socket, isTyping }) {
         try {
             const myPrivateKey = myPrivateKeyRef.current;
 
-            // FIX: Using isGroupChat instead of currentChat.admin
             if (isGroupChat) { 
                 let freshGroup = currentChat;
                 try {
@@ -236,7 +236,6 @@ export default function ChatContainer({ socket, isTyping }) {
             
             const decryptedMessages = await Promise.all(fetchedMessages.map(async (msg) => {
                 if (msg.type === "text" && !msg.isDeleted) {
-                    // FIX: Using isGroupChat
                     if (!isGroupChat && !msg.fromSelf && myPrivateKey) {
                         const decryptedText = await decryptMessage(msg.message, myPrivateKey);
                         return { ...msg, message: decryptedText };
@@ -268,8 +267,10 @@ export default function ChatContainer({ socket, isTyping }) {
 
             fetchedMessages.forEach((msg) => {
                 if (!msg.fromSelf && msg.status !== "read" && socket.current) {
+                    // FIX: Ensure 'to' field correctly maps to currentChat._id for groups
                     socket.current.emit("mark-as-read", { 
-                        messageId: msg.id, from: currentUser._id, to: currentChat._id,
+                        messageId: msg.id, from: currentUser._id, 
+                        to: isGroupChat ? currentChat._id : msg.from,
                         isGroup: isGroupChat, username: currentUser.username
                     });
                 }
@@ -292,23 +293,34 @@ export default function ChatContainer({ socket, isTyping }) {
       }
   }, [messages, currentChat, cacheMessages]);
 
+  // FIX: Sentiment Analysis Render Thrashing 
+  // Debounce and only run logic when new text messages are appended.
   useEffect(() => {
       if (messages.length > 0) {
-          const last5 = messages.slice(-5);
-          const positiveWords = ['happy', 'lol', 'love', 'great', 'awesome', 'good', 'nice', 'sweet', 'yay', 'haha'];
-          const negativeWords = ['bad', 'sad', 'angry', 'hate', 'stop', 'terrible', 'worst', 'ugh', 'mad'];
-          
-          let score = 0;
-          last5.forEach(m => {
-              if (m.type === 'text' && typeof m.message === 'string') {
-                  const text = m.message.toLowerCase();
-                  positiveWords.forEach(w => { if(text.includes(w)) score++ });
-                  negativeWords.forEach(w => { if(text.includes(w)) score-- });
-              }
-          });
+          const last5 = messages.slice(-5).filter(m => m.type === 'text');
+          const last5Key = last5.map(m => m.id).join(",");
 
-          const hue = score > 0 ? '140' : score < 0 ? '250' : '250';
-          document.documentElement.style.setProperty('--sentiment-hue', hue);
+          if (last5Key !== last5MessagesRef.current) {
+              last5MessagesRef.current = last5Key;
+              
+              const positiveWords = ['happy', 'lol', 'love', 'great', 'awesome', 'good', 'nice', 'sweet', 'yay', 'haha'];
+              const negativeWords = ['bad', 'sad', 'angry', 'hate', 'stop', 'terrible', 'worst', 'ugh', 'mad'];
+              
+              let score = 0;
+              last5.forEach(m => {
+                  if (typeof m.message === 'string') {
+                      const text = m.message.toLowerCase();
+                      positiveWords.forEach(w => { if(text.includes(w)) score++ });
+                      negativeWords.forEach(w => { if(text.includes(w)) score-- });
+                  }
+              });
+
+              const hue = score > 0 ? '140' : score < 0 ? '250' : '250';
+              const currentHue = document.documentElement.style.getPropertyValue('--sentiment-hue');
+              if (currentHue !== hue) {
+                  document.documentElement.style.setProperty('--sentiment-hue', hue);
+              }
+          }
       }
   }, [messages]);
 
@@ -347,7 +359,6 @@ export default function ChatContainer({ socket, isTyping }) {
   useEffect(() => {
     if (socket.current) {
       const s = socket.current;
-      // FIX: Using isGroupChat
       if (currentChat && !isGroupChat) s.emit("check-presence", currentChat._id);
 
       const handlePresenceResponse = (data) => {
@@ -367,8 +378,27 @@ export default function ChatContainer({ socket, isTyping }) {
         if (data.type === "text") {
             if (!data.isGroup && myPrivateKey) {
                 decryptedText = await decryptMessage(data.msg, myPrivateKey);
-            } else if (data.isGroup && activeGroupAesKeyRef.current) {
-                decryptedText = await decryptGroupMessage(data.msg, activeGroupAesKeyRef.current);
+            } else if (data.isGroup) {
+                let aesKeyToUse = activeGroupAesKeyRef.current;
+
+                // FIX: Decryption Key Race Condition
+                // If a group message arrives before the AES key is loaded into state, 
+                // attempt to resolve it directly from the currentChat object.
+                if (!aesKeyToUse && currentChat && currentChat.groupKeys && myPrivateKey) {
+                     const myEncryptedKeyData = currentChat.groupKeys.find(k => k.userId === currentUser._id);
+                     if (myEncryptedKeyData) {
+                         try {
+                             const decryptedJwkString = await decryptMessage(myEncryptedKeyData.encryptedKey, myPrivateKey);
+                             aesKeyToUse = JSON.parse(decryptedJwkString);
+                         } catch (err) { 
+                             console.error("Emergency group key decryption failed", err); 
+                         }
+                     }
+                }
+
+                if (aesKeyToUse) {
+                    decryptedText = await decryptGroupMessage(data.msg, aesKeyToUse);
+                }
             }
             generateAIReplies(decryptedText);
         }
@@ -382,8 +412,11 @@ export default function ChatContainer({ socket, isTyping }) {
             fileMetadata: data.fileMetadata, readBy: []
         });
         
+        // FIX: Wrong Target for Group Read Receipts
+        // Group receipts need to go back to the group ID (`data.to`), not the individual sender (`data.from`).
         s.emit("mark-as-read", { 
-            messageId: data.id, from: currentUser._id, to: data.from,
+            messageId: data.id, from: currentUser._id, 
+            to: data.isGroup ? data.to : data.from,
             isGroup: isGroupChat, username: currentUser.username
         });
       };
@@ -518,7 +551,6 @@ export default function ChatContainer({ socket, isTyping }) {
       setIsLoadingMore(true);
       try {
           let response;
-          // FIX: Using isGroupChat
           if (isGroupChat) {
               response = await axios.post(getGroupMessagesRoute, { from: currentUser._id, groupId: currentChat._id, cursor }, getAuthHeader());
           } else {
@@ -530,7 +562,6 @@ export default function ChatContainer({ socket, isTyping }) {
           
           const decryptedNewMessages = await Promise.all(newMessages.map(async (msg) => {
               if (msg.type === "text" && !msg.isDeleted) {
-                  // FIX: Using isGroupChat
                   if (!isGroupChat && !msg.fromSelf && myPrivateKey) {
                       const decryptedText = await decryptMessage(msg.message, myPrivateKey);
                       return { ...msg, message: decryptedText };
@@ -614,7 +645,6 @@ export default function ChatContainer({ socket, isTyping }) {
 
     try {
         if (type === "text") {
-            // FIX: Using isGroupChat instead of !currentChat.admin
             if (!isGroupChat) {
                 const bundle = await getCachedBundle(currentChat._id, getAuthHeader());
 

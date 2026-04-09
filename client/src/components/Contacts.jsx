@@ -14,8 +14,8 @@ import {
     host, createGroupRoute, getUserGroupsRoute, updateProfileRoute,
     searchMessageRoute, getStoryFeedRoute, addStoryRoute, viewStoryRoute,
     searchChannelsRoute, joinChannelRoute, publicKeyRoute,
-    archiveChatRoute,  // Sprint 1
-    muteChatRoute, saveChatFolderRoute, deleteChatFolderRoute, toggleChatInFolderRoute, // Sprint 2
+    archiveChatRoute,  
+    muteChatRoute, saveChatFolderRoute, deleteChatFolderRoute, toggleChatInFolderRoute, 
 } from "../utils/APIRoutes";
 import { toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -51,7 +51,6 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
     const {
         currentUser, updateCurrentUser, onlineUsers, theme, setTheme,
         isCompact, setIsCompact, globalTypingUsers,
-        // Sprint 2
         mutedChats, setMutedChats, isChatMuted, chatFolders, setChatFolders, pendingRequestCount, setPendingRequestCount,
     } = useChatStore();
 
@@ -75,15 +74,15 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
         } catch (e) { return []; }
     });
     const [showArchived, setShowArchived] = useState(false);
-    // Context menu (right-click) state
-    const [contextMenu, setContextMenu] = useState(null); // { x, y, item }
+    
+    const [contextMenu, setContextMenu] = useState(null); 
     const contextMenuRef = useRef(null);
 
     // Sprint 2 state
-    const [showUserProfile, setShowUserProfile] = useState(null); // userId to show
+    const [showUserProfile, setShowUserProfile] = useState(null); 
     const [showFriendRequests, setShowFriendRequests] = useState(false);
     const [showFolderManager, setShowFolderManager] = useState(false);
-    const [activeFolderCustomId, setActiveFolderCustomId] = useState(null); // custom folder _id
+    const [activeFolderCustomId, setActiveFolderCustomId] = useState(null); 
 
     const [groups, setGroups] = useState([]);
     const [searchTerm, setSearchTerm] = useState("");
@@ -97,7 +96,7 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
     const [isCreatingGroup, setIsCreatingGroup] = useState(false);
     const [groupName, setGroupName] = useState("");
     const [selectedMembers, setSelectedMembers] = useState([]);
-    const [groupSearchTerm, setGroupSearchTerm] = useState(""); // ✅ NEW: State for modal search
+    const [groupSearchTerm, setGroupSearchTerm] = useState(""); 
     const [showProfileModal, setShowProfileModal] = useState(false);
     const [showDiscoverModal, setShowDiscoverModal] = useState(false);
 
@@ -161,7 +160,7 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
             });
             fetchGroupsAndStories();
         }
-    }, [currentUser?._id]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [currentUser?._id]); 
 
     useEffect(() => {
         if (currentUser) localStorage.setItem(`pinned-chats-${currentUser._id}`, JSON.stringify(pinnedIds));
@@ -175,12 +174,10 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
         return () => clearTimeout(timer);
     }, [viewingStoryUser, currentStoryIndex]);
 
-    // Real-time: receive new group created by someone else
     useEffect(() => {
         if (!socket?.current) return;
         const handleGroupCreated = (newGroup) => {
             setGroups((prev) => {
-                // Avoid duplicates
                 if (prev.some((g) => g._id === newGroup._id)) return prev;
                 return [...prev, newGroup];
             });
@@ -188,7 +185,7 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
         };
         socket.current.on("group-created", handleGroupCreated);
         return () => { socket.current?.off("group-created", handleGroupCreated); };
-    }, [socket?.current]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [socket?.current]); 
 
     // Debounced Message Search
     useEffect(() => {
@@ -252,7 +249,7 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
         });
     }, []);
 
-    // Sprint 1: toggle archive via API + local state
+    // Sprint 1: toggle archive
     const toggleArchive = useCallback(async (item) => {
         setContextMenu(null);
         const chatId = item._id;
@@ -293,7 +290,6 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
         } catch { toast.error("Failed to mute chat."); }
     }, [currentUser, setMutedChats]);
 
-    // Dismiss context menu on outside click
     useEffect(() => {
         const handler = (e) => {
             if (contextMenuRef.current && !contextMenuRef.current.contains(e.target)) {
@@ -428,11 +424,10 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
             const resolvedKeys = await Promise.all(keyPromises);
             const groupKeys = resolvedKeys.filter(k => k !== null);
 
-            // ✅ FIX: Block group creation if any member is missing E2E keys.
-            // Silently skipping them meant those members could never decrypt messages.
+            // FIX: Group Creation Blocked by Single User.
+            // Warn instead of halting the process entirely if a member is missing E2E keys.
             if (groupKeys.length < allMembers.length) {
-                toast.error("Some members don't have E2E keys yet. Ask them to log out and back in to fix this.");
-                return;
+                toast.warning("⚠️ Some members lack E2E keys. They will be added but won't be able to decrypt messages until they log in.", { autoClose: 6000 });
             }
 
             const { data } = await axios.post(createGroupRoute, {
@@ -443,9 +438,6 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
             }, getAuthHeader()); 
 
             if (data.status) {
-                // ✅ FIX: Re-fetch groups from the server instead of locally appending data.group.
-                // Appending caused duplicates for User B who was already a member in the DB
-                // response, and could cause stale group objects with missing fields.
                 const groupRes = await axios.get(getUserGroupsRoute, getAuthHeader());
                 setGroups(groupRes.data || []);
 
@@ -540,12 +532,10 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
 
         if (searchTerm) all = all.filter(item => item.username?.toLowerCase()?.includes(searchTerm.toLowerCase()));
 
-        // Sprint 2: custom folder filter
         if (activeFolderCustomId) {
             const folder = chatFolders.find(f => f._id === activeFolderCustomId);
             const ids = (folder?.chatIds || []).map(String);
             all = all.filter(i => ids.includes(String(i._id)));
-        // Sprint 1: split archived vs active
         } else if (activeFolder === "archived") {
             all = all.filter(i => archivedIds.includes(String(i._id)));
         } else {
@@ -583,12 +573,10 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
                     <Container $isCompact={isCompact} $themeType={theme}>
                         <div className="sidebar-dynamic-layout" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                             
-                            {/* 1. BRAND & TOGGLE SECTION */}
                             <div className="brand-area" style={{ padding: isCompact ? "20px 0" : "24px", display: 'flex', justifyContent: isCompact ? 'center' : 'space-between', alignItems: 'center', flexShrink: 0 }}>
                                 {!isCompact && (
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                                         <motion.h3 style={{ color: 'var(--text-main)', fontSize: '1.4rem', fontWeight: '800', letterSpacing: '2px', margin: 0 }} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>SNAPPY</motion.h3>
-                                        {/* Sprint 2: Friend requests badge */}
                                         <div style={{ position: 'relative', cursor: 'pointer' }} onClick={() => setShowFriendRequests(!showFriendRequests)} title="Contact requests">
                                             <FaUserFriends style={{ color: 'var(--text-secondary)', fontSize: '1rem' }} />
                                             {pendingRequestCount > 0 && (
@@ -608,7 +596,6 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
                                 </button>
                             </div>
 
-                            {/* 2. STORIES / ACTIVITY RAIL */}
                             <AnimatePresence>
                                 {storyPreview && (
                                     <StoryPreviewTooltip
@@ -661,7 +648,6 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
                                 </StoryTray>
                             )}
 
-                            {/* 3. NAVIGATION FOLDERS (Rail Adaptive) */}
                             <div className="nav-folders" style={{ display: 'flex', flexDirection: isCompact ? 'column' : 'row', gap: '4px', padding: isCompact ? '0 10px' : '0 16px', flexShrink: 0, marginBottom: '16px' }}>
                                 {folders.map(f => (
                                     <button 
@@ -686,7 +672,6 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
                                 ))}
                             </div>
 
-                            {/* 4. SEARCH (Hidden in Rail View) */}
                             {!isCompact && (
                                 <div className={`search-container ${isSearchFocused ? "focused" : ""}`} style={{ flexShrink: 0, padding: '0 16px', marginBottom: '16px' }}>
                                     <motion.div className="search-box" animate={{ borderColor: isSearchFocused ? "var(--msg-sent)" : "var(--glass-border)" }} style={{ display: 'flex', alignItems: 'center', background: 'var(--input-bg)', borderRadius: '16px', padding: '0 16px', border: '1px solid var(--glass-border)' }}>
@@ -711,7 +696,6 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
                                 </div>
                             )}
 
-                            {/* 5. CONTACTS LIST */}
                             <div className="contacts-scroller" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '0 12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                                 {isLoading ? (
                                     Array.from({ length: 6 }).map((_, i) => (
@@ -831,7 +815,6 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
                                 )}
                             </div>
 
-                            {/* 6. USER FOOTER (Adaptive) */}
                             <div className="sidebar-footer" style={{ padding: isCompact ? "16px 8px" : "16px", borderTop: "1px solid var(--glass-border)", background: "var(--bg-panel)", flexShrink: 0 }}>
                                 <div className="user-profile" style={{ display: 'flex', flexDirection: isCompact ? "column" : "row", alignItems: 'center', gap: isCompact ? "16px" : "12px" }}>
                                     <div className="avatar" style={{ width: '44px', height: '44px', borderRadius: '50%', border: '2px solid var(--msg-sent)', cursor: 'pointer' }} onClick={() => setShowProfileModal(true)}>
@@ -858,7 +841,6 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
                             </div>
                         </div>
 
-                        {/* --- MODALS --- */}
                         <AnimatePresence>
                             {showGroupModal && (
                                 <ModalOverlay as={motion.div} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
@@ -871,7 +853,6 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
                                         <div className="member-selection">
                                             <label>Select Members</label>
                                             
-                                            {/* ✅ FIX: Search Bar inside the Group Modal */}
                                             <div className="input-field" style={{ padding: "10px 14px 0 14px", marginBottom: "4px" }}>
                                                 <FaSearch className="inner-icon" style={{ bottom: "12px", left: "26px", fontSize: "0.8rem" }} />
                                                 <input 
@@ -885,7 +866,6 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
 
                                             <div className="scroll-list">
                                                 {(contacts || [])
-                                                    // ✅ FIX: Filters the list by the search term
                                                     .filter(c => c.username.toLowerCase().includes(groupSearchTerm.toLowerCase()))
                                                     .map(c => (
                                                     <div key={c._id} className={`select-item ${selectedMembers?.includes(c._id) ? "selected" : ""}`} onClick={() => toggleMemberSelection(c._id)}>
@@ -895,7 +875,6 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
                                                     </div>
                                                 ))}
                                                 
-                                                {/* Show a message if no users match the search */}
                                                 {contacts.filter(c => c.username.toLowerCase().includes(groupSearchTerm.toLowerCase())).length === 0 && (
                                                     <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-dim)', fontStyle: 'italic', fontSize: '0.85rem' }}>
                                                         No users found matching "{groupSearchTerm}"
@@ -950,7 +929,6 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
                                     <motion.div className="modal-content profile" initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }}>
                                         <h3>Profile & Settings</h3>
 
-                                        {/* Avatar Upload */}
                                         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "10px", marginBottom: "8px" }}>
                                             <div style={{ position: "relative", width: "80px", height: "80px", cursor: "pointer" }} onClick={() => avatarUploadRef.current?.click()}>
                                                 <img
@@ -1064,7 +1042,6 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
                         </AnimatePresence>
                     </Container>
 
-                    {/* Sprint 2 — UserProfile modal */}
                     {showUserProfile && (
                         <UserProfile
                             userId={showUserProfile}
@@ -1073,7 +1050,6 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
                         />
                     )}
 
-                    {/* Sprint 2 — Friend requests panel */}
                     {showFriendRequests && (
                         <div style={{ position: 'fixed', top: '70px', right: '20px', zIndex: 1000 }}>
                             <FriendRequests
@@ -1083,7 +1059,6 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
                         </div>
                     )}
 
-                    {/* Sprint 1 — Right-click context menu */}
                     {contextMenu && (
                         <ContextMenu
                             ref={contextMenuRef}
@@ -1118,7 +1093,6 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
     );
 }
 
-// Sprint 1 — Context menu
 const ContextMenu = styled.div`
   position: fixed; z-index: 9999;
   background: var(--bg-panel); border: 1px solid var(--glass-border);

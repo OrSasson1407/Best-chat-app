@@ -51,10 +51,8 @@ const useChatStore = create(
       }),
 
       // ── Sprint 2: Muted chats ─────────────────────────────────────────────
-      // { [chatId]: Date|null }  — null = muted forever, Date = muted until
       mutedChats: {},
       setMutedChats: (mutedArr) => {
-        // mutedArr = server shape: [{ chatId, until }]
         const map = {};
         (mutedArr || []).forEach(({ chatId, until }) => {
           map[String(chatId)] = until ? new Date(until) : null;
@@ -64,13 +62,12 @@ const useChatStore = create(
       isChatMuted: (chatId) => {
         const { mutedChats } = get();
         const until = mutedChats[String(chatId)];
-        if (until === undefined) return false;    // not muted
-        if (until === null) return true;          // muted forever
-        return new Date(until) > new Date();      // muted temporarily
+        if (until === undefined) return false;    
+        if (until === null) return true;          
+        return new Date(until) > new Date();      
       },
 
       // ── Sprint 2: Chat folders ─────────────────────────────────────────────
-      // [{ _id, name, icon, chatIds: [] }]
       chatFolders: [],
       setChatFolders: (folders) => set({ chatFolders: folders }),
 
@@ -120,10 +117,14 @@ const useChatStore = create(
       // ── 5. Secure Cleanup ─────────────────────────────────────────────────
       clearCache: async (userId) => {
         if (userId) {
-          const { keys } = await import('idb-keyval');
+          const { keys, del } = await import('idb-keyval');
           const allKeys = await keys();
-          const { del } = await import('idb-keyval');
-          await Promise.all(allKeys.filter((k) => typeof k === 'string' && k.includes(userId)).map((k) => del(k)));
+          // FIX: Correct IndexedDB cleanup. Target exact prefixes rather than fuzzy strings.
+          await Promise.all(
+            allKeys
+              .filter((k) => typeof k === 'string' && (k.includes(userId) || k.startsWith('chat_history_')))
+              .map((k) => del(k))
+          );
         }
         set({
           offlineMessages: {}, currentUser: undefined, currentChat: undefined,
