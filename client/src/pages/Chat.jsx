@@ -6,7 +6,7 @@ import { io } from "socket.io-client";
 import customParser from "socket.io-msgpack-parser";
 import styled, { keyframes, css } from "styled-components";
 import { allUsersRoute, host, updateFcmTokenRoute } from "../utils/APIRoutes";
-import Contacts from "../components/Contacts";
+import Contacts from "../components/Sidebar/Contacts";
 import Welcome from "../components/Welcome";
 import ChatContainer from "../components/ChatContainer";
 import Onboarding from "../components/Onboarding"; // Sprint 3
