@@ -1,6 +1,6 @@
 const express = require("express");
 const {
-  createGroup, getUserGroups, getGroupMessages,
+  createGroup, getUserGroups, getGroupById, getGroupMessages,
   addMember, removeMember, leaveGroup, deleteGroup,
   promoteToModerator, demoteModerator, promoteToAdmin, kickMember,
   createChannel, searchPublicChannels, joinChannel,
@@ -9,40 +9,44 @@ const {
   getInviteCode, joinViaInviteCode,
 } = require("../controllers/groupController");
 
-const auth = require("../middleware/authMiddleware");
+// FIX: Removed the auth middleware import and usage since it is already 
+// applied to the entire '/api/groups' path in server/index.js.
 const router = express.Router();
 
 // ── Core group routes ─────────────────────────────────────────────────────────
-router.post("/create",       auth, createGroup);
-router.get("/getgroups",     auth, getUserGroups);
-router.post("/messages",     auth, getGroupMessages);
-router.post("/getmessages",  auth, getGroupMessages);
+router.post("/create",       createGroup);
+router.get("/getgroups",     getUserGroups);
+router.post("/messages",     getGroupMessages);
+router.post("/getmessages",  getGroupMessages);
 
 // ── Member management ─────────────────────────────────────────────────────────
-router.post("/add-member",    auth, addMember);
-router.post("/remove-member", auth, removeMember);
-router.delete("/leave/:id",   auth, leaveGroup);
-router.delete("/delete/:id",  auth, deleteGroup);
+router.post("/add-member",    addMember);
+router.post("/remove-member", removeMember);
+router.delete("/leave/:id",   leaveGroup);
+router.delete("/delete/:id",  deleteGroup);
 
 // ── Roles & moderation ────────────────────────────────────────────────────────
-router.post("/promoteToModerator", auth, promoteToModerator);
-router.post("/demoteModerator",    auth, demoteModerator);
-router.post("/promoteToAdmin",     auth, promoteToAdmin);
-router.post("/kickMember",         auth, kickMember);
+router.post("/promoteToModerator", promoteToModerator);
+router.post("/demoteModerator",    demoteModerator);
+router.post("/promoteToAdmin",     promoteToAdmin);
+router.post("/kickMember",         kickMember);
 
 // ── Public channels ───────────────────────────────────────────────────────────
-router.post("/createChannel",    auth, createChannel);
-router.get("/searchChannels",    auth, searchPublicChannels);
-router.post("/joinChannel",      auth, joinChannel);
+router.post("/createChannel",    createChannel);
+router.get("/searchChannels",    searchPublicChannels);
+router.post("/joinChannel",      joinChannel);
 
 // ── Sprint 3: Group rules ─────────────────────────────────────────────────────
-router.post("/set-rules",        auth, setGroupRules);
+router.post("/set-rules",        setGroupRules);
 
 // ── Sprint 3: Max member limit ────────────────────────────────────────────────
-router.post("/set-max-members",  auth, setMaxMembers);
+router.post("/set-max-members",  setMaxMembers);
 
 // ── Sprint 3: QR invite code ──────────────────────────────────────────────────
-router.get("/invite-code/:groupId", auth, getInviteCode);
-router.post("/join-via-code",       auth, joinViaInviteCode);
+router.get("/invite-code/:groupId", getInviteCode);
+router.post("/join-via-code",       joinViaInviteCode);
+
+// ── Single group fetch (must be last to avoid shadowing named GET routes) ─────
+router.get("/:id",           getGroupById);
 
 module.exports = router;

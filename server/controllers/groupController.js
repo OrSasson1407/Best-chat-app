@@ -1,4 +1,5 @@
 const groupService = require("../services/groupService");
+const Group = require("../models/GroupModel"); // FIX: Moved import to the top
 
 module.exports.createGroup = async (req, res, next) => {
   try {
@@ -13,8 +14,13 @@ module.exports.createGroup = async (req, res, next) => {
         if (memberIdStr === req.user.id.toString()) return;
         try {
           if (redisClient) {
-            const socketId = await redisClient.hGet("online_users", memberIdStr);
-            if (socketId) io.to(socketId).emit("group-created", group);
+            // FIX: Look up all sockets for this user using the new Set architecture
+            const socketIds = await redisClient.sMembers(`user_sockets:${memberIdStr}`);
+            if (socketIds && socketIds.length > 0) {
+              socketIds.forEach(socketId => {
+                 io.to(socketId).emit("group-created", group);
+              });
+            }
           }
         } catch (err) {
           console.error("[Socket] Failed to notify member of new group:", err);
@@ -154,5 +160,19 @@ module.exports.joinViaInviteCode = async (req, res, next) => {
   try {
     const group = await groupService.joinViaInviteCode(req.body, req.user.id);
     return res.json({ status: true, group });
+  } catch (ex) { next(ex); }
+};
+
+// Returns a single group by ID — used by the client to re-fetch fresh groupKeys
+// after a page refresh, so newly-added members can decrypt the AES key.
+module.exports.getGroupById = async (req, res, next) => {
+  try {
+    const group = await Group.findById(req.params.id);
+    if (!group) return res.status(404).json({ status: false, msg: "Group not found" });
+    // Only members can fetch the group (to protect groupKeys from non-members)
+    if (!group.members.map(String).includes(String(req.user.id))) {
+      return res.status(403).json({ status: false, msg: "Not a member of this group" });
+    }
+    return res.json(group);
   } catch (ex) { next(ex); }
 };
