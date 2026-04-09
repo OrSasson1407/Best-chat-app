@@ -2,7 +2,7 @@ import React from "react";
 import { motion } from "framer-motion";
 import { FaShieldAlt } from "react-icons/fa";
 import { toast } from "react-toastify";
-import { ModalOverlay } from "./Contacts.styles";
+import { ModalOverlay } from "../Contacts.styles";
 export default function ProfileSettingsModal({
     setShowProfileModal,
     profileData,
