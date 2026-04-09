@@ -30,8 +30,15 @@ services:
     image: redis:alpine
     container_name: chat-app-redis
     restart: unless-stopped
+    ports:
+      - "6379:6379" # FIXED: Exposes Redis to your host machine for local Node.js processes
     networks:
       - chat-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"] # FIXED: Ensures Redis is fully ready before server starts
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   # 3. Node.js Backend
   server:
@@ -53,7 +60,7 @@ services:
       mongo:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy # FIXED: Waits for Redis healthcheck to pass, not just container start
     restart: unless-stopped
     networks:
       - chat-network
