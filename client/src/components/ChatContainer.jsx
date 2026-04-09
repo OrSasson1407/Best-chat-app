@@ -22,7 +22,6 @@ import {
     FaThumbtack, FaSpinner, FaCloudUploadAlt, FaTimes, FaCheckDouble, FaArrowDown, FaMagic, FaGlobe 
 } from "react-icons/fa";
 
-// UPDATED IMPORTS HERE
 import { ChatLayout, DropOverlay, ScrollButton, Lightbox, PinnedBanner, MessagesArea } from "./ChatContainer.styles"; 
 import CallModal from "./CallModal"; 
 import useChatStore from "../store/chatStore";
@@ -31,32 +30,21 @@ import ChatHeader from "./ChatHeader";
 import ChatSidePanel from "./ChatSidePanel";
 import MessageItem from "./MessageItem";
 import { getSmallAvatar, formatTime } from "./chatHelpers";
-
-// --- NEW: Import the Haptic Engine ---
 import { triggerHaptic } from "../utils/haptics";
 
 // ============================================================
 // MODULE-LEVEL E2E BUNDLE CACHE
-// Lives outside the component so it persists across re-renders
-// and chat switches. Cleared only on full page reload.
-// Map value:
-//   - bundle object  → user has valid keys (cached forever until reload)
-//   - { _noKeys: true, _cachedAt: timestamp } → no keys found YET
-//     (only trusted for 30s so newly-registered users get picked up quickly)
 // ============================================================
 const e2eBundleCache = new Map();
-const NULL_CACHE_TTL_MS = 30_000; // retry "no keys" users after 30 seconds
+const NULL_CACHE_TTL_MS = 30_000;
 
 async function getCachedBundle(userId, authHeader) {
   if (e2eBundleCache.has(userId)) {
     const cached = e2eBundleCache.get(userId);
-    // Real bundle — return forever
     if (cached && !cached._noKeys) return cached;
-    // Null-sentinel — only honour it within the TTL window
     if (cached._noKeys && Date.now() - cached._cachedAt < NULL_CACHE_TTL_MS) {
       return null;
     }
-    // TTL expired — fall through and re-fetch
     e2eBundleCache.delete(userId);
   }
 
@@ -66,15 +54,12 @@ async function getCachedBundle(userId, authHeader) {
       e2eBundleCache.set(userId, res.data.bundle);
       return res.data.bundle;
     }
-    // Got a response but no valid bundle — cache with TTL
     e2eBundleCache.set(userId, { _noKeys: true, _cachedAt: Date.now() });
     return null;
   } catch (err) {
     if (err.response?.status === 404) {
-      // User has no keys yet — cache with TTL (not permanently)
       e2eBundleCache.set(userId, { _noKeys: true, _cachedAt: Date.now() });
     } else {
-      // Network/server error — do NOT cache, allow retry next message
       console.error("[Crypto] Bundle fetch error:", err.message);
     }
     return null;
@@ -83,13 +68,20 @@ async function getCachedBundle(userId, authHeader) {
 
 export default function ChatContainer({ socket, isTyping }) {
   
-  // 🚀 PERFORMANCE FIX: Atomic Zustand Selectors
   const currentChat = useChatStore((state) => state.currentChat);
   const currentUser = useChatStore((state) => state.currentUser);
   const theme = useChatStore((state) => state.theme);
   const isCompact = useChatStore((state) => state.isCompact);
   const loadOfflineMessages = useChatStore((state) => state.loadOfflineMessages);
   const cacheMessages = useChatStore((state) => state.cacheMessages);
+
+  // --- CRITICAL FIX: Robust Group Identification ---
+  const isGroupChat = Boolean(
+      currentChat?.members || 
+      currentChat?.groupKeys || 
+      currentChat?.admins || 
+      currentChat?.isChannel
+  );
 
   // --- STATE MANAGEMENT ---
   const [messages, setMessages] = useState([]);
@@ -107,13 +99,11 @@ export default function ChatContainer({ socket, isTyping }) {
   const [isOnline, setIsOnline] = useState(false);
   const [lastSeen, setLastSeen] = useState(null);
 
-  // UI States
   const [showSidePanel, setShowSidePanel] = useState(false);
   const [chatMedia, setChatMedia] = useState({ media: [], links: [], files: [] });
   const [activeSideTab, setActiveSideTab] = useState("about");
   const [isFetchingMedia, setIsFetchingMedia] = useState(false);
   
-  // Drag and Drop States
   const [isDragging, setIsDragging] = useState(false);
   const [droppedFile, setDroppedFile] = useState(null); 
   
@@ -127,45 +117,32 @@ export default function ChatContainer({ socket, isTyping }) {
   const [showCallModal, setShowCallModal] = useState(false);
   const [incomingCallData, setIncomingCallData] = useState(null);
 
-  // Customization & AI States
   const [wallpaper, setWallpaper] = useState("");
   const [customTheme, setCustomTheme] = useState("#4e0eff");
   const [quickReplies, setQuickReplies] = useState([]);
   
-  // 🚀 REACT 19 UPGRADE: useTransition for non-blocking asynchronous UI updates
   const [isGeneratingReplies, startGeneratingTransition] = useTransition();
   const [isSummarizing, startSummarizingTransition] = useTransition();
   const [isGlobalSearching, startSearchTransition] = useTransition();
 
-  // --- NEW: AI Summarizer & Global Search States ---
   const [chatSummary, setChatSummary] = useState(null);
   const [showGlobalSearchModal, setShowGlobalSearchModal] = useState(false);
   const [globalSearchResults, setGlobalSearchResults] = useState([]);
 
-  // Refs
   const virtuosoRef = useRef(null);
   const isScrolledUpRef = useRef(false);
   const [highlightedMsgId, setHighlightedMsgId] = useState(null);
   const myPrivateKeyRef = useRef(null);
-  // Ref mirror for activeGroupAesKey — lets the socket listener always read the
-  // latest AES key without being part of the effect dependency array.
-  // Without this, the listener captures a stale null from when it was registered.
   const activeGroupAesKeyRef = useRef(null);
 
   const skeletonWidths = useMemo(() => ['45%', '65%', '35%', '80%', '50%'], []);
   
-  // ✅ FIX: Read token correctly from currentUser or sessionStorage, just like Chat.jsx
   const getAuthHeader = useCallback(() => {
     const rawToken = currentUser?.token || sessionStorage.getItem("chat-app-token") || "";
     const cleanToken = rawToken.replace(/(Bearer\s*)+/gi, "").trim();
-    return {
-        headers: {
-            Authorization: `Bearer ${cleanToken}`
-        }
-    };
+    return { headers: { Authorization: `Bearer ${cleanToken}` } };
   }, [currentUser]);
 
-  // --- EFFECTS ---
   useEffect(() => {
       if (currentUser) {
           const rawKey = localStorage.getItem(`privateKey_${currentUser._id}`);
@@ -173,7 +150,6 @@ export default function ChatContainer({ socket, isTyping }) {
       }
   }, [currentUser]);
 
-  // Keep ref in sync so socket handlers always read the latest AES key
   useEffect(() => {
       activeGroupAesKeyRef.current = activeGroupAesKey;
   }, [activeGroupAesKey]);
@@ -202,7 +178,6 @@ export default function ChatContainer({ socket, isTyping }) {
         setIsFetchingHistory(true);
         setActiveGroupAesKey(null); 
 
-        // --- OFFLINE CHECK ---
         if (!navigator.onLine) {
             const cached = await loadOfflineMessages(currentChat._id);
             if (cached && cached.length > 0) {
@@ -222,16 +197,11 @@ export default function ChatContainer({ socket, isTyping }) {
         try {
             const myPrivateKey = myPrivateKeyRef.current;
 
-            if (currentChat.admin) { 
-                // ── Re-fetch the live group object so groupKeys is always fresh.
-                // The copy stored in Zustand / sessionStorage may be stale if
-                // members were added after the last time we loaded this chat.
+            // FIX: Using isGroupChat instead of currentChat.admin
+            if (isGroupChat) { 
                 let freshGroup = currentChat;
                 try {
-                    const groupRes = await axios.get(
-                        `${getGroupRoute}/${currentChat._id}`,
-                        getAuthHeader()
-                    );
+                    const groupRes = await axios.get(`${getGroupRoute}/${currentChat._id}`, getAuthHeader());
                     if (groupRes.data) freshGroup = { ...currentChat, ...groupRes.data };
                 } catch (e) {
                     console.warn("[Groups] Could not refresh group data, falling back to cached version:", e.message);
@@ -240,6 +210,7 @@ export default function ChatContainer({ socket, isTyping }) {
                 response = await axios.post(getGroupMessagesRoute, {
                     from: currentUser._id, groupId: currentChat._id,
                 }, getAuthHeader());
+                
                 if (socket.current) socket.current.emit("join-group", currentChat._id);
 
                 if (freshGroup.groupKeys && myPrivateKey) {
@@ -265,10 +236,11 @@ export default function ChatContainer({ socket, isTyping }) {
             
             const decryptedMessages = await Promise.all(fetchedMessages.map(async (msg) => {
                 if (msg.type === "text" && !msg.isDeleted) {
-                    if (!currentChat.admin && !msg.fromSelf && myPrivateKey) {
+                    // FIX: Using isGroupChat
+                    if (!isGroupChat && !msg.fromSelf && myPrivateKey) {
                         const decryptedText = await decryptMessage(msg.message, myPrivateKey);
                         return { ...msg, message: decryptedText };
-                    } else if (currentChat.admin && decryptedAesKey) {
+                    } else if (isGroupChat && decryptedAesKey) {
                         const decryptedGroupText = await decryptGroupMessage(msg.message, decryptedAesKey);
                         return { ...msg, message: decryptedGroupText };
                     }
@@ -298,7 +270,7 @@ export default function ChatContainer({ socket, isTyping }) {
                 if (!msg.fromSelf && msg.status !== "read" && socket.current) {
                     socket.current.emit("mark-as-read", { 
                         messageId: msg.id, from: currentUser._id, to: currentChat._id,
-                        isGroup: !!currentChat.admin, username: currentUser.username
+                        isGroup: isGroupChat, username: currentUser.username
                     });
                 }
             });
@@ -312,16 +284,14 @@ export default function ChatContainer({ socket, isTyping }) {
       }
     }
     fetchHistory();
-  }, [currentChat, currentUser, getAuthHeader, socket, loadOfflineMessages]);
+  }, [currentChat, currentUser, getAuthHeader, socket, loadOfflineMessages, isGroupChat]);
 
-  // --- AUTO-CACHE MESSAGES ---
   useEffect(() => {
       if (currentChat && messages.length > 0) {
           cacheMessages(currentChat._id, messages);
       }
   }, [messages, currentChat, cacheMessages]);
 
-  // --- SENTIMENT ANALYSIS (Ambient Lighting) ---
   useEffect(() => {
       if (messages.length > 0) {
           const last5 = messages.slice(-5);
@@ -377,19 +347,17 @@ export default function ChatContainer({ socket, isTyping }) {
   useEffect(() => {
     if (socket.current) {
       const s = socket.current;
-      if (currentChat && !currentChat.admin) s.emit("check-presence", currentChat._id);
+      // FIX: Using isGroupChat
+      if (currentChat && !isGroupChat) s.emit("check-presence", currentChat._id);
 
       const handlePresenceResponse = (data) => {
         if (data.userId === currentChat._id) { setIsOnline(data.isOnline); setLastSeen(data.lastSeen); }
       };
 
       const handleMsgRecieve = async (data) => {
-        // FIX: Guard — only process messages that belong to the currently open chat.
-        // Without this, a DM arriving while the user is viewing a group (or a different
-        // DM) would be injected into the wrong message list.
         const isForCurrentChat = data.isGroup
-          ? currentChat._id === data.to          // group messages: match the group id
-          : currentChat._id === data.from;       // DMs: match the sender
+          ? currentChat._id === data.to          
+          : currentChat._id === data.from;       
 
         if (!isForCurrentChat) return;
 
@@ -400,10 +368,8 @@ export default function ChatContainer({ socket, isTyping }) {
             if (!data.isGroup && myPrivateKey) {
                 decryptedText = await decryptMessage(data.msg, myPrivateKey);
             } else if (data.isGroup && activeGroupAesKeyRef.current) {
-                // Use the ref — not the closure value — so we always get the latest AES key
                 decryptedText = await decryptGroupMessage(data.msg, activeGroupAesKeyRef.current);
             }
-            
             generateAIReplies(decryptedText);
         }
 
@@ -418,7 +384,7 @@ export default function ChatContainer({ socket, isTyping }) {
         
         s.emit("mark-as-read", { 
             messageId: data.id, from: currentUser._id, to: data.from,
-            isGroup: !!currentChat.admin, username: currentUser.username
+            isGroup: isGroupChat, username: currentUser.username
         });
       };
 
@@ -498,7 +464,7 @@ export default function ChatContainer({ socket, isTyping }) {
           s.off("media-ready", handleMediaReady); 
       };
     }
-  }, [socket, currentUser, currentChat, activeGroupAesKey]);
+  }, [socket, currentUser, currentChat, activeGroupAesKey, isGroupChat]);
 
   useEffect(() => {
     if (arrivalMessage) {
@@ -509,9 +475,6 @@ export default function ChatContainer({ socket, isTyping }) {
     }
   }, [arrivalMessage]);
 
-  // --- ACTIONS & HANDLERS ---
-
-  // 🚀 REACT 19 UPGRADE: useTransition applied to Global Search
   const executeGlobalSearch = (query) => {
       if (!query.trim()) return;
       startSearchTransition(async () => {
@@ -529,7 +492,6 @@ export default function ChatContainer({ socket, isTyping }) {
       });
   };
 
-  // 🚀 REACT 19 UPGRADE: useTransition applied to AI Chat Summarization
   const handleSummarize = () => {
       startSummarizingTransition(async () => {
           try {
@@ -556,7 +518,8 @@ export default function ChatContainer({ socket, isTyping }) {
       setIsLoadingMore(true);
       try {
           let response;
-          if (currentChat.admin) {
+          // FIX: Using isGroupChat
+          if (isGroupChat) {
               response = await axios.post(getGroupMessagesRoute, { from: currentUser._id, groupId: currentChat._id, cursor }, getAuthHeader());
           } else {
               response = await axios.post(receiveMessageRoute, { from: currentUser._id, to: currentChat._id, cursor }, getAuthHeader());
@@ -567,10 +530,11 @@ export default function ChatContainer({ socket, isTyping }) {
           
           const decryptedNewMessages = await Promise.all(newMessages.map(async (msg) => {
               if (msg.type === "text" && !msg.isDeleted) {
-                  if (!currentChat.admin && !msg.fromSelf && myPrivateKey) {
+                  // FIX: Using isGroupChat
+                  if (!isGroupChat && !msg.fromSelf && myPrivateKey) {
                       const decryptedText = await decryptMessage(msg.message, myPrivateKey);
                       return { ...msg, message: decryptedText };
-                  } else if (currentChat.admin && activeGroupAesKey) {
+                  } else if (isGroupChat && activeGroupAesKey) {
                       const decryptedGroupText = await decryptGroupMessage(msg.message, activeGroupAesKey);
                       return { ...msg, message: decryptedGroupText };
                   }
@@ -592,7 +556,7 @@ export default function ChatContainer({ socket, isTyping }) {
           setIsLoadingMore(false);
       }
     }
-  }, [hasMore, isLoadingMore, currentChat, currentUser, cursor, activeGroupAesKey, getAuthHeader]);
+  }, [hasMore, isLoadingMore, currentChat, currentUser, cursor, activeGroupAesKey, getAuthHeader, isGroupChat]);
 
   const scrollToBottom = useCallback(() => {
       virtuosoRef.current?.scrollToIndex({ index: messages.length - 1, behavior: 'smooth' });
@@ -607,7 +571,7 @@ export default function ChatContainer({ socket, isTyping }) {
     setIsDragging(false);
     const files = e.dataTransfer.files;
     if (files.length > 0) {
-        triggerHaptic('success'); // Haptic confirmation of file drop
+        triggerHaptic('success'); 
         toast.info(`Preparing to send ${files[0].name}...`);
         setDroppedFile(files[0]); 
     }
@@ -624,7 +588,6 @@ export default function ChatContainer({ socket, isTyping }) {
     }
   };
 
-  // 🚀 REACT 19 UPGRADE: useTransition applied to AI Quick Replies
   const generateAIReplies = (text) => {
       if (!text || text.length < 5) {
           setQuickReplies([]);
@@ -647,13 +610,12 @@ export default function ChatContainer({ socket, isTyping }) {
     const newMessageId = uuidv4(); 
     setQuickReplies([]);
 
-    // --- HAPTIC FEEDBACK: Sending initiated ---
     triggerHaptic('light');
 
     try {
         if (type === "text") {
-            if (!currentChat.admin) {
-                // Use the module-level cache — no network hit if we've seen this user before
+            // FIX: Using isGroupChat instead of !currentChat.admin
+            if (!isGroupChat) {
                 const bundle = await getCachedBundle(currentChat._id, getAuthHeader());
 
                 if (bundle?.identityKey) {
@@ -664,15 +626,13 @@ export default function ChatContainer({ socket, isTyping }) {
                         toast.warning("⚠️ Encryption failed — message sent unencrypted.", { toastId: "enc-fail", autoClose: 4000 });
                     }
                 } else {
-                    // This user has no E2E keys in the DB (registered before E2E was enabled).
-                    // They need to log out and back in for keys to be generated automatically.
                     toast.warning(
                         `⚠️ ${currentChat.username} has no encryption keys yet. Ask them to log out and back in. Message sent unencrypted.`,
                         { toastId: "no-e2e-keys", autoClose: 6000 }
                     );
                     console.warn("[Crypto] No E2E keys for this user — sending as plaintext.");
                 }
-            } else if (currentChat.admin && activeGroupAesKey) {
+            } else if (isGroupChat && activeGroupAesKey) {
                 try {
                     finalMessageContent = await encryptGroupMessage(msg, activeGroupAesKey);
                 } catch (err) {
@@ -695,7 +655,7 @@ export default function ChatContainer({ socket, isTyping }) {
 
         const socketData = {
             id: newMessageId, to: currentChat._id, from: currentUser._id, 
-            msg: finalMessageContent, type: type, isGroup: !!currentChat.admin, 
+            msg: finalMessageContent, type: type, isGroup: isGroupChat, 
             username: currentUser.username, 
             replyTo: replyingTo ? { id: replyingTo.id, text: replyingTo.text, type: replyingTo.type, isSelfQuote: replyingTo.isSelfQuote } : null,
             ...payload, linkMetadata: null, fileMetadata: fileMetadataObj 
@@ -715,7 +675,6 @@ export default function ChatContainer({ socket, isTyping }) {
 
         socket.current.emit("send-msg", socketData, (response) => {
             if (response && response.status) {
-                // --- HAPTIC FEEDBACK: Message Successfully Sent ---
                 triggerHaptic('success');
                 setMessages((prev) => prev.map(m => m.id === newMessageId ? { ...m, status: response.status, linkMetadata: generatedLinkData } : m));
             }
@@ -724,26 +683,19 @@ export default function ChatContainer({ socket, isTyping }) {
     } catch (error) {
         if (error.response && error.response.status === 403) {
             toast.error("You cannot message this user.");
-            // Remove the optimistic message — this chat is blocked, retry would also fail
             setMessages((prev) => prev.filter(m => m.id !== newMessageId));
         } else {
             console.error("[API] Failed to send message", error);
             toast.error("Failed to send message. Tap the message to retry.");
-            // IMPROVEMENT: Mark as "failed" rather than silently deleting so the user
-            // can see which message didn't send and choose to retry or dismiss it.
             setMessages((prev) => prev.map(m =>
                 m.id === newMessageId ? { ...m, status: "failed" } : m
             ));
         }
     }
-  }, [currentChat, currentUser, activeGroupAesKey, replyingTo, getAuthHeader, socket]);
+  }, [currentChat, currentUser, activeGroupAesKey, replyingTo, getAuthHeader, socket, isGroupChat]);
 
-  // --- NEW: Handle Failed Message Retry ---
   const handleRetryMsg = useCallback((failedMsg) => {
-      // 1. Remove the failed message from the UI
       setMessages((prev) => prev.filter(m => m.id !== failedMsg.id));
-      
-      // 2. Resend it using the existing pipeline (this handles re-encryption automatically)
       handleSendMsg(
           failedMsg.message,
           failedMsg.type,
@@ -762,14 +714,14 @@ export default function ChatContainer({ socket, isTyping }) {
   const handleEditMsgSubmit = useCallback(async (messageId, newText) => {
       try {
           await axios.post(editMessageRoute, { messageId, newText }, getAuthHeader()); 
-          socket.current.emit("edit-msg", { messageId, newText, to: currentChat._id, isGroup: !!currentChat.admin });
+          socket.current.emit("edit-msg", { messageId, newText, to: currentChat._id, isGroup: isGroupChat });
           setMessages((prev) => prev.map(msg => msg.id === messageId ? { ...msg, message: newText, isEdited: true } : msg));
           setEditingMessage(null);
       } catch (error) { 
           console.error("[API] Failed to edit message", error);
           toast.error("Failed to edit message."); 
       }
-  }, [currentChat, getAuthHeader, socket]);
+  }, [currentChat, getAuthHeader, socket, isGroupChat]);
 
   const handleDeleteMsg = useCallback(async (messageId, fromSelf) => {
       const options = fromSelf ? "Press OK to 'Delete for Everyone', or Cancel to 'Delete for Me'." : "Delete this message for yourself?";
@@ -778,42 +730,42 @@ export default function ChatContainer({ socket, isTyping }) {
       try {
           if (deleteForEveryone) {
               await axios.post(deleteMessageRoute, { messageId }, getAuthHeader()); 
-              socket.current.emit("delete-msg", { messageId, to: currentChat._id, isGroup: !!currentChat.admin });
+              socket.current.emit("delete-msg", { messageId, to: currentChat._id, isGroup: isGroupChat });
               setMessages((prev) => prev.map(msg => msg.id === messageId ? { ...msg, isDeleted: true, message: "🚫 This message was deleted", reactions: [], linkMetadata: null, pollData: null } : msg));
-              triggerHaptic('heavy'); // Haptic feedback on delete
+              triggerHaptic('heavy'); 
           } else {
               const confirmDeleteForMe = fromSelf ? window.confirm("Delete for me then?") : window.confirm(options);
               if (confirmDeleteForMe) {
                   await axios.post(deleteMessageForMeRoute, { messageId, userId: currentUser._id }, getAuthHeader());
                   setMessages((prev) => prev.filter(msg => msg.id !== messageId));
                   toast.success("Message deleted.");
-                  triggerHaptic('heavy'); // Haptic feedback on delete
+                  triggerHaptic('heavy'); 
               }
           }
       } catch (error) { 
           console.error("[API] Failed to delete message", error);
           toast.error("Failed to delete message."); 
       }
-  }, [currentChat, currentUser, getAuthHeader, socket]);
+  }, [currentChat, currentUser, getAuthHeader, socket, isGroupChat]);
 
   const handleReaction = useCallback(async (messageId, emoji) => {
       try {
-          triggerHaptic('light'); // Satisfying tap when a reaction is sent
+          triggerHaptic('light'); 
           const res = await axios.post(reactMessageRoute, { messageId, emoji, userId: currentUser._id, username: currentUser.username }, getAuthHeader());
           setMessages(prev => prev.map(msg => msg.id === messageId ? { ...msg, reactions: res.data.reactions } : msg));
-          socket.current.emit("send-reaction", { messageId, reactions: res.data.reactions, to: currentChat._id, isGroup: !!currentChat.admin });
+          socket.current.emit("send-reaction", { messageId, reactions: res.data.reactions, to: currentChat._id, isGroup: isGroupChat });
       } catch (e) { 
           console.error("[API] Failed to react to message", e); 
       }
-  }, [currentChat, currentUser, getAuthHeader, socket]);
+  }, [currentChat, currentUser, getAuthHeader, socket, isGroupChat]);
 
   const handleOpenViewOnce = useCallback(async (msgId) => {
     setMessages(prev => prev.map(m => m.id === msgId ? {...m, viewed: true, message: "💣 Media Expired"} : m));
   }, []);
 
   const handleTyping = useCallback((typing) => {
-    socket.current.emit("typing", { to: currentChat._id, from: currentUser._id, isTyping: typing, isGroup: !!currentChat.admin, username: currentUser.username });
-  }, [currentChat, currentUser, socket]);
+    socket.current.emit("typing", { to: currentChat._id, from: currentUser._id, isTyping: typing, isGroup: isGroupChat, username: currentUser.username });
+  }, [currentChat, currentUser, socket, isGroupChat]);
 
   const handleAddMember = async () => {
       const userId = prompt("Enter the User ID to add to this group:");
@@ -822,8 +774,6 @@ export default function ChatContainer({ socket, isTyping }) {
       try {
           let encryptedKey = null;
 
-          // Encrypt the current group AES key for the new member so they can
-          // decrypt all future (and past) messages in the group.
           if (activeGroupAesKey) {
               try {
                   const pkResponse = await axios.get(`${publicKeyRoute}/${userId.trim()}`, getAuthHeader());
@@ -845,7 +795,7 @@ export default function ChatContainer({ socket, isTyping }) {
           await axios.post(addGroupMemberRoute, {
               groupId: currentChat._id,
               userId: userId.trim(),
-              encryptedKey,   // null if user has no keys — server saves it only when present
+              encryptedKey,   
           }, getAuthHeader());
 
           toast.success("Member added successfully.");
@@ -889,7 +839,6 @@ export default function ChatContainer({ socket, isTyping }) {
         const adaptiveAccent = data || customTheme || "#4e0eff";
         
         return (
-          // UPDATED: Container -> ChatLayout
           <ChatLayout 
             $themeType={theme} 
             $isCompact={isCompact} 
@@ -903,7 +852,6 @@ export default function ChatContainer({ socket, isTyping }) {
             }}
           >
             <AnimatePresence>
-                {/* --- FEATURE 2 MODAL: AI Summary --- */}
                 {chatSummary && (
                     <Lightbox as={motion.div} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setChatSummary(null)}>
                         <motion.div className="receipt-modal" style={{ maxWidth: '500px' }} onClick={e => e.stopPropagation()}>
@@ -916,7 +864,6 @@ export default function ChatContainer({ socket, isTyping }) {
                     </Lightbox>
                 )}
 
-                {/* --- FEATURE 1 MODAL: Global Fuzzy Search --- */}
                 {showGlobalSearchModal && (
                     <Lightbox as={motion.div} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowGlobalSearchModal(false)}>
                         <motion.div className="receipt-modal" style={{ width: '600px', maxWidth: '95%' }} onClick={e => e.stopPropagation()}>
@@ -924,8 +871,8 @@ export default function ChatContainer({ socket, isTyping }) {
                             <h3><FaGlobe color={adaptiveAccent} style={{ marginRight: '8px' }}/> Global Search</h3>
                             
                             <input
-                            id="globalSearchInput"     // <-- ADD THIS
-                            name="globalSearchInput"
+                                id="globalSearchInput"
+                                name="globalSearchInput"
                                 autoFocus
                                 type="text"
                                 placeholder="Search all your chats..."
@@ -1066,7 +1013,6 @@ export default function ChatContainer({ socket, isTyping }) {
             
             <AnimatePresence>
                 {pinnedMessage && (
-                    // UPDATED: div className="pinned-banner" -> PinnedBanner
                     <PinnedBanner 
                         as={motion.div}
                         onClick={() => scrollToMessage(pinnedMessage.id)}
@@ -1084,7 +1030,6 @@ export default function ChatContainer({ socket, isTyping }) {
                 )}
             </AnimatePresence>
 
-            {/* UPDATED: div className="chat-messages-container" -> MessagesArea */}
             <MessagesArea $themeType={theme} $isCompact={isCompact}>
               {isFetchingHistory ? (
                   <div className="skeleton-container">
@@ -1109,7 +1054,7 @@ export default function ChatContainer({ socket, isTyping }) {
                               <div className="message-wrapper" style={{ paddingBottom: '10px' }}>
                                   <div className="message recieved typing-msg">
                                       <div className="content tail-physics" style={{ minWidth: '60px', padding: '0.8rem 1.2rem' }}>
-                                          {typeof isTyping === 'string' && currentChat.admin && (
+                                          {typeof isTyping === 'string' && isGroupChat && (
                                               <span className="sender-name" style={{ marginBottom: '2px' }}>{isTyping}</span>
                                           )}
                                           <div className="typing-dots">
@@ -1129,7 +1074,7 @@ export default function ChatContainer({ socket, isTyping }) {
                               setReadReceiptsMsg={setReadReceiptsMsg} scrollToMessage={scrollToMessage}
                               setReplyingTo={setReplyingTo} setEditingMessage={setEditingMessage}
                               handleDeleteMsg={handleDeleteMsg} handleReaction={handleReaction} handleOpenViewOnce={handleOpenViewOnce}
-                              handleRetryMsg={handleRetryMsg} // NEW ADDITION
+                              handleRetryMsg={handleRetryMsg} 
                           />
                       )}
                   />
