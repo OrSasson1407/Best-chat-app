@@ -1,6 +1,6 @@
 const express = require("express");
 const {
-  createGroup, getUserGroups, getGroupMessages,
+  createGroup, getUserGroups, getGroupById, getGroupMessages,
   addMember, removeMember, leaveGroup, deleteGroup,
   promoteToModerator, demoteModerator, promoteToAdmin, kickMember,
   createChannel, searchPublicChannels, joinChannel,
@@ -44,5 +44,8 @@ router.post("/set-max-members",  auth, setMaxMembers);
 // ── Sprint 3: QR invite code ──────────────────────────────────────────────────
 router.get("/invite-code/:groupId", auth, getInviteCode);
 router.post("/join-via-code",       auth, joinViaInviteCode);
+
+// ── Single group fetch (must be last to avoid shadowing named GET routes) ─────
+router.get("/:id",           auth, getGroupById);
 
 module.exports = router;

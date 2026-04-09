@@ -156,3 +156,18 @@ module.exports.joinViaInviteCode = async (req, res, next) => {
     return res.json({ status: true, group });
   } catch (ex) { next(ex); }
 };
+
+// Returns a single group by ID — used by the client to re-fetch fresh groupKeys
+// after a page refresh, so newly-added members can decrypt the AES key.
+module.exports.getGroupById = async (req, res, next) => {
+  try {
+    const Group = require("../models/GroupModel");
+    const group = await Group.findById(req.params.id);
+    if (!group) return res.status(404).json({ status: false, msg: "Group not found" });
+    // Only members can fetch the group (to protect groupKeys from non-members)
+    if (!group.members.map(String).includes(String(req.user.id))) {
+      return res.status(403).json({ status: false, msg: "Not a member of this group" });
+    }
+    return res.json(group);
+  } catch (ex) { next(ex); }
+};

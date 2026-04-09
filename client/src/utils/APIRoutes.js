@@ -37,6 +37,7 @@ export const getChatMediaRoute       = `${host}/api/messages/getmedia`;
 // ── Groups ────────────────────────────────────────────────────────────────────
 export const createGroupRoute        = `${host}/api/groups/create`;
 export const getUserGroupsRoute      = `${host}/api/groups/getgroups`;
+export const getGroupRoute           = `${host}/api/groups`; // GET /api/groups/:id
 export const getGroupMessagesRoute   = `${host}/api/groups/getmessages`;
 export const addGroupMemberRoute     = `${host}/api/groups/addmember`;
 export const removeGroupMemberRoute  = `${host}/api/groups/removemember`;

@@ -11,6 +11,7 @@ import {
     updateChatCustomizationRoute,
     getQuickRepliesRoute,
     publicKeyRoute,
+    getGroupRoute,
     summarizeChatRoute,
     searchMessageRoute 
 } from "../utils/APIRoutes";
@@ -222,13 +223,27 @@ export default function ChatContainer({ socket, isTyping }) {
             const myPrivateKey = myPrivateKeyRef.current;
 
             if (currentChat.admin) { 
+                // ── Re-fetch the live group object so groupKeys is always fresh.
+                // The copy stored in Zustand / sessionStorage may be stale if
+                // members were added after the last time we loaded this chat.
+                let freshGroup = currentChat;
+                try {
+                    const groupRes = await axios.get(
+                        `${getGroupRoute}/${currentChat._id}`,
+                        getAuthHeader()
+                    );
+                    if (groupRes.data) freshGroup = { ...currentChat, ...groupRes.data };
+                } catch (e) {
+                    console.warn("[Groups] Could not refresh group data, falling back to cached version:", e.message);
+                }
+
                 response = await axios.post(getGroupMessagesRoute, {
                     from: currentUser._id, groupId: currentChat._id,
                 }, getAuthHeader());
                 if (socket.current) socket.current.emit("join-group", currentChat._id);
 
-                if (currentChat.groupKeys && myPrivateKey) {
-                    const myEncryptedKeyData = currentChat.groupKeys.find(k => k.userId === currentUser._id);
+                if (freshGroup.groupKeys && myPrivateKey) {
+                    const myEncryptedKeyData = freshGroup.groupKeys.find(k => k.userId === currentUser._id);
                     if (myEncryptedKeyData) {
                         try {
                             const decryptedJwkString = await decryptMessage(myEncryptedKeyData.encryptedKey, myPrivateKey);
@@ -802,14 +817,41 @@ export default function ChatContainer({ socket, isTyping }) {
 
   const handleAddMember = async () => {
       const userId = prompt("Enter the User ID to add to this group:");
-      if (userId) {
-          try {
-            await axios.post(addGroupMemberRoute, { groupId: currentChat._id, userId }, getAuthHeader());
-            toast.success("Member added successfully.");
-          } catch (e) { 
-              console.error("[API] Failed to add member", e);
-              toast.error("Failed to add member."); 
+      if (!userId || !userId.trim()) return;
+
+      try {
+          let encryptedKey = null;
+
+          // Encrypt the current group AES key for the new member so they can
+          // decrypt all future (and past) messages in the group.
+          if (activeGroupAesKey) {
+              try {
+                  const pkResponse = await axios.get(`${publicKeyRoute}/${userId.trim()}`, getAuthHeader());
+                  if (pkResponse.data.status && pkResponse.data.bundle?.identityKey) {
+                      const aesKeyString = JSON.stringify(activeGroupAesKey);
+                      encryptedKey = await encryptMessage(aesKeyString, pkResponse.data.bundle.identityKey);
+                  } else {
+                      toast.warning(
+                          "⚠️ This user has no E2E keys yet — they'll be added but won't see encrypted messages until they log out and back in.",
+                          { autoClose: 6000 }
+                      );
+                  }
+              } catch (err) {
+                  console.warn("[Crypto] Could not encrypt group AES key for new member:", err.message);
+                  toast.warning("⚠️ Could not encrypt group key for this user. They may not be able to read messages.");
+              }
           }
+
+          await axios.post(addGroupMemberRoute, {
+              groupId: currentChat._id,
+              userId: userId.trim(),
+              encryptedKey,   // null if user has no keys — server saves it only when present
+          }, getAuthHeader());
+
+          toast.success("Member added successfully.");
+      } catch (e) { 
+          console.error("[API] Failed to add member", e);
+          toast.error(e.response?.data?.msg || "Failed to add member."); 
       }
   };
 

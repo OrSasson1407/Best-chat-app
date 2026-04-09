@@ -199,6 +199,14 @@ export const encryptGroupMessage = async (messageText, aesKeyJwk) => {
 
 // 6. Decrypt a group message using the shared AES Group Key
 export const decryptGroupMessage = async (base64Ciphertext, aesKeyJwk) => {
+    // Fast-path: if the string is too short to be AES-GCM output (IV=12 bytes
+    // + at least 1 byte ciphertext + 16-byte auth tag = 29 bytes → ~40 base64
+    // chars), treat it as plaintext and return as-is.
+    if (!base64Ciphertext || base64Ciphertext.length < 40) return base64Ciphertext;
+
+    // If it doesn't look like base64 at all, it's plaintext — return as-is.
+    if (!/^[A-Za-z0-9+/]+=*$/.test(base64Ciphertext)) return base64Ciphertext;
+
     try {
         const jwk = parseJwk(aesKeyJwk, "Group AES");
         const key = await getImportedKey(jwk, "AES-GCM", false, ["decrypt"]);
@@ -217,7 +225,11 @@ export const decryptGroupMessage = async (base64Ciphertext, aesKeyJwk) => {
 
         return new TextDecoder().decode(decryptedBuffer);
     } catch (err) {
-        console.warn("[Crypto] Group AES Decryption skipped (Legacy message):", err.message);
-        return base64Ciphertext;
+        // Never show raw base64 ciphertext to the user — show a friendly placeholder.
+        // This happens when the AES key in memory doesn't match the one used to
+        // encrypt the message (e.g. after page refresh before the key is re-derived,
+        // or for a newly-added member whose key entry was missing).
+        console.warn("[Crypto] Group AES Decryption failed (key mismatch or legacy message):", err.message);
+        return "🔒 Message encrypted — please refresh to reload the key.";
     }
 };
