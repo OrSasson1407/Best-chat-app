@@ -35,7 +35,7 @@ router.get("/user/:id",            auth, getUserById);
 
 // E2E
 router.post("/e2e-keys",      auth, updateE2EKeys);
-router.get("/public-key/:id", getPublicKey);
+router.get('/public-key/:id', auth, getPublicKey);
 
 // Sprint 1 — 2FA (protected)
 router.post("/2fa/setup",   auth, setup2FA);

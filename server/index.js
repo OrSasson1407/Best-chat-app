@@ -20,10 +20,10 @@ if (process.env.NODE_ENV === 'test') {
 } else {
   // Relaxed validation for standard Dev/Prod
   const requiredEnv = ["JWT_SECRET"];
-  const missingEnv = requiredEnv.filter(envVar => !process.env[envVar]);
   if (missingEnv.length > 0) {
-    console.warn(`⚠️ WARNING: Missing recommended environment variables: ${missingEnv.join(", ")}`);
-  }
+  console.error('FATAL: Missing env vars');
+  process.exit(1);
+}
 }
 
 // --- CORE FRAMEWORK IMPORTS ---
