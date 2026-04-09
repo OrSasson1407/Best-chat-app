@@ -1,7 +1,7 @@
 import React from "react";
 import { motion } from "framer-motion";
 import { FaSpinner, FaPlus } from "react-icons/fa";
-import { ... } from "./Contacts.styles";
+import { StoryTray } from "./Contacts.styles";
 export default function StoryTraySection({
     currentUser,
     storyFeed,

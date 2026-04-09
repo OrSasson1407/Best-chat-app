@@ -1,7 +1,7 @@
 import React from "react";
 import { motion } from "framer-motion";
 import { FaSearch, FaCheck } from "react-icons/fa";
-import { ... } from "./Contacts.styles";
+import { ModalOverlay } from "./Contacts.styles";
 export default function CreateGroupModal({
     setShowGroupModal,
     groupName,

@@ -1,7 +1,7 @@
 import React from "react";
 import { motion } from "framer-motion";
 import { FaGlobe, FaPlus, FaSpinner, FaThumbtack, FaBellSlash } from "react-icons/fa";
-import { ... } from "./Contacts.styles";
+import { ContactItem } from "./Contacts.styles";
 export default function ContactList({
     isLoading,
     isCompact,
