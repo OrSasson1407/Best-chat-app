@@ -79,21 +79,37 @@ const server = http.createServer(app);
 /* =========================================================
    CENTRALIZED CORS CONFIGURATION
    ========================================================= */
+
+// Normalize a URL: trim whitespace and strip trailing slash for reliable comparison.
+const normalizeOrigin = (url) => (url || "").trim().replace(/\/+$/, "");
+
+// Build the allowlist from env. CLIENT_URL is set in Render's environment variables.
+// Multiple origins can be comma-separated: CLIENT_URL=https://a.onrender.com,https://b.com
+const RAW_CLIENT_URLS = (process.env.CLIENT_URL || "")
+  .split(",")
+  .map(normalizeOrigin)
+  .filter(Boolean);
+
 const ALLOWED_ORIGINS = [
-  process.env.CLIENT_URL,                          // e.g. https://best-chat-app-frontend.onrender.com
+  ...RAW_CLIENT_URLS,
   "http://localhost:3000",
   "http://localhost:5173",
-].filter(Boolean);
+];
+
+// Log at startup so you can confirm what's in the allowlist from Render logs.
+console.log("✅ CORS allowed origins:", ALLOWED_ORIGINS);
 
 const corsOptions = {
   origin: function (origin, callback) {
     // Allow requests with no origin (mobile apps, curl, Postman, server-to-server)
     if (!origin) return callback(null, true);
-    if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
-    // In development, allow any localhost port
-    if (process.env.NODE_ENV !== "production" && /^http:\/\/localhost(:\d+)?$/.test(origin)) {
+    const normalizedRequestOrigin = normalizeOrigin(origin);
+    if (ALLOWED_ORIGINS.includes(normalizedRequestOrigin)) return callback(null, true);
+    // In non-production, allow any localhost port
+    if (process.env.NODE_ENV !== "production" && /^https?:\/\/localhost(:\d+)?$/.test(origin)) {
       return callback(null, true);
     }
+    console.warn(`⚠️  CORS blocked origin: '${origin}'. Allowed: ${ALLOWED_ORIGINS.join(", ")}`);
     callback(new Error(`CORS: origin '${origin}' not allowed`));
   },
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -107,7 +123,7 @@ const corsOptions = {
     "x-auth-token",
   ],
   exposedHeaders: ["set-cookie"],
-  optionsSuccessStatus: 200, // Some browsers (IE11) choke on 204
+  optionsSuccessStatus: 200,
 };
 
 /* =========================================================
