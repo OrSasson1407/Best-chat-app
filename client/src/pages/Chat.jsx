@@ -25,9 +25,10 @@ export default function Chat() {
   const socket = useRef();
   const {
     currentUser, setCurrentUser, currentChat, setCurrentChat,
-    setOnlineUsers, setGlobalTypingUsers, theme, setTheme, isCompact, _hasHydrated,
+    setOnlineUsers, onlineUsers, setGlobalTypingUsers, theme, setTheme, isCompact, _hasHydrated,
     unreadCounts, incrementUnread, clearUnread,
     setMutedChats, setChatFolders, setPendingRequestCount,
+    addMessage // ✅ Added from store to handle incoming messages
   } = useChatStore();
 
   const [contacts, setContacts] = useState([]);
@@ -155,6 +156,26 @@ export default function Chat() {
         setContacts((prev) => prev.map((c) => c._id === userId ? { ...c, isOnline: false, lastSeen } : c));
       });
 
+      // ✅ ADDED: Incoming Message Listener
+      socket.current.on("msg-recieve", (data) => {
+        const chatId = data.chatId || data.from;
+        
+        // Add message to local cache/store
+        addMessage?.(chatId, {
+            ...data,
+            fromSelf: false,
+            id: data.id || data._id,
+        });
+
+        // Increment unread count if we are not actively in that chat
+        if (!currentChat || (currentChat._id !== chatId && currentChat.name !== chatId)) {
+            incrementUnread?.(chatId);
+            triggerHaptic("medium");
+        } else {
+            triggerHaptic("light");
+        }
+      });
+
       return () => {
         if (socket.current) { socket.current.disconnect(); socket.current = null; }
       };
@@ -204,7 +225,6 @@ export default function Chat() {
     }
   }, [currentUser, theme]);
 
-  // ✅ FIXED: ADDED AUTHORIZATION HEADER TO FETCH CONTACTS
   useEffect(() => {
     async function fetchContacts() {
       if (currentUser && currentUser._id && !isOffline) {
@@ -252,6 +272,13 @@ export default function Chat() {
     setIsTyping(false);
     setIsMobileMenuOpen(false);
   }, [setCurrentChat]);
+
+  // ✅ ADDED: Calculate if current chat user is online
+  const isCurrentChatOnline = currentChat && !currentChat.admin && onlineUsers.includes(currentChat._id);
+  // ✅ ADDED: Find lastSeen data from contacts list
+  const currentChatLastSeen = currentChat && !currentChat.admin 
+    ? contacts.find(c => c._id === currentChat._id)?.lastSeen 
+    : null;
 
   if (!_hasHydrated) {
     return (
@@ -309,10 +336,11 @@ export default function Chat() {
             <Welcome />
           ) : (
             <ChatAreaWrapper>
-              {/* ✅ ADDED MISSING PROPS TO STOP CRASHING */}
               <ChatHeader 
                   currentChat={currentChat} 
                   currentUser={currentUser} 
+                  isOnline={isCurrentChatOnline} // ✅ Wired up presence tracking
+                  lastSeen={currentChatLastSeen} // ✅ Wired up presence tracking
               />
               
               <MessageList 

@@ -5,15 +5,17 @@ import { FaSpinner, FaArrowDown } from "react-icons/fa";
 import MessageItem from "./MessageItem";
 import { MessagesArea, ScrollButton } from "./MessageWindow.styles";
 
+// ✅ ADDED: Pull UI states globally
+import useChatStore from "../../../store/chatStore";
+
 export default function MessageList({
-  filteredMessages,
+  filteredMessages = [], // ✅ ADDED: Fallback to prevent .length crashes
   isFetchingHistory,
   isLoadingMore,
   isTyping,
   isGroupChat,
   currentChat,
   currentUser,
-  searchQuery,
   highlightedMsgId,
   hasMore,
   loadMoreMessages,
@@ -26,13 +28,14 @@ export default function MessageList({
   handleReaction,
   handleOpenViewOnce,
   handleRetryMsg,
-  theme,
-  isCompact,
 }) {
   const virtuosoRef = useRef(null);
   const isScrolledUpRef = useRef(false);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [unreadScrollCount, setUnreadScrollCount] = useState(0);
+
+  // ✅ FIX: Pull theme, compactness, and search query directly from Zustand
+  const { theme, isCompact, searchQuery } = useChatStore();
 
   const skeletonWidths = ["45%", "65%", "35%", "80%", "50%"];
 
@@ -76,7 +79,7 @@ export default function MessageList({
             data={filteredMessages}
             firstItemIndex={0}
             initialTopMostItemIndex={filteredMessages.length - 1}
-            startReached={loadMoreMessages}
+            startReached={() => hasMore && loadMoreMessages?.()} // ✅ Safe optional chaining
             atBottomStateChange={(bottom) => {
               setShowScrollBtn(!bottom);
               if (bottom) setUnreadScrollCount(0);

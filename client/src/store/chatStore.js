@@ -39,6 +39,28 @@ const useChatStore = create(
         globalTypingUsers: typeof updater === 'function' ? updater(state.globalTypingUsers) : updater,
       })),
 
+      // ── 3. UI Toggle States (New: Replaces prop-drilling) ──────────────────
+      showSearch: false,
+      setShowSearch: (val) => set({ showSearch: val }),
+      
+      searchQuery: "",
+      setSearchQuery: (val) => set({ searchQuery: val }),
+      
+      showSidePanel: false,
+      setShowSidePanel: (val) => set({ showSidePanel: val }),
+      
+      activeSideTab: "about",
+      setActiveSideTab: (val) => set({ activeSideTab: val }),
+      
+      showCallModal: false,
+      setShowCallModal: (val) => set({ showCallModal: val }),
+      
+      incomingCallData: null,
+      setIncomingCallData: (val) => set({ incomingCallData: val }),
+      
+      showGlobalSearchModal: false,
+      setShowGlobalSearchModal: (val) => set({ showGlobalSearchModal: val }),
+
       // ── Sprint 1: Unread counts ────────────────────────────────────────────
       unreadCounts: {},
       incrementUnread: (chatId) => set((state) => ({
@@ -75,14 +97,14 @@ const useChatStore = create(
       pendingRequestCount: 0,
       setPendingRequestCount: (n) => set({ pendingRequestCount: n }),
 
-      // ── 3. UI Preferences (persisted) ──────────────────────────────────────
+      // ── 4. UI Preferences (persisted) ──────────────────────────────────────
       theme: "glass",
       setTheme: (theme) => set({ theme }),
 
       isCompact: false,
       setIsCompact: (isCompact) => set({ isCompact }),
 
-      // ── 4. Offline Message Cache ───────────────────────────────────────────
+      // ── 5. Offline Message Cache ───────────────────────────────────────────
       offlineMessages: {},
 
       loadOfflineMessages: async (chatId) => {
@@ -114,12 +136,11 @@ const useChatStore = create(
         await idbSet(`chat_history_${chatId}`, newMessages);
       },
 
-      // ── 5. Secure Cleanup ─────────────────────────────────────────────────
+      // ── 6. Secure Cleanup ─────────────────────────────────────────────────
       clearCache: async (userId) => {
         if (userId) {
           const { keys, del } = await import('idb-keyval');
           const allKeys = await keys();
-          // FIX: Correct IndexedDB cleanup. Target exact prefixes rather than fuzzy strings.
           await Promise.all(
             allKeys
               .filter((k) => typeof k === 'string' && (k.includes(userId) || k.startsWith('chat_history_')))
@@ -130,6 +151,8 @@ const useChatStore = create(
           offlineMessages: {}, currentUser: undefined, currentChat: undefined,
           onlineUsers: [], globalTypingUsers: [],
           mutedChats: {}, chatFolders: [], pendingRequestCount: 0,
+          showSearch: false, searchQuery: "", showSidePanel: false, 
+          showCallModal: false, showGlobalSearchModal: false
         });
       },
     }),

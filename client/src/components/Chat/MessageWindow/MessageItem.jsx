@@ -99,7 +99,7 @@ const MessageItem = React.memo(({
         isWithinTimeFrame(message, prevMsg) && !showDateSeparator;
     const isGroupedWithNext = nextMsg && isSameSender(message, nextMsg) &&
         isWithinTimeFrame(message, nextMsg) && !isNewDay(nextMsg.createdAt, message.createdAt);
-    const isGroup = !!currentChat.admin;
+    const isGroup = !!currentChat?.admin; // ✅ Safe check
 
     const groupedReactions = useMemo(() => {
         if (!message.reactions || message.reactions.length === 0) return [];
@@ -164,7 +164,7 @@ const MessageItem = React.memo(({
         // If swiped left or right past 50px
         if (Math.abs(info.offset.x) > SWIPE_THRESHOLD) {
             triggerHaptic('light'); // Satisfying tap when threshold is met
-            setReplyingTo({ 
+            setReplyingTo?.({  // ✅ Added Optional Chaining
                 id: message.id, 
                 text: message.message, 
                 type: message.type, 
@@ -189,7 +189,7 @@ const MessageItem = React.memo(({
     };
 
     const renderStatusTicks = (msg) => {
-        const handleClick = () => { if (isGroup) setReadReceiptsMsg(msg); };
+        const handleClick = () => { if (isGroup) setReadReceiptsMsg?.(msg); }; // ✅ Added Optional Chaining
         const hasReaders = isGroup && msg.readBy && msg.readBy.length > 0;
 
         return (
@@ -215,7 +215,7 @@ const MessageItem = React.memo(({
 
     const renderMessageContent = (msg) => {
         if (msg.isDeleted) return <p className="deleted-text">{msg.message}</p>;
-        if (msg.isViewOnce && !msg.fromSelf && !msg.viewed) return <button className="view-once-btn" onClick={() => handleOpenViewOnce(msg.id)}><FaFire /> View Once Media</button>;
+        if (msg.isViewOnce && !msg.fromSelf && !msg.viewed) return <button className="view-once-btn" onClick={() => handleOpenViewOnce?.(msg.id)}><FaFire /> View Once Media</button>; // ✅ Optional Chaining
         if (msg.isViewOnce && (msg.viewed || msg.message === "💣 Media Expired")) return <p className="deleted-text">💣 Media Expired</p>;
 
         const renderProcessingOverlay = () => {
@@ -267,7 +267,8 @@ const MessageItem = React.memo(({
                     <h4><FaPoll /> {msg.pollData.question}</h4>
                     {msg.pollData.options.map(opt => {
                         const percent = totalVotes === 0 ? 0 : Math.round((opt.votes.length / totalVotes) * 100);
-                        const hasVoted = opt.votes.includes(currentUser._id);
+                        // ✅ FIX: Added safety check for currentUser?._id
+                        const hasVoted = currentUser?._id && opt.votes.includes(currentUser._id);
                         return (
                             <div key={opt._id} className={`poll-option ${hasVoted ? 'voted' : ''}`}>
                                 <div className="poll-bar" style={{ width: `${percent}%` }}></div>
@@ -289,7 +290,7 @@ const MessageItem = React.memo(({
                         src={msg.message} 
                         alt="sent" 
                         className={`msg-image peek-media ${msg.status !== 'processing' ? 'clickable' : ''}`} 
-                        onClick={() => msg.status !== 'processing' && setLightboxImage(msg.message)} 
+                        onClick={() => msg.status !== 'processing' && setLightboxImage?.(msg.message)} // ✅ Optional Chaining
                         style={{ opacity: msg.status === 'processing' ? 0.6 : 1 }} 
                     />
                 </MediaContainer>
@@ -382,7 +383,7 @@ const MessageItem = React.memo(({
                         style={{ top: contextMenu.y, left: contextMenu.x }}
                         onClick={(e) => e.stopPropagation()}
                     >
-                        <div onClick={() => { setReplyingTo({ id: message.id, text: message.message, type: message.type, isSelfQuote: message.fromSelf }); closeContextMenu(); }}><FaReply /> Reply</div>
+                        <div onClick={() => { setReplyingTo?.({ id: message.id, text: message.message, type: message.type, isSelfQuote: message.fromSelf }); closeContextMenu(); }}><FaReply /> Reply</div>
                         <div onClick={closeContextMenu}><FaShare /> Forward</div>
                         <div onClick={closeContextMenu}><FaStar /> Star</div>
                         
@@ -393,9 +394,9 @@ const MessageItem = React.memo(({
                         )}
                         
                         {message.fromSelf && message.type === "text" && (
-                            <div onClick={() => { setEditingMessage({ id: message.id, text: message.message }); closeContextMenu(); }}><FaPen /> Edit</div>
+                            <div onClick={() => { setEditingMessage?.({ id: message.id, text: message.message }); closeContextMenu(); }}><FaPen /> Edit</div>
                         )}
-                        <div className="danger" onClick={() => { handleDeleteMsg(message.id, message.fromSelf); closeContextMenu(); }}><FaTrash /> Delete</div>
+                        <div className="danger" onClick={() => { handleDeleteMsg?.(message.id, message.fromSelf); closeContextMenu(); }}><FaTrash /> Delete</div>
                     </ContextMenu>
                 )}
             </AnimatePresence>
@@ -427,7 +428,7 @@ const MessageItem = React.memo(({
                         {message.isForwarded && <div className="forwarded-tag"><FaShare /> Forwarded</div>}
 
                         {message.replyTo && typeof message.replyTo === 'object' && (
-                            <div className="quoted-message" onClick={() => scrollToMessage(message.replyTo.id)}>
+                            <div className="quoted-message" onClick={() => scrollToMessage?.(message.replyTo.id)}>
                                 <span>{message.replyTo.isSelfQuote ? "You" : "Them"}: </span>
                                 {["text", "code"].includes(message.replyTo.type)
                                     ? (message.replyTo.text || "Message").substring(0, 40)
@@ -436,7 +437,7 @@ const MessageItem = React.memo(({
                             </div>
                         )}
 
-                        {!message.fromSelf && currentChat.admin && !isGroupedWithPrev && (
+                        {!message.fromSelf && currentChat?.admin && !isGroupedWithPrev && (
                             <span className="sender-name">{message.username}</span>
                         )}
 
@@ -455,7 +456,7 @@ const MessageItem = React.memo(({
                                     {/* --- ADDED: Failed Status & Retry Button --- */}
                                     {message.status === "failed" ? (
                                         <span 
-                                            onClick={(e) => { e.stopPropagation(); handleRetryMsg(message); }} 
+                                            onClick={(e) => { e.stopPropagation(); handleRetryMsg?.(message); }} 
                                             style={{ color: '#ff4e4e', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 'bold' }}
                                             title="Message failed to send. Tap to retry."
                                         >
@@ -470,7 +471,7 @@ const MessageItem = React.memo(({
                         
                         {!message.isDeleted && (
                             <div className="message-actions">
-                                <button onClick={() => setReplyingTo({ id: message.id, text: message.message, type: message.type, isSelfQuote: message.fromSelf })} title="Reply"><FaReply /></button>
+                                <button onClick={() => setReplyingTo?.({ id: message.id, text: message.message, type: message.type, isSelfQuote: message.fromSelf })} title="Reply"><FaReply /></button>
                                 
                                 {message.type === "text" && (
                                     <button onClick={handleTranslate} title={translatedText ? "Show Original" : "Translate with AI"}>
@@ -484,14 +485,14 @@ const MessageItem = React.memo(({
                                     <FaSmile title="React" />
                                     <div className="reaction-menu">
                                         {['👍', '❤️', '😂', '😮', '😢'].map(emoji => (
-                                            <span key={emoji} onClick={() => handleReaction(message.id, emoji)} className="reaction-emoji-btn">{emoji}</span>
+                                            <span key={emoji} onClick={() => handleReaction?.(message.id, emoji)} className="reaction-emoji-btn">{emoji}</span>
                                         ))}
                                     </div>
                                 </div>
                                 {message.fromSelf && message.type === "text" && (
-                                    <button onClick={() => setEditingMessage({ id: message.id, text: message.message })} title="Edit"><FaPen size={12} /></button>
+                                    <button onClick={() => setEditingMessage?.({ id: message.id, text: message.message })} title="Edit"><FaPen size={12} /></button>
                                 )}
-                                <button onClick={() => handleDeleteMsg(message.id, message.fromSelf)} title="Delete"><FaTrash size={12} /></button>
+                                <button onClick={() => handleDeleteMsg?.(message.id, message.fromSelf)} title="Delete"><FaTrash size={12} /></button>
                             </div>
                         )}
 

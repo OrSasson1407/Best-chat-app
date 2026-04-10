@@ -9,25 +9,30 @@ import { StyledChatHeader as StyledHeader } from "./ChatHeader.styles";
 import useChatStore from "../../../store/chatStore";
 
 export default function ChatHeader({
+    // ✅ Keep data and complex API handlers as props
     currentChat, currentUser, isBlocked, isOnline, lastSeen,
-    showSearch, searchQuery, setSearchQuery, setShowSearch,
-    showSidePanel, setShowSidePanel, setActiveSideTab,
-    handleToggleBlock, handleAddMember, setIncomingCallData, setShowCallModal,
-    handleSummarize, isSummarizing, setShowGlobalSearchModal 
+    handleToggleBlock, handleAddMember, handleSummarize, isSummarizing 
 }) {
-    // ✅ FIX: Removed currentUser since it is passed as a prop above
-    const { theme } = useChatStore(); 
+    // ✅ Pull UI toggles globally from Zustand to prevent prop-drilling crashes
+    const { 
+        theme, 
+        showSearch, setShowSearch, 
+        searchQuery, setSearchQuery,
+        showSidePanel, setShowSidePanel, setActiveSideTab,
+        setShowCallModal, setIncomingCallData,
+        setShowGlobalSearchModal
+    } = useChatStore(); 
     
     return (
         <StyledHeader $themeType={theme}>
             <div className="user-details">
-                <div className="header-info" onClick={() => { setShowSidePanel(true); setActiveSideTab('about'); }} style={{ cursor: 'pointer' }}>
+                <div className="header-info" onClick={() => { setShowSidePanel?.(true); setActiveSideTab?.('about'); }} style={{ cursor: 'pointer' }}>
                     <h3>
-                        {currentChat.name || currentChat.username} 
+                        {currentChat?.name || currentChat?.username} 
                         {isBlocked && <span style={{ color: '#ef4444', fontSize: '10px', marginLeft: '6px', letterSpacing: '0.5px', textTransform: 'uppercase' }}>(Blocked)</span>}
                     </h3>
                     
-                    {!currentChat.admin && (
+                    {!currentChat?.admin && (
                         <div className="presence-info">
                             <div className={`status-dot ${isOnline ? 'online' : ''}`}></div>
                             <span className={isOnline ? "online" : ""}>
@@ -36,7 +41,7 @@ export default function ChatHeader({
                         </div>
                     )}
                     
-                    {!currentChat.admin && currentChat.bio && (
+                    {!currentChat?.admin && currentChat?.bio && (
                         <p className="chat-bio" title={currentChat.interests?.join(", ")}>
                             <FaInfoCircle /> {currentChat.bio}
                         </p>
@@ -47,7 +52,7 @@ export default function ChatHeader({
                     {/* --- FEATURE 2: AI Summarize Button --- */}
                     <button 
                         className="huddle-btn" 
-                        onClick={handleSummarize} 
+                        onClick={() => handleSummarize?.()} 
                         disabled={isSummarizing} 
                         style={{ background: 'var(--msg-sent)', color: 'white' }}
                     >
@@ -59,7 +64,7 @@ export default function ChatHeader({
                     <FaGlobe 
                         className="action-icon" 
                         title="Global Chat Search" 
-                        onClick={() => setShowGlobalSearchModal(true)} 
+                        onClick={() => setShowGlobalSearchModal?.(true)} 
                     />
 
                     {/* --- ANIMATED LOCAL SEARCH BAR --- */}
@@ -72,8 +77,8 @@ export default function ChatHeader({
                                 transition={{ type: "spring", stiffness: 300, damping: 25 }}
                                 type="text" 
                                 placeholder="Search this chat..." 
-                                value={searchQuery} 
-                                onChange={(e) => setSearchQuery(e.target.value)} 
+                                value={searchQuery || ""} 
+                                onChange={(e) => setSearchQuery?.(e.target.value)} 
                                 className="chat-search-input" 
                                 autoFocus
                             />
@@ -83,37 +88,37 @@ export default function ChatHeader({
                     <FaSearch 
                         className="action-icon" 
                         title="Search local messages" 
-                        onClick={() => setShowSearch(!showSearch)} 
+                        onClick={() => setShowSearch?.(!showSearch)} 
                     />
                     
                     <FaInfoCircle 
                         className="action-icon" 
                         title="Contact Info & Media" 
-                        onClick={() => { setShowSidePanel(!showSidePanel); setActiveSideTab('about'); }} 
+                        onClick={() => { setShowSidePanel?.(!showSidePanel); setActiveSideTab?.('about'); }} 
                     />
 
                     <button
                         className="huddle-btn"
                         onClick={() => {
-                            setIncomingCallData(null);
-                            setShowCallModal(true);
+                            setIncomingCallData?.(null);
+                            setShowCallModal?.(true);
                         }}
                     >
                         <FaMicrophoneAlt /> Start Huddle
                     </button>
 
-                    {!currentChat.admin && (
+                    {!currentChat?.admin && (
                         <FaUserSlash 
                             className={`action-icon ${isBlocked ? 'blocked' : ''}`} 
                             title={isBlocked ? "Unblock User" : "Block User"} 
-                            onClick={handleToggleBlock} 
+                            onClick={() => handleToggleBlock?.()} 
                         />
                     )}
                     
-                    {currentChat.admin === currentUser._id && (
+                    {currentChat?.admin === currentUser?._id && (
                         <>
                             <span className="admin-badge"><FaShieldAlt /> Admin</span>
-                            <FaUserPlus className="action-icon" onClick={handleAddMember} title="Add Member" />
+                            <FaUserPlus className="action-icon" onClick={() => handleAddMember?.()} title="Add Member" />
                         </>
                     )}
                 </div>
