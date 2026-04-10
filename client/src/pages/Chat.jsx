@@ -7,9 +7,8 @@ import customParser from "socket.io-msgpack-parser";
 import styled, { keyframes, css } from "styled-components";
 import { allUsersRoute, host, updateFcmTokenRoute } from "../utils/APIRoutes";
 import Contacts from "../components/Sidebar/Contacts";
-import Welcome from "../components/Welcome";
-import ChatContainer from "../components/ChatContainer";
-import Onboarding from "../components/Onboarding"; // Sprint 3
+import Welcome from "../components/Common/Welcome";
+import Onboarding from "../components/Common/Onboarding"; 
 import useChatStore from "../store/chatStore";
 import { ToastContainer, toast } from "react-toastify";
 import { requestForToken, onMessageListener } from "../firebase";
