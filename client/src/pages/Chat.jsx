@@ -6,9 +6,15 @@ import { io } from "socket.io-client";
 import customParser from "socket.io-msgpack-parser";
 import styled, { keyframes, css } from "styled-components";
 import { allUsersRoute, host, updateFcmTokenRoute } from "../utils/APIRoutes";
+
+// Updated component imports based on new folder structure
 import Contacts from "../components/Sidebar/Contacts";
 import Welcome from "../components/Common/Welcome";
 import Onboarding from "../components/Common/Onboarding"; 
+import ChatHeader from "../components/Chat/Header/ChatHeader";
+import MessageList from "../components/Chat/MessageWindow/MessageList";
+import ChatInput from "../components/Chat/InputArea/ChatInput";
+
 import useChatStore from "../store/chatStore";
 import { ToastContainer, toast } from "react-toastify";
 import { requestForToken, onMessageListener } from "../firebase";
@@ -20,9 +26,7 @@ export default function Chat() {
   const {
     currentUser, setCurrentUser, currentChat, setCurrentChat,
     setOnlineUsers, setGlobalTypingUsers, theme, setTheme, isCompact, _hasHydrated,
-    // Sprint 1
     unreadCounts, incrementUnread, clearUnread,
-    // Sprint 2
     setMutedChats, setChatFolders, setPendingRequestCount,
   } = useChatStore();
 
@@ -30,20 +34,16 @@ export default function Chat() {
   const [isTyping, setIsTyping] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
-
-  // Sprint 3: onboarding
   const [showOnboarding, setShowOnboarding] = useState(false);
 
   useEffect(() => { document.documentElement.setAttribute("data-theme", theme); }, [theme]);
   const toggleTheme = () => { triggerHaptic("light"); setTheme(theme === "light" ? "glass" : "light"); };
 
-  // ── Sprint 1: Browser tab unread badge ────────────────────────────────────
   useEffect(() => {
     const total = Object.values(unreadCounts).reduce((a, b) => a + b, 0);
     document.title = total > 0 ? `(${total}) Snappy` : "Snappy";
   }, [unreadCounts]);
 
-  // ── Sprint 1: Clear unread when chat opens ────────────────────────────────
   useEffect(() => {
     if (currentChat) {
       const chatId = currentChat._id || currentChat.name;
@@ -51,7 +51,6 @@ export default function Chat() {
     }
   }, [currentChat]);
 
-  // ── Sprint 2: Bootstrap muted chats + folders + pending requests ──────────
   useEffect(() => {
     if (currentUser) {
       if (currentUser.mutedChats) setMutedChats(currentUser.mutedChats);
@@ -59,16 +58,13 @@ export default function Chat() {
       const pendingCount = (currentUser.friendRequests || []).filter((r) => r.status === "pending").length;
       setPendingRequestCount(pendingCount);
 
-      // Sprint 3: show onboarding for new users who haven't completed it
       if (currentUser.onboardingDone === false) {
-        // Small delay so the chat UI renders first
         const t = setTimeout(() => setShowOnboarding(true), 800);
         return () => clearTimeout(t);
       }
     }
   }, [currentUser?._id]);
 
-  // ── Offline detection ─────────────────────────────────────────────────────
   useEffect(() => {
     const handleOffline = () => {
       setIsOffline(true);
@@ -90,7 +86,6 @@ export default function Chat() {
     };
   }, []);
 
-  // ── Session bootstrap ─────────────────────────────────────────────────────
   const hasRedirected = useRef(false);
   useEffect(() => {
     const stored = sessionStorage.getItem("chat-app-user");
@@ -107,7 +102,6 @@ export default function Chat() {
     }
   }, []);
 
-  // ── Socket setup ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (currentUser && currentUser._id && !socket.current) {
       const rawToken = currentUser.token || sessionStorage.getItem("chat-app-token") || "";
@@ -135,7 +129,6 @@ export default function Chat() {
         if (freshToken) socket.current.auth.token = freshToken;
       });
       socket.current.on("reconnect", (n) => {
-        console.log(`[Socket] Reconnected on attempt ${n}`);
         socket.current.emit("add-user", currentUser._id);
       });
       socket.current.on("connect_error", (err) => {
@@ -168,7 +161,6 @@ export default function Chat() {
     }
   }, [currentUser, navigate, setOnlineUsers, setCurrentUser, setCurrentChat]);
 
-  // ── Typing status ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (socket.current) {
       const handleTypingStatus = (data) => {
@@ -186,7 +178,6 @@ export default function Chat() {
     }
   }, [currentChat, setGlobalTypingUsers]);
 
-  // ── Push notifications ────────────────────────────────────────────────────
   useEffect(() => {
     if (currentUser && currentUser._id) {
       const setupPushNotifications = async () => {
@@ -213,7 +204,6 @@ export default function Chat() {
     }
   }, [currentUser, theme]);
 
-  // ── Fetch contacts ────────────────────────────────────────────────────────
   useEffect(() => {
     async function fetchContacts() {
       if (currentUser && currentUser._id && !isOffline) {
@@ -226,7 +216,6 @@ export default function Chat() {
     fetchContacts();
   }, [currentUser, navigate, isOffline]);
 
-  // ── Logout ────────────────────────────────────────────────────────────────
   const handleLogout = useCallback(async () => {
     const userId = currentUser?._id;
     try {
@@ -254,7 +243,6 @@ export default function Chat() {
     setIsMobileMenuOpen(false);
   }, [setCurrentChat]);
 
-  // ── Loading screen ────────────────────────────────────────────────────────
   if (!_hasHydrated) {
     return (
       <LoadingScreen>
@@ -268,7 +256,6 @@ export default function Chat() {
 
   return (
     <AppShell $isOffline={isOffline} $theme={theme}>
-
       {theme !== "light" && (
         <div className="aurora-bg" aria-hidden="true">
           <div className="orb orb-1" />
@@ -308,21 +295,35 @@ export default function Chat() {
         </div>
 
         <div className="chat-wrapper">
-          {!currentChat ? <Welcome /> : <ChatContainer socket={socket} isTyping={isTyping} />}
+          {!currentChat ? (
+            <Welcome />
+          ) : (
+            <ChatAreaWrapper>
+              {/* Assembled Modular Components instead of the old ChatContainer */}
+              <ChatHeader currentChat={currentChat} />
+              <MessageList socket={socket} isTyping={isTyping} />
+              <ChatInput socket={socket} />
+            </ChatAreaWrapper>
+          )}
         </div>
       </div>
 
-      {/* Sprint 3: First-time onboarding tutorial */}
-      {showOnboarding && (
-        <Onboarding onComplete={() => setShowOnboarding(false)} />
-      )}
-
+      {showOnboarding && <Onboarding onComplete={() => setShowOnboarding(false)} />}
       <ToastContainer position="top-right" autoClose={4000} hideProgressBar newestOnTop theme={theme === "light" ? "light" : "dark"} />
     </AppShell>
   );
 }
 
 /* ── STYLED COMPONENTS ───────────────────────────────────────────────────────*/
+
+// NEW: Wrapper for our modular chat components
+const ChatAreaWrapper = styled.div`
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+`;
 
 const AppShell = styled.div`
   height: 100vh; width: 100vw;
