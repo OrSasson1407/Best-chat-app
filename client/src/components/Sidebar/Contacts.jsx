@@ -17,7 +17,7 @@ import useChatStore from "../../store/chatStore";
 import { generateGroupAESKey, encryptMessage } from "../../utils/crypto";
 
 // Sub-Components
-import UserProfile from "../UserProfile";
+import UserProfile from "../Common/UserProfile";
 import FriendRequests from "../FriendRequests";
 
 // Modular Sidebar Components
