@@ -10,7 +10,7 @@ import { allUsersRoute, host, updateFcmTokenRoute } from "../utils/APIRoutes";
 // Updated component imports based on new folder structure
 import Contacts from "../components/Sidebar/Contacts";
 import Welcome from "../components/Common/Welcome";
-import Onboarding from "../components/Common/Onboarding"; 
+import Onboarding from "../components/Common/Onboarding";
 import ChatHeader from "../components/Chat/Header/ChatHeader";
 import MessageList from "../components/Chat/MessageWindow/MessageList";
 import ChatInput from "../components/Chat/InputArea/ChatInput";
