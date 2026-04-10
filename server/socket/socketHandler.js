@@ -40,8 +40,14 @@ module.exports = (io, redisClient) => {
    */
   io.on("connection", (socket) => {
 
-    // Increment active socket metric
-    activeSocketsGauge.inc();
+    // ✅ CRITICAL FIX: Graceful fail if metrics module isn't initialized perfectly
+    try {
+      if (activeSocketsGauge && typeof activeSocketsGauge.inc === "function") {
+        activeSocketsGauge.inc();
+      }
+    } catch (err) {
+      console.warn("⚠️ Metric Gauge skipped: ", err.message);
+    }
 
     /* =====================================================
        REGISTER MODULAR HANDLERS

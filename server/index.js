@@ -112,14 +112,17 @@ const corsOptions = {
 /* =========================================================
    MIDDLEWARE & SECURITY CONFIGURATION
    =========================================================
-   ✅ FIX: OPTIONS preflight + cors() MUST come before helmet()
-   so browsers receive CORS headers before helmet can
-   interfere with the preflight response.
+   ✅ CRITICAL FIX: CORS MUST BE FIRST!
    ========================================================= */
+app.options('*', cors(corsOptions));   // Handle all preflight requests before anything else
+app.use(cors(corsOptions));            // Attach CORS headers to every response
+app.use(helmet());                     // Helmet runs AFTER cors so it can't strip our headers
+
 if (process.env.NODE_ENV === "production") {
   app.set("trust proxy", 1);
 }
 
+// Now it's safe to run metrics because CORS is already handled
 app.use(metricsMiddleware);
 
 app.get('/metrics', async (req, res) => {
@@ -130,11 +133,6 @@ app.get('/metrics', async (req, res) => {
   res.set('Content-Type', register.contentType);
   res.end(await register.metrics());
 });
-
-// ✅ FIX ORDER: OPTIONS preflight handler first, then cors(), then helmet()
-app.options('*', cors(corsOptions));   // Handle all preflight requests before anything else
-app.use(cors(corsOptions));            // Attach CORS headers to every response
-app.use(helmet());                     // Helmet runs AFTER cors so it can't strip our headers
 
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ limit: "1mb", extended: true }));
