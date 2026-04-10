@@ -1,10 +1,13 @@
 import React, { Suspense, lazy } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import axios from "axios";
-import AppLock from "./components/AppLock";
-import PageLoader from "./components/PageLoader";
-import ErrorBoundary from "./components/ErrorBoundary";
-import ProtectedRoute from "./components/ProtectedRoute";
+
+// Updated imports to match the new Common modular folder structure
+import AppLock from "./components/Common/AppLock";
+import PageLoader from "./components/Common/PageLoader";
+import ErrorBoundary from "./components/Common/ErrorBoundary";
+import ProtectedRoute from "./components/Common/ProtectedRoute";
+
 import { ROUTES } from "./utils/routes";
 import { refreshTokenRoute } from "./utils/APIRoutes";
 
