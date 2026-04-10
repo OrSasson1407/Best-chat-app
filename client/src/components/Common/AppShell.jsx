@@ -1,0 +1,308 @@
+import React, { useEffect, useState, useRef, useCallback } from "react";
+import axios from "axios";
+import { useNavigate } from "react-router-dom";
+import { io } from "socket.io-client";
+import customParser from "socket.io-msgpack-parser";
+import { allUsersRoute, host, updateFcmTokenRoute } from "../../utils/APIRoutes";
+import Contacts from "../Sidebar/Contacts";
+import Welcome from "../Welcome";
+import ChatContainer from "../ChatContainer";
+import Onboarding from "../Onboarding";
+import useChatStore from "../../store/chatStore";
+import { ToastContainer, toast } from "react-toastify";
+import { requestForToken, onMessageListener } from "../../firebase";
+import { triggerHaptic } from "../../utils/haptics";
+import ThemeToggle from "./ThemeToggle";
+import OfflineBanner from "./OfflineBanner";
+import { AppShellWrapper, LoadingScreen } from "./Common.styles";
+
+export default function AppShell() {
+  const navigate = useNavigate();
+  const socket = useRef();
+  const {
+    currentUser, setCurrentUser, currentChat, setCurrentChat,
+    setOnlineUsers, setGlobalTypingUsers, theme, setTheme, isCompact, _hasHydrated,
+    unreadCounts, incrementUnread, clearUnread,
+    setMutedChats, setChatFolders, setPendingRequestCount,
+  } = useChatStore();
+
+  const [contacts, setContacts] = useState([]);
+  const [isTyping, setIsTyping] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
+  useEffect(() => { document.documentElement.setAttribute("data-theme", theme); }, [theme]);
+  const toggleTheme = () => { triggerHaptic("light"); setTheme(theme === "light" ? "glass" : "light"); };
+
+  // ── Browser tab unread badge ──────────────────────────────────────────────
+  useEffect(() => {
+    const total = Object.values(unreadCounts).reduce((a, b) => a + b, 0);
+    document.title = total > 0 ? `(${total}) Snappy` : "Snappy";
+  }, [unreadCounts]);
+
+  // ── Clear unread when chat opens ──────────────────────────────────────────
+  useEffect(() => {
+    if (currentChat) {
+      const chatId = currentChat._id || currentChat.name;
+      clearUnread(chatId);
+    }
+  }, [currentChat]);
+
+  // ── Bootstrap muted chats + folders + pending requests ───────────────────
+  useEffect(() => {
+    if (currentUser) {
+      if (currentUser.mutedChats) setMutedChats(currentUser.mutedChats);
+      if (currentUser.chatFolders) setChatFolders(currentUser.chatFolders);
+      const pendingCount = (currentUser.friendRequests || []).filter((r) => r.status === "pending").length;
+      setPendingRequestCount(pendingCount);
+
+      if (currentUser.onboardingDone === false) {
+        const t = setTimeout(() => setShowOnboarding(true), 800);
+        return () => clearTimeout(t);
+      }
+    }
+  }, [currentUser?._id]);
+
+  // ── Offline detection ─────────────────────────────────────────────────────
+  useEffect(() => {
+    const handleOffline = () => {
+      setIsOffline(true);
+      triggerHaptic("warning");
+      toast.warning("📶 You are offline.", { autoClose: false, toastId: "offline-toast" });
+    };
+    const handleOnline = () => {
+      setIsOffline(false);
+      triggerHaptic("success");
+      toast.dismiss("offline-toast");
+      toast.success("🌐 Back online!", { autoClose: 3000 });
+      if (socket.current && !socket.current.connected) socket.current.connect();
+    };
+    window.addEventListener("offline", handleOffline);
+    window.addEventListener("online", handleOnline);
+    return () => {
+      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, []);
+
+  // ── Session bootstrap ─────────────────────────────────────────────────────
+  const hasRedirected = useRef(false);
+  useEffect(() => {
+    const stored = sessionStorage.getItem("chat-app-user");
+    if (stored && stored !== "null" && stored !== "undefined") {
+      try {
+        const parsed = JSON.parse(stored);
+        setCurrentUser(parsed);
+      } catch (e) {
+        console.error("[Auth] Failed to parse stored user:", e);
+        sessionStorage.clear();
+      }
+    } else if (!currentUser) {
+      navigate("/login");
+    }
+  }, []);
+
+  // ── Socket setup ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (currentUser && currentUser._id && !socket.current) {
+      const rawToken = currentUser.token || sessionStorage.getItem("chat-app-token") || "";
+      const cleanToken = rawToken.replace(/(Bearer\s*)+/gi, "").trim();
+
+      if (!cleanToken || cleanToken === "null" || cleanToken === "undefined") {
+        sessionStorage.clear();
+        navigate("/login");
+        return;
+      }
+
+      socket.current = io(host, {
+        auth: { token: cleanToken },
+        parser: customParser,
+        reconnection: true,
+        reconnectionAttempts: Infinity,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+      });
+
+      socket.current.on("connect", () => { socket.current.emit("add-user", currentUser._id); });
+      socket.current.on("disconnect", (reason) => { if (reason === "io server disconnect") socket.current.connect(); });
+      socket.current.on("reconnect_attempt", () => {
+        const freshToken = (currentUser?.token || sessionStorage.getItem("chat-app-token") || "").replace(/(Bearer\s*)+/gi, "").trim();
+        if (freshToken) socket.current.auth.token = freshToken;
+      });
+      socket.current.on("reconnect", (n) => {
+        console.log(`[Socket] Reconnected on attempt ${n}`);
+        socket.current.emit("add-user", currentUser._id);
+      });
+      socket.current.on("connect_error", (err) => {
+        if (err.message.includes("Authentication error") || err.message.includes("Invalid token")) {
+          if (hasRedirected.current) return;
+          hasRedirected.current = true;
+          sessionStorage.clear();
+          setCurrentUser(undefined);
+          setCurrentChat(undefined);
+          if (socket.current) socket.current.disconnect();
+          toast.error("Session expired. Please log in again.");
+          navigate("/login");
+        }
+      });
+
+      socket.current.on("get-online-users", (users) => { setOnlineUsers(users); });
+      socket.current.on("user-status-change", ({ userId, isOnline }) => {
+        setOnlineUsers((prev) =>
+          isOnline ? (prev.includes(userId) ? prev : [...prev, userId]) : prev.filter((id) => id !== userId)
+        );
+      });
+      socket.current.on("user-offline", ({ userId, lastSeen }) => {
+        setOnlineUsers((prev) => prev.filter((id) => id !== userId));
+        setContacts((prev) => prev.map((c) => c._id === userId ? { ...c, isOnline: false, lastSeen } : c));
+      });
+
+      return () => {
+        if (socket.current) { socket.current.disconnect(); socket.current = null; }
+      };
+    }
+  }, [currentUser, navigate, setOnlineUsers, setCurrentUser, setCurrentChat]);
+
+  // ── Typing status ─────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (socket.current) {
+      const handleTypingStatus = (data) => {
+        setGlobalTypingUsers((prev) => {
+          if (data.isTyping) return prev.includes(data.from) ? prev : [...prev, data.from];
+          return prev.filter((id) => id !== data.from);
+        });
+        if (currentChat) {
+          if (data.isGroup) setIsTyping(data.isTyping ? data.username : false);
+          else if (currentChat._id === data.from) setIsTyping(data.isTyping ? data.username : false);
+        } else setIsTyping(false);
+      };
+      socket.current.on("typing-status", handleTypingStatus);
+      return () => { socket.current?.off("typing-status", handleTypingStatus); };
+    }
+  }, [currentChat, setGlobalTypingUsers]);
+
+  // ── Push notifications ────────────────────────────────────────────────────
+  useEffect(() => {
+    if (currentUser && currentUser._id) {
+      const setupPushNotifications = async () => {
+        const token = await requestForToken();
+        if (token) {
+          try {
+            const rawToken = currentUser.token || sessionStorage.getItem("chat-app-token") || "";
+            const cleanToken = rawToken.replace(/(Bearer\s*)+/gi, "").trim();
+            await axios.post(
+              updateFcmTokenRoute,
+              { userId: currentUser._id, fcmToken: token },
+              { headers: { Authorization: `Bearer ${cleanToken}` } }
+            );
+          } catch (err) { console.error("Failed to save FCM token to DB", err); }
+        }
+      };
+      setupPushNotifications();
+      const unsubscribe = onMessageListener((payload) => {
+        toast.info(`📬 ${payload.notification.title}: ${payload.notification.body}`, {
+          position: "top-right", autoClose: 5000, theme: theme === "light" ? "light" : "dark",
+        });
+      });
+      return () => { if (typeof unsubscribe === "function") unsubscribe(); };
+    }
+  }, [currentUser, theme]);
+
+  // ── Fetch contacts ────────────────────────────────────────────────────────
+  useEffect(() => {
+    async function fetchContacts() {
+      if (currentUser && currentUser._id && !isOffline) {
+        try {
+          const response = await axios.get(`${allUsersRoute}/${currentUser._id}`);
+          setContacts(response.data);
+        } catch (error) { console.error("Error fetching contacts:", error); }
+      }
+    }
+    fetchContacts();
+  }, [currentUser, navigate, isOffline]);
+
+  // ── Logout ────────────────────────────────────────────────────────────────
+  const handleLogout = useCallback(async () => {
+    const userId = currentUser?._id;
+    try {
+      const refreshToken = sessionStorage.getItem("chat-app-refresh-token");
+      await axios.post(`${host}/api/auth/logout`, { refreshToken });
+    } catch (err) {
+      console.error("Logout API failed:", err);
+    } finally {
+      const { clearCache } = useChatStore.getState();
+      await clearCache(userId);
+      if (userId) {
+        localStorage.removeItem(`privateKey_${userId}`);
+        localStorage.removeItem(`fullE2EKeys_${userId}`);
+      }
+      sessionStorage.clear();
+      setCurrentUser(undefined);
+      setCurrentChat(undefined);
+      navigate("/login");
+    }
+  }, [navigate, setCurrentUser, setCurrentChat, currentUser]);
+
+  const handleChatChange = useCallback((chat) => {
+    setCurrentChat(chat);
+    setIsTyping(false);
+    setIsMobileMenuOpen(false);
+  }, [setCurrentChat]);
+
+  // ── Loading screen ────────────────────────────────────────────────────────
+  if (!_hasHydrated) {
+    return (
+      <LoadingScreen>
+        <div className="spinner-wrap">
+          <div className="logo-mark">S</div>
+          <div className="spinner" />
+        </div>
+      </LoadingScreen>
+    );
+  }
+
+  return (
+    <AppShellWrapper $isOffline={isOffline} $theme={theme}>
+      {theme !== "light" && (
+        <div className="aurora-bg" aria-hidden="true">
+          <div className="orb orb-1" />
+          <div className="orb orb-2" />
+          <div className="orb orb-3" />
+        </div>
+      )}
+
+      <OfflineBanner isOffline={isOffline} />
+      <ThemeToggle theme={theme} onToggle={toggleTheme} />
+
+      <button
+        className="mobile-nav-btn"
+        onClick={() => { triggerHaptic("light"); setIsMobileMenuOpen(!isMobileMenuOpen); }}
+        aria-label="Toggle navigation"
+      >
+        {isMobileMenuOpen
+          ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        }
+      </button>
+
+      <div className={`app-card glass-container ${isCompact ? "compact" : ""}`}>
+        {isMobileMenuOpen && <div className="sidebar-backdrop" onClick={() => setIsMobileMenuOpen(false)} />}
+
+        <div className={`sidebar-wrapper ${isMobileMenuOpen ? "open" : ""}`}>
+          <Contacts contacts={contacts} changeChat={handleChatChange} handleLogout={handleLogout} socket={socket} />
+        </div>
+
+        <div className="chat-wrapper">
+          {!currentChat ? <Welcome /> : <ChatContainer socket={socket} isTyping={isTyping} />}
+        </div>
+      </div>
+
+      {showOnboarding && (
+        <Onboarding onComplete={() => setShowOnboarding(false)} />
+      )}
+
+      <ToastContainer position="top-right" autoClose={4000} hideProgressBar newestOnTop theme={theme === "light" ? "light" : "dark"} />
+    </AppShellWrapper>
+  );
+}
