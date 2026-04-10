@@ -19,6 +19,7 @@ import { generateGroupAESKey, encryptMessage } from "../../utils/crypto";
 // Sub-Components
 import UserProfile from "../Common/UserProfile";
 import FriendRequests from "../Common/FriendRequests";
+
 // Modular Sidebar Components
 import BrandHeader from "./Navigation/BrandHeader";
 import FolderTabs from "./Navigation/FolderTabs";
@@ -71,12 +72,12 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
     const [currentSelected, setCurrentSelected] = useState(undefined);
     const [activeFolder, setActiveFolder] = useState("all");
 
-    // Story Logic extracted to custom hook
+    // ✅ FIX: Safely fallback to an empty object so the hook doesn't crash reading '._id' during the first render
     const {
         storyFeed, isUploadingStory, fileInputRef, storyPreview,
         fetchStories, handleStoryUpload, openStoryViewer,
         handleStoryPressStart, handleStoryPressEnd
-    } = useStories(currentUser);
+    } = useStories(currentUser || {});
 
     const [pinnedIds, setPinnedIds] = useState(() => {
         try {
@@ -141,7 +142,7 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
                 try {
                     const groupRes = await axios.get(getUserGroupsRoute, getAuthHeader());
                     setGroups(groupRes.data || []);
-                    fetchStories(); // Call the modularized fetch
+                    if (fetchStories) fetchStories(); // Call the modularized fetch
                 } catch (error) {
                     console.error("[API] Error fetching contacts data:", error);
                 } finally {
@@ -161,7 +162,7 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
             });
             fetchGroupsAndInitialize();
         }
-    }, [currentUser?._id]); 
+    }, [currentUser?._id, getAuthHeader, fetchStories]); 
 
     useEffect(() => {
         if (currentUser) localStorage.setItem(`pinned-chats-${currentUser._id}`, JSON.stringify(pinnedIds));
@@ -178,10 +179,10 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
         };
         socket.current.on("group-created", handleGroupCreated);
         return () => { socket.current?.off("group-created", handleGroupCreated); };
-    }, [socket?.current]); 
+    }, [socket]); 
 
     useEffect(() => {
-        if (!searchTerm || searchTerm.length < 3) {
+        if (!searchTerm || searchTerm.length < 3 || !currentUser?._id) {
             setGlobalMessages([]);
             return;
         }
@@ -202,7 +203,7 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
     }, [searchTerm, currentUser, getAuthHeader]);
 
     useEffect(() => {
-        if (!channelSearchQuery) {
+        if (!channelSearchQuery || !currentUser?._id) {
             setDiscoveredChannels([]);
             return;
         }
@@ -240,6 +241,8 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
 
     const toggleArchive = useCallback(async (item) => {
         setContextMenu(null);
+        if (!currentUser) return;
+        
         const chatId = item._id;
         const token = currentUser?.token || sessionStorage.getItem("chat-app-token");
         try {
@@ -258,6 +261,8 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
 
     const handleMuteChat = useCallback(async (item, durationMinutes) => {
         setContextMenu(null);
+        if (!currentUser) return;
+        
         const chatId = item._id;
         const token = currentUser?.token || sessionStorage.getItem("chat-app-token");
         try {
@@ -285,6 +290,8 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
     }, [changeChat]);
 
     const handleGlobalMessageClick = (msg) => {
+        if (!currentUser) return;
+        
         let targetChat = groups.find(g => msg.users?.includes(g._id));
         let isGroupChat = !!targetChat;
 
@@ -306,7 +313,7 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
     };
 
     const handleCreateGroup = async () => {
-        if (isCreatingGroup) return;
+        if (isCreatingGroup || !currentUser) return;
         if (groupName.length < 3) return toast.error("Group name must be at least 3 characters.");
         if (selectedMembers.length < 1) return toast.error("Please select at least 1 member.");
 
@@ -382,6 +389,7 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
     };
 
     const handleUpdateProfile = async () => {
+        if (!currentUser) return;
         try {
             const interestsArray = profileData.interests
                 ? profileData.interests.split(",").map(i => i.trim()).filter(i => i !== "")
