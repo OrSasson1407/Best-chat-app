@@ -1,7 +1,7 @@
 /**
  * API Routes Configuration
  * ------------------------------------------------
- * Centralizes all backend API endpoints.
+ * Centralizes all backend API endpoints..
  */
 
 export const host = import.meta.env.VITE_API_URL || (
