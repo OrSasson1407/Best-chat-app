@@ -79,8 +79,23 @@ const server = http.createServer(app);
 /* =========================================================
    CENTRALIZED CORS CONFIGURATION
    ========================================================= */
+const ALLOWED_ORIGINS = [
+  process.env.CLIENT_URL,                          // e.g. https://best-chat-app-frontend.onrender.com
+  "http://localhost:3000",
+  "http://localhost:5173",
+].filter(Boolean);
+
 const corsOptions = {
-  origin: true, // Automatically reflects the requesting origin. Bulletproof for Render.
+  origin: function (origin, callback) {
+    // Allow requests with no origin (mobile apps, curl, Postman, server-to-server)
+    if (!origin) return callback(null, true);
+    if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+    // In development, allow any localhost port
+    if (process.env.NODE_ENV !== "production" && /^http:\/\/localhost(:\d+)?$/.test(origin)) {
+      return callback(null, true);
+    }
+    callback(new Error(`CORS: origin '${origin}' not allowed`));
+  },
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   credentials: true,
   allowedHeaders: [
@@ -91,20 +106,26 @@ const corsOptions = {
     "Authorization",
     "x-auth-token",
   ],
+  exposedHeaders: ["set-cookie"],
   optionsSuccessStatus: 200, // Some browsers (IE11) choke on 204
 };
 
 /* =========================================================
    MIDDLEWARE & SECURITY CONFIGURATION
    =========================================================
-   ✅ CRITICAL FIX: CORS MUST BE FIRST!
+   ✅ CRITICAL FIX: CORS MUST BE FIRST — before helmet and everything else!
    ========================================================= */
-app.options('*', cors(corsOptions));   // Handle all preflight requests before anything else
+app.options('*', cors(corsOptions));   // Handle ALL preflight OPTIONS requests
 app.use(cors(corsOptions));            // Attach CORS headers to every response
+
+// Helmet runs AFTER cors so it cannot strip our Access-Control-* headers.
+// crossOriginEmbedderPolicy is disabled because it blocks cross-origin fetches
+// when credentials are involved (it would fight our CORS setup).
 app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" }, // Allow cross-origin resource loading
-  crossOriginOpenerPolicy: false, // Don't restrict opener policy
-}));                                   // Helmet runs AFTER cors so it can't strip our headers
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  crossOriginOpenerPolicy: false,
+  crossOriginEmbedderPolicy: false,   // ← must be false; true blocks credentialed cross-origin XHR
+}));
 
 if (process.env.NODE_ENV === "production") {
   app.set("trust proxy", 1);
