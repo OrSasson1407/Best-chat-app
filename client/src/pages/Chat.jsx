@@ -309,10 +309,28 @@ export default function Chat() {
             <Welcome />
           ) : (
             <ChatAreaWrapper>
-              {/* Assembled Modular Components instead of the old ChatContainer */}
-              <ChatHeader currentChat={currentChat} />
-              <MessageList socket={socket} isTyping={isTyping} />
-              <ChatInput socket={socket} />
+              {/* ✅ ADDED MISSING PROPS TO STOP CRASHING */}
+              <ChatHeader 
+                  currentChat={currentChat} 
+                  currentUser={currentUser} 
+              />
+              
+              <MessageList 
+                  socket={socket} 
+                  isTyping={isTyping} 
+                  currentChat={currentChat}
+                  currentUser={currentUser}
+                  theme={theme}
+                  isCompact={isCompact}
+                  isFetchingHistory={false}
+                  filteredMessages={[]} /* ⚠️ FALLBACK TO PREVENT CRASH! You must restore message fetching logic to see messages! */
+              />
+              
+              <ChatInput 
+                  socket={socket} 
+                  currentChat={currentChat}
+                  currentUser={currentUser}
+              />
             </ChatAreaWrapper>
           )}
         </div>

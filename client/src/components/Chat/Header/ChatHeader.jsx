@@ -15,7 +15,7 @@ export default function ChatHeader({
     handleToggleBlock, handleAddMember, setIncomingCallData, setShowCallModal,
     handleSummarize, isSummarizing, setShowGlobalSearchModal 
 }) {
-    const theme = useChatStore((state) => state.theme);
+    const { theme, currentUser } = useChatStore();
     return (
         <StyledHeader $themeType={theme}>
             <div className="user-details">
