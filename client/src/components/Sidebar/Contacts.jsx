@@ -136,13 +136,20 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
         return { headers: { Authorization: `Bearer ${cleanToken}` } };
     }, [currentUser]);
 
+    // ✅ FIX: The infinite loop fetch hook
     useEffect(() => {
         const fetchGroupsAndInitialize = async () => {
-            if (currentUser) {
+            if (currentUser && currentUser._id) {
                 try {
-                    const groupRes = await axios.get(getUserGroupsRoute, getAuthHeader());
+                    // Inline the token logic to avoid function dependency loops
+                    const rawToken = currentUser?.token || sessionStorage.getItem("chat-app-token") || "";
+                    const cleanToken = rawToken.replace(/(Bearer\s*)+/gi, "").trim();
+                    const headers = { Authorization: `Bearer ${cleanToken}` };
+
+                    const groupRes = await axios.get(getUserGroupsRoute, { headers });
                     setGroups(groupRes.data || []);
-                    if (fetchStories) fetchStories(); // Call the modularized fetch
+                    
+                    if (fetchStories) fetchStories(); 
                 } catch (error) {
                     console.error("[API] Error fetching contacts data:", error);
                 } finally {
@@ -151,7 +158,7 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
             }
         };
 
-        if (currentUser) {
+        if (currentUser && currentUser._id) {
             setCurrentUserName(currentUser.username);
             setProfileData({
                 statusIcon: currentUser.statusIcon || "✨",
@@ -162,7 +169,8 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
             });
             fetchGroupsAndInitialize();
         }
-    }, [currentUser?._id, getAuthHeader, fetchStories]); 
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [currentUser?._id]); // Only run this when the User ID explicitly changes
 
     useEffect(() => {
         if (currentUser) localStorage.setItem(`pinned-chats-${currentUser._id}`, JSON.stringify(pinnedIds));
