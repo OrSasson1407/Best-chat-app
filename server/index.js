@@ -21,7 +21,6 @@ if (process.env.NODE_ENV === 'test') {
   // Relaxed validation for standard Dev/Prod
   const requiredEnv = ["JWT_SECRET"];
   
-  // ADDED FIX: Calculate missingEnv by filtering required variables against process.env
   const missingEnv = requiredEnv.filter(envVar => !process.env[envVar]);
   
   if (missingEnv.length > 0) {
@@ -80,19 +79,42 @@ const server = http.createServer(app);
 /* =========================================================
    CENTRALIZED CORS CONFIGURATION
    ========================================================= */
+const allowedOrigins = [
+  process.env.CLIENT_URL,
+  "https://best-chat-app-frontend.onrender.com",
+  "http://localhost:3000",
+  "http://localhost:5173",
+].filter(Boolean);
+
 const corsOptions = {
-  origin: [
-    process.env.CLIENT_URL, 
-    "https://best-chat-app-frontend.onrender.com", 
-    "http://localhost:3000"
-  ].filter(Boolean),
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, curl, server-to-server)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    console.warn(`⚠️ CORS blocked origin: ${origin}`);
+    return callback(new Error(`CORS policy: Origin ${origin} not allowed`), false);
+  },
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  credentials: true, 
-  allowedHeaders: ["Origin", "X-Requested-With", "Content-Type", "Accept", "Authorization", "x-auth-token"]
+  credentials: true,
+  allowedHeaders: [
+    "Origin",
+    "X-Requested-With",
+    "Content-Type",
+    "Accept",
+    "Authorization",
+    "x-auth-token",
+  ],
+  optionsSuccessStatus: 200, // Some browsers (IE11) choke on 204
 };
 
 /* =========================================================
    MIDDLEWARE & SECURITY CONFIGURATION
+   =========================================================
+   ✅ FIX: OPTIONS preflight + cors() MUST come before helmet()
+   so browsers receive CORS headers before helmet can
+   interfere with the preflight response.
    ========================================================= */
 if (process.env.NODE_ENV === "production") {
   app.set("trust proxy", 1);
@@ -109,9 +131,10 @@ app.get('/metrics', async (req, res) => {
   res.end(await register.metrics());
 });
 
-app.use(helmet());
-app.use(cors(corsOptions));
-app.options('*', cors(corsOptions));
+// ✅ FIX ORDER: OPTIONS preflight handler first, then cors(), then helmet()
+app.options('*', cors(corsOptions));   // Handle all preflight requests before anything else
+app.use(cors(corsOptions));            // Attach CORS headers to every response
+app.use(helmet());                     // Helmet runs AFTER cors so it can't strip our headers
 
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ limit: "1mb", extended: true }));
@@ -123,7 +146,7 @@ app.use(mongoSanitize());
 const authLimiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
   max: parseInt(process.env.RATE_LIMIT_MAX) || 10,
-  message: "Too many requests, please try again later."
+  message: "Too many requests, please try again later.",
 });
 
 /* =========================================================
@@ -140,7 +163,6 @@ app.use("/api/groups", verifyToken, groupRoutes);
 app.use("/api/stories", storyRoutes);
 app.use("/health", require("./routes/healthRoute"));
 app.use("/api/ai", aiRoutes);
-// ✅ NOTE: e2eRoutes is already correctly mounted here
 app.use("/api/e2e", verifyToken, e2eRoutes);
 
 app.use(errorHandler);
@@ -149,10 +171,10 @@ app.use(errorHandler);
    SOCKET.IO INITIALIZATION
    ========================================================= */
 const io = socket(server, {
-  cors: corsOptions, 
-  parser: customParser, 
-  pingTimeout: 60000,  
-  pingInterval: 25000, 
+  cors: corsOptions,
+  parser: customParser,
+  pingTimeout: 60000,
+  pingInterval: 25000,
 });
 
 app.set("io", io);
@@ -163,14 +185,12 @@ global.chatSocket = io;
    ========================================================= */
 const redisUrl = process.env.REDIS_URI || "redis://localhost:6379";
 
-// ⬆️ FIX: Removed manual isTLS check and forced IPv4 family. 
-// Upstash handles this automatically based on the "rediss://" URL.
 const pubClient = createClient({
   url: redisUrl,
   socket: {
-    family: 4, // <--- CRITICAL FIX: Forces IPv4 to prevent Render/Upstash timeouts
-    reconnectStrategy: (retries) => Math.min(retries * 50, 3000)
-  }
+    family: 4, // Forces IPv4 to prevent Render/Upstash timeouts
+    reconnectStrategy: (retries) => Math.min(retries * 50, 3000),
+  },
 });
 
 pubClient.on("error", (err) => {
@@ -186,7 +206,6 @@ subClient.on("error", (err) => {
 /* =========================================================
    SYNCHRONIZED STARTUP
    ========================================================= */
-// FIX: Pick a random available port (0) if running Jest tests to prevent EADDRINUSE errors
 const PORT = process.env.NODE_ENV === 'test' ? 0 : (process.env.PORT || 5000);
 
 const startupTimeout = setTimeout(() => {
@@ -199,7 +218,7 @@ if (process.env.NODE_ENV !== 'test') console.log("🚀 Starting MongoDB and Redi
 Promise.all([
   connectDB(),
   pubClient.connect(),
-  subClient.connect()
+  subClient.connect(),
 ])
 .then(() => {
   clearTimeout(startupTimeout);
@@ -217,13 +236,10 @@ Promise.all([
   io.use((socket, next) => {
     let token = socket.handshake.auth.token;
 
-    // FIX: Catch missing tokens AND corrupted frontend string nulls
     if (!token || token === "null" || token === "undefined") {
       return next(new Error("Authentication error: No token provided"));
     }
 
-    // FIX: Robust extraction matching authMiddleware.js
-    // Safely handles "Bearer Bearer eyJ..." mistakes
     token = token.split(" ").pop().trim();
 
     jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
@@ -246,10 +262,9 @@ Promise.all([
     const actualPort = server.address().port;
     if (process.env.NODE_ENV !== 'test') console.log(`✅ Server started on Port ${actualPort}`);
   });
-
 })
 .catch((err) => {
-  clearTimeout(startupTimeout);
+  clearTimeout(startupTimeout);;
   console.error(`❌ Startup Connection Error: ${err.message}`);
   process.exit(1);
 });
@@ -276,5 +291,5 @@ process.on('SIGINT', async () => {
   });
 });
 
-// --- NEW: Export for testing ---
+// Export for testing
 module.exports = { app, server };
