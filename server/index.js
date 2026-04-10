@@ -79,23 +79,8 @@ const server = http.createServer(app);
 /* =========================================================
    CENTRALIZED CORS CONFIGURATION
    ========================================================= */
-const allowedOrigins = [
-  process.env.CLIENT_URL,
-  "https://best-chat-app-frontend.onrender.com",
-  "http://localhost:3000",
-  "http://localhost:5173",
-].filter(Boolean);
-
 const corsOptions = {
-  origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, curl, server-to-server)
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) {
-      return callback(null, true);
-    }
-    console.warn(`⚠️ CORS blocked origin: ${origin}`);
-    return callback(new Error(`CORS policy: Origin ${origin} not allowed`), false);
-  },
+  origin: true, // Automatically reflects the requesting origin. Bulletproof for Render.
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   credentials: true,
   allowedHeaders: [
