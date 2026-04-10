@@ -15,7 +15,9 @@ export default function ChatHeader({
     handleToggleBlock, handleAddMember, setIncomingCallData, setShowCallModal,
     handleSummarize, isSummarizing, setShowGlobalSearchModal 
 }) {
-    const { theme, currentUser } = useChatStore();
+    // ✅ FIX: Removed currentUser since it is passed as a prop above
+    const { theme } = useChatStore(); 
+    
     return (
         <StyledHeader $themeType={theme}>
             <div className="user-details">

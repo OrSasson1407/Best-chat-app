@@ -85,7 +85,8 @@ const MessageItem = React.memo(({
 }) => {
     
     // 🚀 PERFORMANCE FIX: Atomic Selector prevents unnecessary re-renders of the entire message list
-    const { theme, currentUser } = useChatStore();
+    // ✅ FIX: Removed currentUser since it is passed as a prop above
+    const { theme } = useChatStore();
     
     const [translatedText, setTranslatedText] = useState(null);
     const [contextMenu, setContextMenu] = useState(null);
