@@ -4,7 +4,7 @@ import styled, { keyframes } from "styled-components";
 import { motion } from "framer-motion";
 import { FaComments, FaBomb, FaPalette, FaShieldAlt } from "react-icons/fa";
 import { toast } from "react-toastify";
-import useChatStore from "../store/chatStore";
+import useChatStore from "../../store/chatStore";
 
 const features = [
   {

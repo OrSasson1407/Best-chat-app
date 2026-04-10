@@ -2,8 +2,8 @@
 import React, { useState } from "react";
 import styled, { keyframes } from "styled-components";
 import axios from "axios";
-import { completeOnboardingRoute } from "../utils/APIRoutes";
-import useChatStore from "../store/chatStore";
+import { completeOnboardingRoute } from "../../utils/APIRoutes";
+import useChatStore from "../../store/chatStore";
 
 const STEPS = [
   {

@@ -9,8 +9,8 @@ import {
 } from "react-icons/fa";
 import {
   getUserByIdRoute, sendFriendRequestRoute, blockUserRoute,
-} from "../utils/APIRoutes";
-import useChatStore from "../store/chatStore";
+} from "../../utils/APIRoutes";
+import useChatStore from "../../store/chatStore";
 
 export default function UserProfile({ userId, onClose, onStartChat }) {
   const { currentUser } = useChatStore();

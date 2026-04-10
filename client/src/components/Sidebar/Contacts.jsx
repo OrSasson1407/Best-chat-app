@@ -1,21 +1,15 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-    FaUserFriends, FaSearch, FaTimes, FaChevronLeft, FaChevronRight,
-    FaThumbtack, FaUserCircle, FaBellSlash, FaArchive, FaBoxOpen
-} from "react-icons/fa";
-import { BsChatDotsFill, BsPeopleFill } from "react-icons/bs";
-import { MdOutlineAllInclusive } from "react-icons/md";
-import { FaRegEnvelope } from "react-icons/fa";
+import { FaThumbtack, FaUserCircle, FaBellSlash, FaArchive, FaBoxOpen } from "react-icons/fa";
 import axios from "axios";
 import { toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
 // API Routes
 import {
-    getUserGroupsRoute, updateProfileRoute, searchMessageRoute, getStoryFeedRoute, 
-    addStoryRoute, viewStoryRoute, searchChannelsRoute, joinChannelRoute, 
-    publicKeyRoute, createGroupRoute, archiveChatRoute, muteChatRoute
+    getUserGroupsRoute, updateProfileRoute, searchMessageRoute,
+    searchChannelsRoute, joinChannelRoute, publicKeyRoute, 
+    createGroupRoute, archiveChatRoute, muteChatRoute
 } from "../../utils/APIRoutes";
 
 // Store & Utils
@@ -25,15 +19,25 @@ import { generateGroupAESKey, encryptMessage } from "../../utils/crypto";
 // Sub-Components
 import UserProfile from "../UserProfile";
 import FriendRequests from "../FriendRequests";
-import SidebarFooter from "./SidebarFooter";
-import StoryTraySection from "./StoryTraySection";
-import ContactList from "./ContactList";
+
+// Modular Sidebar Components
+import BrandHeader from "./Navigation/BrandHeader";
+import FolderTabs from "./Navigation/FolderTabs";
+import SearchBar from "./Navigation/SearchBar";
+import ContactList from "./ContactList/ContactList";
+import StoryTraySection from "./Stories/StoryTraySection";
+import SidebarFooter from "./Footer/SidebarFooter";
+
+// Modals
 import CreateGroupModal from "./Modals/CreateGroupModal";
 import DiscoverModal from "./Modals/DiscoverModal";
 import ProfileSettingsModal from "./Modals/ProfileSettingsModal";
 
+// Custom Hooks
+import useStories from "./Stories/useStories";
+
 // Styled Components
-import { Container, ContextMenu, StoryPreviewTooltip } from "./Contacts.styles";
+import { Container, ContextMenu } from "./Contacts.styles";
 
 const femaleTops = "longHairBob,longHairBun,longHairCurly,longHairCurvy,longHairStraight,longHairNotTooLong";
 const maleTops = "shortHairDreads01,shortHairDreads02,shortHairFrizzle,shortHairShaggy,shortHairShortCurly,shortHairShortFlat,shortHairShortRound,shortHairShortWaved,shortHairSides";
@@ -60,14 +64,20 @@ export const formatLastSeen = (dateString) => {
 export default function Contacts({ contacts, changeChat, handleLogout, socket }) {
     const {
         currentUser, updateCurrentUser, onlineUsers, theme, setTheme,
-        isCompact, setIsCompact, globalTypingUsers,
-        mutedChats, setMutedChats, isChatMuted, chatFolders, setChatFolders, pendingRequestCount, setPendingRequestCount,
+        isCompact, setIsCompact, globalTypingUsers, setMutedChats, 
+        isChatMuted, chatFolders, pendingRequestCount
     } = useChatStore();
 
     const [currentUserName, setCurrentUserName] = useState(currentUser?.username);
     const [currentSelected, setCurrentSelected] = useState(undefined);
     const [activeFolder, setActiveFolder] = useState("all");
-    const [isSearchFocused, setIsSearchFocused] = useState(false);
+
+    // Story Logic extracted to custom hook
+    const {
+        storyFeed, isUploadingStory, fileInputRef, storyPreview,
+        fetchStories, handleStoryUpload, openStoryViewer,
+        handleStoryPressStart, handleStoryPressEnd
+    } = useStories(currentUser);
 
     const [pinnedIds, setPinnedIds] = useState(() => {
         try {
@@ -118,16 +128,7 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
     });
     const [hasPin, setHasPin] = useState(!!localStorage.getItem("app-pin-code"));
     const [avatarPreview, setAvatarPreview] = useState(null);
-
-    // Stories state
-    const [storyFeed, setStoryFeed] = useState([]);
-    const [viewingStoryUser, setViewingStoryUser] = useState(null);
-    const [currentStoryIndex, setCurrentStoryIndex] = useState(0);
-    const [isUploadingStory, setIsUploadingStory] = useState(false);
-    const fileInputRef = useRef(null);
     const avatarUploadRef = useRef(null);
-    const pressTimer = useRef(null);
-    const [storyPreview, setStoryPreview] = useState(null);
 
     const getAuthHeader = useCallback(() => {
         const rawToken = currentUser?.token || sessionStorage.getItem("chat-app-token") || "";
@@ -136,15 +137,12 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
     }, [currentUser]);
 
     useEffect(() => {
-        const fetchGroupsAndStories = async () => {
+        const fetchGroupsAndInitialize = async () => {
             if (currentUser) {
                 try {
-                    const [groupRes, storyRes] = await Promise.all([
-                        axios.get(getUserGroupsRoute, getAuthHeader()), 
-                        axios.get(getStoryFeedRoute, getAuthHeader()) 
-                    ]);
+                    const groupRes = await axios.get(getUserGroupsRoute, getAuthHeader());
                     setGroups(groupRes.data || []);
-                    if (storyRes.data.status) setStoryFeed(storyRes.data.feed || []);
+                    fetchStories(); // Call the modularized fetch
                 } catch (error) {
                     console.error("[API] Error fetching contacts data:", error);
                 } finally {
@@ -162,21 +160,13 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
                 interests: currentUser.interests ? currentUser.interests.join(", ") : "",
                 privacySettings: currentUser.privacySettings || { lastSeen: "everyone", readReceipts: true, profilePhoto: "everyone" }
             });
-            fetchGroupsAndStories();
+            fetchGroupsAndInitialize();
         }
     }, [currentUser?._id]); 
 
     useEffect(() => {
         if (currentUser) localStorage.setItem(`pinned-chats-${currentUser._id}`, JSON.stringify(pinnedIds));
     }, [pinnedIds, currentUser]);
-
-    useEffect(() => {
-        let timer;
-        if (viewingStoryUser && viewingStoryUser.stories) {
-            timer = setTimeout(() => handleNextStory(), 5000);
-        }
-        return () => clearTimeout(timer);
-    }, [viewingStoryUser, currentStoryIndex]);
 
     useEffect(() => {
         if (!socket?.current) return;
@@ -200,8 +190,7 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
             setIsSearchingGlobal(true);
             try {
                 const { data } = await axios.post(searchMessageRoute, {
-                    userId: currentUser._id,
-                    query: searchTerm
+                    userId: currentUser._id, query: searchTerm
                 }, getAuthHeader()); 
                 if (data.status) setGlobalMessages(data.messages || []);
             } catch (error) {
@@ -313,75 +302,6 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
         }
     };
 
-    const handleStoryUpload = async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-
-        setIsUploadingStory(true);
-        const reader = new FileReader();
-        reader.readAsDataURL(file);
-        reader.onload = async () => {
-            try {
-                const { data } = await axios.post(addStoryRoute, {
-                    mediaUrl: reader.result,
-                    mediaType: file.type.startsWith("video") ? "video" : "image"
-                }, getAuthHeader()); 
-                if (data.status) {
-                    toast.success("Status updated.");
-                    const storyRes = await axios.get(getStoryFeedRoute, getAuthHeader()); 
-                    setStoryFeed(storyRes.data.feed || []);
-                }
-            } catch (err) {
-                console.error("[Media] Failed to upload status:", err);
-                toast.error("Status upload failed. Please try again.");
-            } finally {
-                setIsUploadingStory(false);
-            }
-        };
-    };
-
-    const openStoryViewer = async (userFeedObj) => {
-        setViewingStoryUser(userFeedObj);
-        setCurrentStoryIndex(0);
-        const firstStory = userFeedObj?.stories?.[0];
-        if (firstStory && firstStory.user?._id !== currentUser._id) {
-            try {
-                await axios.post(`${viewStoryRoute}/${firstStory._id}`, {}, getAuthHeader()); 
-            } catch (error) {
-                console.error("[API] Failed to mark story as viewed", error);
-            }
-        }
-    };
-
-    const handleNextStory = async () => {
-        if (!viewingStoryUser || !viewingStoryUser.stories) return;
-        if (currentStoryIndex < viewingStoryUser.stories.length - 1) {
-            const nextIdx = currentStoryIndex + 1;
-            setCurrentStoryIndex(nextIdx);
-            const nextStory = viewingStoryUser.stories[nextIdx];
-            if (nextStory && nextStory.user?._id !== currentUser._id) {
-                try {
-                    await axios.post(`${viewStoryRoute}/${nextStory._id}`, {}, getAuthHeader()); 
-                } catch (error) {
-                    console.error("[API] Failed to mark story as viewed", error);
-                }
-            }
-        } else {
-            setViewingStoryUser(null);
-        }
-    };
-
-    const handleStoryPressStart = (feedItem) => {
-        pressTimer.current = setTimeout(() => {
-            setStoryPreview(feedItem);
-        }, 400);
-    };
-
-    const handleStoryPressEnd = () => {
-        if (pressTimer.current) clearTimeout(pressTimer.current);
-        setStoryPreview(null);
-    };
-
     const toggleMemberSelection = (id) => {
         setSelectedMembers(prev => prev?.includes(id) ? prev.filter(m => m !== id) : [...(prev || []), id]);
     };
@@ -394,8 +314,6 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
         setIsCreatingGroup(true);
         try {
             const allMembers = [...selectedMembers, currentUser._id];
-
-            console.log(`[Crypto] Generating AES Group Key for ${allMembers.length} members...`);
             const aesKeyJwk = await generateGroupAESKey();
             const aesKeyString = JSON.stringify(aesKeyJwk);
 
@@ -420,16 +338,12 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
             }
 
             const { data } = await axios.post(createGroupRoute, {
-                name: groupName,
-                members: allMembers,
-                admin: currentUser._id,
-                groupKeys
+                name: groupName, members: allMembers, admin: currentUser._id, groupKeys
             }, getAuthHeader()); 
 
             if (data.status) {
                 const groupRes = await axios.get(getUserGroupsRoute, getAuthHeader());
                 setGroups(groupRes.data || []);
-
                 setShowGroupModal(false);
                 setGroupName("");
                 setSelectedMembers([]);
@@ -437,7 +351,6 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
                 toast.success("Group created successfully.");
             }
         } catch (error) {
-            console.error("[API] Failed to create group", error);
             toast.error("Failed to create group. Please try again.");
         } finally {
             setIsCreatingGroup(false);
@@ -465,9 +378,7 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
             return;
         }
         const reader = new FileReader();
-        reader.onload = (ev) => {
-            setAvatarPreview(ev.target.result);
-        };
+        reader.onload = (ev) => setAvatarPreview(ev.target.result);
         reader.readAsDataURL(file);
     };
 
@@ -493,7 +404,6 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
                 setShowProfileModal(false);
             }
         } catch (error) {
-            console.error("[API] Failed to update profile.", error);
             toast.error("Failed to update profile.");
         }
     };
@@ -547,14 +457,6 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
         });
     }, [contacts, groups, searchTerm, activeFolder, activeFolderCustomId, pinnedIds, onlineUsers, archivedIds, chatFolders]);
 
-    const folders = [
-        { id: "all", icon: <MdOutlineAllInclusive />, title: "All", badge: totalUnreadChatsCount },
-        { id: "personal", icon: <BsChatDotsFill size={14} />, title: "Personal", badge: unreadPersonalChatsCount },
-        { id: "groups", icon: <BsPeopleFill />, title: "Groups", badge: unreadGroupsCount },
-        { id: "unread", icon: <FaRegEnvelope size={14} />, title: "Unread", badge: totalUnreadChatsCount, danger: true },
-        { id: "archived", icon: <FaArchive size={13} />, title: "Archive", badge: archivedIds.length || 0 },
-    ];
-
     return (
         <>
             {currentUser && (
@@ -562,53 +464,23 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
                     <Container $isCompact={isCompact} $themeType={theme}>
                         <div className="sidebar-dynamic-layout" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                             
-                            {/* --- BRAND HEADER --- */}
-                            <div className="brand-area" style={{ padding: isCompact ? "20px 0" : "24px", display: 'flex', justifyContent: isCompact ? 'center' : 'space-between', alignItems: 'center', flexShrink: 0 }}>
-                                {!isCompact && (
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                        <motion.h3 style={{ color: 'var(--text-main)', fontSize: '1.4rem', fontWeight: '800', letterSpacing: '2px', margin: 0 }} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>SNAPPY</motion.h3>
-                                        <div style={{ position: 'relative', cursor: 'pointer' }} onClick={() => setShowFriendRequests(!showFriendRequests)} title="Contact requests">
-                                            <FaUserFriends style={{ color: 'var(--text-secondary)', fontSize: '1rem' }} />
-                                            {pendingRequestCount > 0 && (
-                                                <span style={{ position: 'absolute', top: -6, right: -6, background: 'var(--msg-sent)', color: 'white', fontSize: '0.6rem', fontWeight: 800, width: 16, height: 16, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                    {pendingRequestCount}
-                                                </span>
-                                            )}
-                                        </div>
-                                    </div>
-                                )}
-                                <button 
-                                    className="sidebar-toggle-trigger" 
-                                    onClick={() => setIsCompact(!isCompact)}
-                                    style={{ background: 'var(--input-bg)', border: 'none', color: 'var(--text-dim)', borderRadius: '50%', width: '32px', height: '32px', cursor: 'pointer', display: 'flex', justifyContent: 'center', alignItems: 'center' }}
-                                >
-                                    {isCompact ? <FaChevronRight /> : <FaChevronLeft />}
-                                </button>
-                            </div>
+                            {/* --- MODULAR BRAND HEADER --- */}
+                            <BrandHeader 
+                                isCompact={isCompact}
+                                setIsCompact={setIsCompact}
+                                showFriendRequests={showFriendRequests}
+                                setShowFriendRequests={setShowFriendRequests}
+                                pendingRequestCount={pendingRequestCount}
+                            />
 
-                            <AnimatePresence>
-                                {storyPreview && (
-                                    <StoryPreviewTooltip
-                                        initial={{ opacity: 0, y: 10, scale: 0.9 }}
-                                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                                        exit={{ opacity: 0, scale: 0.9 }}
-                                    >
-                                        <img src={storyPreview.stories?.[0]?.mediaUrl || getAvatarUrl(storyPreview.user)} alt="preview" />
-                                        <div className="info">
-                                            <h4>{storyPreview.user?.username}</h4>
-                                            <p>{storyPreview.stories?.length} status update{storyPreview.stories?.length > 1 ? "s" : ""}</p>
-                                        </div>
-                                    </StoryPreviewTooltip>
-                                )}
-                            </AnimatePresence>
-
-                            {/* --- STORY TRAY COMPONENT --- */}
+                            {/* --- MODULAR STORY TRAY COMPONENT --- */}
                             {!isCompact && (
                                 <StoryTraySection
                                     currentUser={currentUser}
                                     storyFeed={storyFeed}
                                     isUploadingStory={isUploadingStory}
                                     fileInputRef={fileInputRef}
+                                    storyPreview={storyPreview}
                                     handleStoryUpload={handleStoryUpload}
                                     openStoryViewer={openStoryViewer}
                                     handleStoryPressStart={handleStoryPressStart}
@@ -617,57 +489,26 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
                                 />
                             )}
 
-                            {/* --- FOLDERS NAVIGATION --- */}
-                            <div className="nav-folders" style={{ display: 'flex', flexDirection: isCompact ? 'column' : 'row', gap: '4px', padding: isCompact ? '0 10px' : '0 16px', flexShrink: 0, marginBottom: '16px' }}>
-                                {folders.map(f => (
-                                    <button 
-                                        key={f.id} 
-                                        className={`folder-item ${activeFolder === f.id ? 'active' : ''}`}
-                                        onClick={() => setActiveFolder(f.id)}
-                                        title={isCompact ? f.title : ""}
-                                        style={{
-                                            flex: 1, display: 'flex', alignItems: 'center', justifyContent: isCompact ? 'center' : 'center',
-                                            gap: '6px', padding: isCompact ? '12px 0' : '8px 0', background: activeFolder === f.id ? 'var(--input-bg)' : 'transparent',
-                                            border: '1px solid', borderColor: activeFolder === f.id ? 'var(--glass-border)' : 'transparent',
-                                            borderRadius: '12px', color: activeFolder === f.id ? 'var(--text-main)' : 'var(--text-dim)',
-                                            cursor: 'pointer', position: 'relative'
-                                        }}
-                                    >
-                                        <div className="icon-wrap" style={{ position: 'relative', fontSize: '1.2rem', display: 'flex' }}>
-                                            {f.icon}
-                                            {f.badge > 0 && <span className="folder-badge" style={{ position: 'absolute', top: '-6px', right: '-8px', background: f.danger ? '#ff4e4e' : 'var(--msg-sent)', color: 'white', fontSize: '0.6rem', fontWeight: 'bold', padding: '2px 5px', borderRadius: '10px', border: '2px solid var(--bg-panel)' }}>{f.badge}</span>}
-                                        </div>
-                                        {!isCompact && <span style={{ fontSize: '0.85rem', fontWeight: '600' }}>{f.title}</span>}
-                                    </button>
-                                ))}
-                            </div>
+                            {/* --- MODULAR FOLDERS NAVIGATION --- */}
+                            <FolderTabs 
+                                isCompact={isCompact}
+                                activeFolder={activeFolder}
+                                setActiveFolder={setActiveFolder}
+                                totalUnreadChatsCount={totalUnreadChatsCount}
+                                unreadPersonalChatsCount={unreadPersonalChatsCount}
+                                unreadGroupsCount={unreadGroupsCount}
+                                archivedCount={archivedIds.length || 0}
+                            />
 
-                            {/* --- SEARCH BAR --- */}
-                            {!isCompact && (
-                                <div className={`search-container ${isSearchFocused ? "focused" : ""}`} style={{ flexShrink: 0, padding: '0 16px', marginBottom: '16px' }}>
-                                    <motion.div className="search-box" animate={{ borderColor: isSearchFocused ? "var(--msg-sent)" : "var(--glass-border)" }} style={{ display: 'flex', alignItems: 'center', background: 'var(--input-bg)', borderRadius: '16px', padding: '0 16px', border: '1px solid var(--glass-border)' }}>
-                                        <FaSearch className="icon search-icon" style={{ color: 'var(--text-dim)' }} />
-                                        <input
-                                            type="text"
-                                            placeholder={`Search ${activeFolder}...`}
-                                            value={searchTerm}
-                                            onChange={(e) => setSearchTerm(e.target.value)}
-                                            onFocus={() => setIsSearchFocused(true)}
-                                            onBlur={() => setIsSearchFocused(false)}
-                                            style={{ flex: 1, background: 'transparent', border: 'none', padding: '12px', color: 'var(--text-main)', outline: 'none' }}
-                                        />
-                                        <AnimatePresence>
-                                            {searchTerm && (
-                                                <motion.div initial={{ scale: 0, rotate: -90 }} animate={{ scale: 1, rotate: 0 }} exit={{ scale: 0, rotate: 90 }} className="icon clear-icon" onClick={() => setSearchTerm("")} style={{ cursor: 'pointer', color: 'var(--text-dim)' }}>
-                                                    <FaTimes />
-                                                </motion.div>
-                                            )}
-                                        </AnimatePresence>
-                                    </motion.div>
-                                </div>
-                            )}
+                            {/* --- MODULAR SEARCH BAR --- */}
+                            <SearchBar 
+                                isCompact={isCompact}
+                                activeFolder={activeFolder}
+                                searchTerm={searchTerm}
+                                setSearchTerm={setSearchTerm}
+                            />
 
-                            {/* --- CONTACT LIST COMPONENT --- */}
+                            {/* --- MODULAR CONTACT LIST COMPONENT --- */}
                             <ContactList
                                 isLoading={isLoading}
                                 isCompact={isCompact}
@@ -691,7 +532,7 @@ export default function Contacts({ contacts, changeChat, handleLogout, socket })
                                 handleGlobalMessageClick={handleGlobalMessageClick}
                             />
 
-                            {/* --- SIDEBAR FOOTER COMPONENT --- */}
+                            {/* --- MODULAR SIDEBAR FOOTER COMPONENT --- */}
                             <SidebarFooter
                                 isCompact={isCompact}
                                 currentUser={currentUser}

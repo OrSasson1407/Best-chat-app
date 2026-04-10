@@ -4,8 +4,8 @@ import styled, { keyframes } from "styled-components";
 import axios from "axios";
 import { toast } from "react-toastify";
 import { FaShieldAlt, FaTimes, FaCheck, FaCopy, FaQrcode } from "react-icons/fa";
-import { setup2FARoute, verify2FARoute, disable2FARoute } from "../utils/APIRoutes";
-import useChatStore from "../store/chatStore";
+import { setup2FARoute, verify2FARoute, disable2FARoute } from "../../utils/APIRoutes";
+import useChatStore from "../../store/chatStore";
 
 export default function TwoFactorSetup({ onClose }) {
   const { currentUser } = useChatStore();
