@@ -204,13 +204,23 @@ export default function Chat() {
     }
   }, [currentUser, theme]);
 
+  // ✅ FIXED: ADDED AUTHORIZATION HEADER TO FETCH CONTACTS
   useEffect(() => {
     async function fetchContacts() {
       if (currentUser && currentUser._id && !isOffline) {
         try {
-          const response = await axios.get(`${allUsersRoute}/${currentUser._id}`);
+          const rawToken = currentUser.token || sessionStorage.getItem("chat-app-token") || "";
+          const cleanToken = rawToken.replace(/(Bearer\s*)+/gi, "").trim();
+
+          const response = await axios.get(`${allUsersRoute}/${currentUser._id}`, {
+            headers: {
+              Authorization: `Bearer ${cleanToken}`
+            }
+          });
           setContacts(response.data);
-        } catch (error) { console.error("Error fetching contacts:", error); }
+        } catch (error) { 
+          console.error("Error fetching contacts:", error); 
+        }
       }
     }
     fetchContacts();

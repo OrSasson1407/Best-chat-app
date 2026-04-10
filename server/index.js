@@ -289,5 +289,17 @@ process.on('SIGINT', async () => {
   });
 });
 
+/* =========================================================
+   ANTI-CRASH SAFETY NETS
+   ========================================================= */
+process.on('uncaughtException', (err) => {
+  console.error('🔥 CRITICAL: Uncaught Exception:', err.message);
+  console.error(err.stack);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('🔥 CRITICAL: Unhandled Promise Rejection:', reason);
+});
+
 // Export for testing
 module.exports = { app, server };
