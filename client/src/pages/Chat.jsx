@@ -5,7 +5,9 @@ import { useNavigate } from "react-router-dom";
 import { io } from "socket.io-client";
 import customParser from "socket.io-msgpack-parser";
 import styled, { keyframes, css } from "styled-components";
-import { allUsersRoute, host, updateFcmTokenRoute } from "../utils/APIRoutes";
+
+// ✅ ADDED: sendMessageRoute and receiveMessageRoute
+import { allUsersRoute, host, updateFcmTokenRoute, sendMessageRoute, receiveMessageRoute } from "../utils/APIRoutes";
 
 // Updated component imports based on new folder structure
 import Contacts from "../components/Sidebar/Contacts";
@@ -28,7 +30,7 @@ export default function Chat() {
     setOnlineUsers, onlineUsers, setGlobalTypingUsers, theme, setTheme, isCompact, _hasHydrated,
     unreadCounts, incrementUnread, clearUnread,
     setMutedChats, setChatFolders, setPendingRequestCount,
-    addMessage // ✅ Added from store to handle incoming messages
+    addMessage 
   } = useChatStore();
 
   const [contacts, setContacts] = useState([]);
@@ -36,6 +38,14 @@ export default function Chat() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [showOnboarding, setShowOnboarding] = useState(false);
+
+  // ✅ ADDED: Message State
+  const [messages, setMessages] = useState([]);
+  const [isFetchingHistory, setIsFetchingHistory] = useState(false);
+
+  // ✅ ADDED: Ref to prevent stale closures in socket listeners
+  const currentChatRef = useRef(currentChat);
+  useEffect(() => { currentChatRef.current = currentChat; }, [currentChat]);
 
   useEffect(() => { document.documentElement.setAttribute("data-theme", theme); }, [theme]);
   const toggleTheme = () => { triggerHaptic("light"); setTheme(theme === "light" ? "glass" : "light"); };
@@ -51,6 +61,91 @@ export default function Chat() {
       clearUnread(chatId);
     }
   }, [currentChat]);
+
+  // ✅ ADDED: Fetch Chat History when switching chats
+  useEffect(() => {
+    const fetchChatHistory = async () => {
+      if (!currentChat || !currentUser) return;
+      setIsFetchingHistory(true);
+      try {
+        const rawToken = currentUser.token || sessionStorage.getItem("chat-app-token") || "";
+        const cleanToken = rawToken.replace(/(Bearer\s*)+/gi, "").trim();
+        
+        const { data } = await axios.post(receiveMessageRoute, {
+          from: currentUser._id,
+          to: currentChat._id || currentChat.name
+        }, {
+          headers: { Authorization: `Bearer ${cleanToken}` }
+        });
+        
+        setMessages(data.projectedMessages || data.messages || []);
+      } catch (error) {
+        console.error("Failed to fetch messages:", error);
+      } finally {
+        setIsFetchingHistory(false);
+      }
+    };
+    fetchChatHistory();
+  }, [currentChat, currentUser]);
+
+  // ✅ ADDED: Core Message Sending Logic
+  const handleSendMsg = async (msgText, type = "text", replyTo = null, options = {}) => {
+    const chatId = currentChat._id || currentChat.name;
+    const localId = options.localId || Date.now().toString();
+    const isGroup = !!currentChat.admin;
+
+    // 1. Optimistic UI Update (Shows immediately)
+    const newMsg = {
+      fromSelf: true,
+      message: msgText,
+      type: type,
+      createdAt: new Date().toISOString(),
+      status: "pending",
+      id: localId,
+      localId: localId,
+      replyTo: replyTo
+    };
+    setMessages((prev) => [...prev, newMsg]);
+
+    try {
+      const rawToken = currentUser.token || sessionStorage.getItem("chat-app-token") || "";
+      const cleanToken = rawToken.replace(/(Bearer\s*)+/gi, "").trim();
+
+      // 2. Save to MongoDB
+      const { data } = await axios.post(sendMessageRoute, {
+        from: currentUser._id,
+        to: chatId,
+        message: msgText,
+        type: type,
+        replyTo: replyTo,
+        isGroupChat: isGroup,
+        ...options
+      }, {
+        headers: { Authorization: `Bearer ${cleanToken}` }
+      });
+
+      // 3. Emit to Sockets
+      if (socket.current) {
+        socket.current.emit("send-msg", {
+          to: chatId,
+          from: currentUser._id,
+          message: msgText,
+          type: type,
+          chatId: chatId,
+          isGroup: isGroup,
+          id: data.data?._id || localId,
+        });
+      }
+
+      // 4. Mark as sent/delivered
+      setMessages((prev) => prev.map((m) => m.id === localId ? { ...m, status: "delivered", id: data.data?._id || localId } : m));
+
+    } catch (error) {
+      console.error("Failed to send message:", error);
+      setMessages((prev) => prev.map((m) => m.id === localId ? { ...m, status: "failed" } : m));
+      toast.error("Message failed to send");
+    }
+  };
 
   useEffect(() => {
     if (currentUser) {
@@ -156,23 +251,25 @@ export default function Chat() {
         setContacts((prev) => prev.map((c) => c._id === userId ? { ...c, isOnline: false, lastSeen } : c));
       });
 
-      // ✅ ADDED: Incoming Message Listener
+      // ✅ FIXED: Incoming Message Listener uses ref to prevent stale closures
       socket.current.on("msg-recieve", (data) => {
         const chatId = data.chatId || data.from;
         
-        // Add message to local cache/store
-        addMessage?.(chatId, {
+        const newMsg = {
             ...data,
             fromSelf: false,
             id: data.id || data._id,
-        });
+        };
 
-        // Increment unread count if we are not actively in that chat
-        if (!currentChat || (currentChat._id !== chatId && currentChat.name !== chatId)) {
+        addMessage?.(chatId, newMsg);
+
+        const activeChat = currentChatRef.current;
+        if (activeChat && (activeChat._id === chatId || activeChat.name === chatId)) {
+            setMessages((prev) => [...prev, newMsg]);
+            triggerHaptic("light");
+        } else {
             incrementUnread?.(chatId);
             triggerHaptic("medium");
-        } else {
-            triggerHaptic("light");
         }
       });
 
@@ -273,9 +370,7 @@ export default function Chat() {
     setIsMobileMenuOpen(false);
   }, [setCurrentChat]);
 
-  // ✅ ADDED: Calculate if current chat user is online
   const isCurrentChatOnline = currentChat && !currentChat.admin && onlineUsers.includes(currentChat._id);
-  // ✅ ADDED: Find lastSeen data from contacts list
   const currentChatLastSeen = currentChat && !currentChat.admin 
     ? contacts.find(c => c._id === currentChat._id)?.lastSeen 
     : null;
@@ -339,8 +434,8 @@ export default function Chat() {
               <ChatHeader 
                   currentChat={currentChat} 
                   currentUser={currentUser} 
-                  isOnline={isCurrentChatOnline} // ✅ Wired up presence tracking
-                  lastSeen={currentChatLastSeen} // ✅ Wired up presence tracking
+                  isOnline={isCurrentChatOnline} 
+                  lastSeen={currentChatLastSeen} 
               />
               
               <MessageList 
@@ -350,14 +445,15 @@ export default function Chat() {
                   currentUser={currentUser}
                   theme={theme}
                   isCompact={isCompact}
-                  isFetchingHistory={false}
-                  filteredMessages={[]} /* ⚠️ FALLBACK TO PREVENT CRASH! You must restore message fetching logic to see messages! */
+                  isFetchingHistory={isFetchingHistory} // ✅ Wired Up
+                  filteredMessages={messages} // ✅ Wired Up
               />
               
               <ChatInput 
                   socket={socket} 
                   currentChat={currentChat}
                   currentUser={currentUser}
+                  handleSendMsg={handleSendMsg} // ✅ Wired Up
               />
             </ChatAreaWrapper>
           )}
