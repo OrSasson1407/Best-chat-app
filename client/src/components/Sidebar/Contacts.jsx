@@ -18,8 +18,7 @@ import { generateGroupAESKey, encryptMessage } from "../../utils/crypto";
 
 // Sub-Components
 import UserProfile from "../Common/UserProfile";
-import FriendRequests from "../FriendRequests";
-
+import FriendRequests from "../Common/FriendRequests";
 // Modular Sidebar Components
 import BrandHeader from "./Navigation/BrandHeader";
 import FolderTabs from "./Navigation/FolderTabs";
