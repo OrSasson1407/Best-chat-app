@@ -101,7 +101,10 @@ const corsOptions = {
    ========================================================= */
 app.options('*', cors(corsOptions));   // Handle all preflight requests before anything else
 app.use(cors(corsOptions));            // Attach CORS headers to every response
-app.use(helmet());                     // Helmet runs AFTER cors so it can't strip our headers
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" }, // Allow cross-origin resource loading
+  crossOriginOpenerPolicy: false, // Don't restrict opener policy
+}));                                   // Helmet runs AFTER cors so it can't strip our headers
 
 if (process.env.NODE_ENV === "production") {
   app.set("trust proxy", 1);
