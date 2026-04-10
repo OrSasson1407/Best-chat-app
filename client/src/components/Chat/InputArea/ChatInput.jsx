@@ -161,12 +161,12 @@ export default function ChatInput({
   const hasContent = msg.trim().length > 0 || mediaPreview !== null;
 
   useEffect(() => {
-    if (droppedFile && canPost) { processFile(droppedFile); if (onClearDrop) onClearDrop(); }
+    if (droppedFile && canPost) { processFile(droppedFile); onClearDrop?.(); }
   }, [droppedFile, canPost, onClearDrop]);
 
   useEffect(() => {
     if (editingMessage) {
-      setMsg(editingMessage.text); setReplyingTo(null);
+      setMsg(editingMessage.text); setReplyingTo?.(null);
       if (textareaRef.current) {
         textareaRef.current.style.height = "auto";
         textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
@@ -199,7 +199,7 @@ export default function ChatInput({
   }, []);
 
   // ── Handlers ────────────────────────────────────────────────────────────────
-  const handleEmojiClick = (emojiData) => { triggerHaptic("light"); setMsg((p) => p + emojiData.emoji); handleTyping(true); };
+  const handleEmojiClick = (emojiData) => { triggerHaptic("light"); setMsg((p) => p + emojiData.emoji); handleTyping?.(true); };
   const resetTextarea = () => { if (textareaRef.current) textareaRef.current.style.height = "auto"; };
 
   const executeCommand = (cmdStr) => {
@@ -215,14 +215,14 @@ export default function ChatInput({
     if (mediaPreview && canPost && !isUploading) { confirmSendMedia(); return; }
     if (hasContent && canPost && !isUploading) {
       if (editingMessage) {
-        handleEditMsgSubmit(editingMessage.id, msg); setEditingMessage(null);
+        handleEditMsgSubmit?.(editingMessage.id, msg); setEditingMessage?.(null);
       } else {
-        handleSendMsg(msg, isCodeMode ? "code" : (detectedUrl ? "link" : "text"), replyingTo?.id, {
+        handleSendMsg?.(msg, isCodeMode ? "code" : (detectedUrl ? "link" : "text"), replyingTo?.id, {
           timer: timerDuration, scheduledAt: scheduleDate || null, localId: uuidv4(),
         });
       }
-      setMsg(""); resetTextarea(); setIsCodeMode(false); setReplyingTo(null);
-      handleTyping(false); setShowEmojiPicker(false); setScheduleDate("");
+      setMsg(""); resetTextarea(); setIsCodeMode(false); setReplyingTo?.(null);
+      handleTyping?.(false); setShowEmojiPicker(false); setScheduleDate("");
       setShowScheduleMenu(false); setDetectedUrl(null); setShowCommands(false);
       setToneWarning(null); setGrammarSuggestion(null);
       if (draftKey) localStorage.removeItem(draftKey);
@@ -231,7 +231,7 @@ export default function ChatInput({
 
   const handleInput = (e) => {
     const val = e.target.value;
-    setMsg(val); handleTyping(val.length > 0);
+    setMsg(val); handleTyping?.(val.length > 0);
     if (draftKey) { if (val) localStorage.setItem(draftKey, val); else localStorage.removeItem(draftKey); }
     setShowCommands(val.startsWith("/"));
     e.target.style.height = "auto";
@@ -299,7 +299,7 @@ export default function ChatInput({
     
     if (cloudUrl) {
       const pendingReply = replyingTo;
-      handleSendMsg(cloudUrl, mediaPreview.type, replyingTo?.id, { isViewOnce: isViewOnceMedia, fileName: mediaPreview.fileName, fileSize: formatFileSize(fileToUpload.size), localId: uuidv4() });
+      handleSendMsg?.(cloudUrl, mediaPreview.type, replyingTo?.id, { isViewOnce: isViewOnceMedia, fileName: mediaPreview.fileName, fileSize: formatFileSize(fileToUpload.size), localId: uuidv4() });
       
       // FIX: Lost Context on "Reply To"
       // Ensure the text message is queued with the reply ID BEFORE we nullify it locally.
@@ -309,12 +309,12 @@ export default function ChatInput({
           resetTextarea();
           setMediaPreview(null);
           setTimeout(() => { 
-              handleSendMsg(textToSend, "text", pendingReply?.id, {}); 
-              setReplyingTo(null); 
+              handleSendMsg?.(textToSend, "text", pendingReply?.id, {}); 
+              setReplyingTo?.(null); 
           }, 200);
       } else {
           setMediaPreview(null);
-          setReplyingTo(null);
+          setReplyingTo?.(null);
       }
     } else { toast.error("Media upload failed. Please try again."); }
   };
@@ -354,7 +354,7 @@ export default function ChatInput({
         setIsUploading(true);
         const cloudUrl = await uploadToCloudinary(audioFile, "video");
         setIsUploading(false);
-        if (cloudUrl) { handleSendMsg(cloudUrl, "audio", replyingTo?.id, { timer: timerDuration, localId: uuidv4() }); setReplyingTo(null); }
+        if (cloudUrl) { handleSendMsg?.(cloudUrl, "audio", replyingTo?.id, { timer: timerDuration, localId: uuidv4() }); setReplyingTo?.(null); }
         else toast.error("Failed to send audio message.");
       };
       triggerHaptic("medium"); mediaRecorder.start(); setIsRecording(true);
@@ -439,14 +439,14 @@ export default function ChatInput({
       {replyingTo && !editingMessage && (
         <div className="reply-banner">
           <span>Replying to: <strong>{replyingTo.text.substring(0, 30)}…</strong></span>
-          <IoMdClose onClick={() => { triggerHaptic("light"); setReplyingTo(null); }} className="close-btn" />
+          <IoMdClose onClick={() => { triggerHaptic("light"); setReplyingTo?.(null); }} className="close-btn" />
         </div>
       )}
 
       {editingMessage && (
         <div className="reply-banner edit-banner">
           <span>Editing message…</span>
-          <IoMdClose onClick={() => { triggerHaptic("light"); setEditingMessage(null); setMsg(""); resetTextarea(); }} className="close-btn" />
+          <IoMdClose onClick={() => { triggerHaptic("light"); setEditingMessage?.(null); setMsg(""); resetTextarea(); }} className="close-btn" />
         </div>
       )}
 
@@ -547,7 +547,8 @@ export default function ChatInput({
               id="chat-message-input" name="chat-message-input" ref={textareaRef}
               placeholder={isUploading ? "Uploading media…" : (showCommands ? "Select a command…" : "Type a message or use '/' for commands…")}
               onChange={handleInput} onKeyDown={handleKeyDown} value={msg} onPaste={handlePaste}
-              onBlur={() => handleTyping(false)} disabled={isUploading} rows="1"
+              onBlur={() => handleTyping?.(false)} 
+              disabled={isUploading} rows="1"
             />
           )}
           <button
