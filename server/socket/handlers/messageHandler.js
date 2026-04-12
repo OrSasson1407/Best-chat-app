@@ -85,6 +85,7 @@ module.exports = (io, socket, redisClient) => {
         localId: data.localId,
         msg: data.msg,
         from: data.from,
+        to: data.to,          // FIX BUG 6: was missing — client reads data.to to identify the group chatId
         username: data.username,
         type: data.type,
         createdAt: new Date().toISOString(),
@@ -116,6 +117,7 @@ module.exports = (io, socket, redisClient) => {
             localId: data.localId,
             msg: data.msg,
             from: data.from,
+            to: data.to,
             type: data.type,
             createdAt: new Date().toISOString(),
             isGroup: false,

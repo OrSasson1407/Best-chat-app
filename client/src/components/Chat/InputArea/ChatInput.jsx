@@ -70,15 +70,17 @@ export default function ChatInput({
 
   useEffect(() => { currentMsgRef.current = msg; }, [msg]);
 
-  // ── FIX: Draft Key Bleed ───────────────────────────────────────────────────
-  // Isolated to both the user and the chat to prevent cross-account leakage.
+  // ── FIX BUG 10: Draft storage ─────────────────────────────────────────────
+  // Key is scoped to userId + chatId to prevent cross-account bleed.
+  // Uses sessionStorage (not localStorage) so drafts are cleared automatically
+  // when the tab closes or the user logs out — no leakage to the next session.
   const draftKey = (currentUser && currentChat) 
     ? `draft_${currentUser._id}_${currentChat._id || currentChat.name}` 
     : null;
 
   useEffect(() => {
     if (!draftKey) return;
-    const saved = localStorage.getItem(draftKey);
+    const saved = sessionStorage.getItem(draftKey);
     if (saved) {
       setMsg(saved);
       requestAnimationFrame(() => {
@@ -238,14 +240,14 @@ export default function ChatInput({
       setShowEmojiPicker(false); setScheduleDate("");
       setShowScheduleMenu(false); setDetectedUrl(null); setShowCommands(false);
       setToneWarning(null); setGrammarSuggestion(null);
-      if (draftKey) localStorage.removeItem(draftKey);
+      if (draftKey) sessionStorage.removeItem(draftKey);
     }
   };
 
   const handleInput = (e) => {
     const val = e.target.value;
     setMsg(val); 
-    if (draftKey) { if (val) localStorage.setItem(draftKey, val); else localStorage.removeItem(draftKey); }
+    if (draftKey) { if (val) sessionStorage.setItem(draftKey, val); else sessionStorage.removeItem(draftKey); }
     setShowCommands(val.startsWith("/"));
     e.target.style.height = "auto";
     e.target.style.height = `${Math.min(e.target.scrollHeight, 150)}px`;
@@ -440,7 +442,7 @@ export default function ChatInput({
           <span>✨ Suggestion: <strong>{grammarSuggestion.corrected}</strong></span>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <button
-              onClick={() => { setMsg(grammarSuggestion.corrected); if (draftKey) localStorage.setItem(draftKey, grammarSuggestion.corrected); setGrammarSuggestion(null); }}
+              onClick={() => { setMsg(grammarSuggestion.corrected); if (draftKey) sessionStorage.setItem(draftKey, grammarSuggestion.corrected); setGrammarSuggestion(null); }}
               style={{ background: "none", border: "none", color: "var(--color-success)", cursor: "pointer", fontWeight: 700, fontSize: "var(--text-xs)", fontFamily: "inherit" }}
             >Apply</button>
             <IoMdClose onClick={() => setGrammarSuggestion(null)} className="close-btn" />

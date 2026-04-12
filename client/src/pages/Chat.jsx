@@ -7,7 +7,7 @@ import customParser from "socket.io-msgpack-parser";
 import styled, { keyframes, css } from "styled-components";
 
 // ✅ ADDED: sendMessageRoute and receiveMessageRoute
-import { allUsersRoute, host, updateFcmTokenRoute, sendMessageRoute, receiveMessageRoute } from "../utils/APIRoutes";
+import { allUsersRoute, host, updateFcmTokenRoute, sendMessageRoute, receiveMessageRoute, editMessageRoute, deleteMessageRoute, deleteMessageForMeRoute, reactMessageRoute } from "../utils/APIRoutes";
 
 // Updated component imports based on new folder structure
 import Contacts from "../components/Sidebar/Contacts";
@@ -16,6 +16,7 @@ import Onboarding from "../components/Common/Onboarding";
 import ChatHeader from "../components/Chat/Header/ChatHeader";
 import MessageList from "../components/Chat/MessageWindow/MessageList";
 import ChatInput from "../components/Chat/InputArea/ChatInput";
+import Lightbox from "../components/Chat/Overlays/Lightbox";
 
 import useChatStore from "../store/chatStore";
 import { ToastContainer, toast } from "react-toastify";
@@ -42,6 +43,10 @@ export default function Chat() {
   // ✅ ADDED: Message State
   const [messages, setMessages] = useState([]);
   const [isFetchingHistory, setIsFetchingHistory] = useState(false);
+
+  // ✅ ADDED: Reply & Edit State (for ChatInput)
+  const [replyingTo, setReplyingTo] = useState(null);
+  const [editingMessage, setEditingMessage] = useState(null);
 
   // ✅ ADDED: Ref to prevent stale closures in socket listeners
   const currentChatRef = useRef(currentChat);
@@ -79,6 +84,8 @@ export default function Chat() {
         });
         
         setMessages(data.projectedMessages || data.messages || []);
+        setHasMore(data.hasMore || false);
+        cursorRef.current = data.nextCursor || null;
       } catch (error) {
         console.error("Failed to fetch messages:", error);
       } finally {
@@ -127,13 +134,21 @@ export default function Chat() {
       // 3. Emit to Sockets
       if (socket.current) {
         socket.current.emit("send-msg", {
-          to: chatId,
-          from: currentUser._id,
-          message: msgText,
-          type: type,
-          chatId: chatId,
-          isGroup: isGroup,
           id: data.data?._id || localId,
+          localId: localId,
+          msg: msgText,                          // FIX BUG 5: was `message:` — schema expects `msg`
+          from: currentUser._id,
+          to: chatId,
+          isGroup: isGroup,
+          type: type,
+          username: currentUser.username,
+          replyTo: replyTo || null,
+          // Forward optional fields from ChatInput (media, polls, links, etc.)
+          pollData:     options.pollData     || null,
+          linkMetadata: options.linkMetadata || null,
+          isForwarded:  options.isForwarded  || false,
+          isViewOnce:   options.isViewOnce   || false,
+          fileMetadata: options.fileMetadata || null,
         });
       }
 
@@ -146,6 +161,170 @@ export default function Chat() {
       toast.error("Message failed to send");
     }
   };
+
+  // ✅ ADDED: Typing indicator emitter
+  const handleTyping = useCallback((isTyping) => {
+    if (!socket.current || !currentChat || !currentUser) return;
+    const isGroup = !!currentChat.admin;
+    socket.current.emit("typing", {
+      to: currentChat._id || currentChat.name,
+      from: currentUser._id,
+      isTyping,
+      isGroup,
+      username: currentUser.username,
+    });
+  }, [currentChat, currentUser]);
+
+  // ✅ ADDED: Edit message submit handler
+  const handleEditMsgSubmit = useCallback(async (messageId, newText) => {
+    if (!messageId || !newText?.trim()) return;
+    try {
+      const rawToken = currentUser.token || sessionStorage.getItem("chat-app-token") || "";
+      const cleanToken = rawToken.replace(/(Bearer\s*)+/gi, "").trim();
+      await axios.post(editMessageRoute, { messageId, newText }, {
+        headers: { Authorization: `Bearer ${cleanToken}` },
+      });
+      // Update local state immediately
+      setMessages((prev) =>
+        prev.map((m) => m.id === messageId ? { ...m, message: newText, isEdited: true } : m)
+      );
+      // Notify other user/group via socket
+      if (socket.current && currentChat) {
+        socket.current.emit("edit-msg", {
+          messageId,
+          newText,
+          to: currentChat._id || currentChat.name,
+          isGroup: !!currentChat.admin,
+        });
+      }
+    } catch (error) {
+      console.error("Failed to edit message:", error);
+      toast.error("Failed to edit message");
+    }
+  }, [currentUser, currentChat]);
+
+  // ✅ ADDED: Delete message handler (delete for everyone vs delete for me)
+  const handleDeleteMsg = useCallback(async (messageId, isFromSelf) => {
+    const route = isFromSelf ? deleteMessageRoute : deleteMessageForMeRoute;
+    try {
+      const rawToken = currentUser.token || sessionStorage.getItem("chat-app-token") || "";
+      const cleanToken = rawToken.replace(/(Bearer\s*)+/gi, "").trim();
+      await axios.post(route, { messageId }, {
+        headers: { Authorization: `Bearer ${cleanToken}` },
+      });
+      if (isFromSelf) {
+        // Optimistically mark as deleted in local state
+        setMessages((prev) =>
+          prev.map((m) => m.id === messageId ? { ...m, message: "🚫 This message was deleted", isDeleted: true } : m)
+        );
+        // Notify other party via socket
+        if (socket.current && currentChat) {
+          socket.current.emit("delete-msg", {
+            messageId,
+            to: currentChat._id || currentChat.name,
+            isGroup: !!currentChat.admin,
+          });
+        }
+      } else {
+        // Delete for me: remove from local list entirely
+        setMessages((prev) => prev.filter((m) => m.id !== messageId));
+      }
+    } catch (error) {
+      console.error("Failed to delete message:", error);
+      toast.error("Failed to delete message");
+    }
+  }, [currentUser, currentChat]);
+
+  // ✅ ADDED: Reaction handler
+  const handleReaction = useCallback(async (messageId, emoji) => {
+    if (!messageId || !emoji) return;
+    try {
+      const rawToken = currentUser.token || sessionStorage.getItem("chat-app-token") || "";
+      const cleanToken = rawToken.replace(/(Bearer\s*)+/gi, "").trim();
+      const { data } = await axios.post(reactMessageRoute, {
+        messageId, emoji, username: currentUser.username,
+      }, { headers: { Authorization: `Bearer ${cleanToken}` } });
+      // Update reactions in local state
+      setMessages((prev) =>
+        prev.map((m) => m.id === messageId ? { ...m, reactions: data.reactions } : m)
+      );
+      // Broadcast reaction via socket
+      if (socket.current && currentChat) {
+        socket.current.emit("send-reaction", {
+          messageId, emoji,
+          to: currentChat._id || currentChat.name,
+          from: currentUser._id,
+          isGroup: !!currentChat.admin,
+          username: currentUser.username,
+        });
+      }
+    } catch (error) {
+      console.error("Failed to send reaction:", error);
+    }
+  }, [currentUser, currentChat]);
+
+  // ✅ ADDED: Lightbox, read receipts, scroll-to state
+  const [lightboxImage, setLightboxImage] = useState(null);
+  const [readReceiptsMsg, setReadReceiptsMsg] = useState(null);
+  const [highlightedMsgId, setHighlightedMsgId] = useState(null);
+
+  // ✅ ADDED: Scroll to a specific message by id (for reply jumps)
+  const scrollToMessage = useCallback((msgId) => {
+    setHighlightedMsgId(msgId);
+    setTimeout(() => setHighlightedMsgId(null), 1500);
+  }, []);
+
+  // ✅ ADDED: Pagination state
+  const [hasMore, setHasMore] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const cursorRef = useRef(null);
+
+  const loadMoreMessages = useCallback(async () => {
+    if (!currentChat || !currentUser || isLoadingMore || !hasMore) return;
+    setIsLoadingMore(true);
+    try {
+      const rawToken = currentUser.token || sessionStorage.getItem("chat-app-token") || "";
+      const cleanToken = rawToken.replace(/(Bearer\s*)+/gi, "").trim();
+      const { data } = await axios.post(receiveMessageRoute, {
+        from: currentUser._id,
+        to: currentChat._id || currentChat.name,
+        cursor: cursorRef.current,
+      }, { headers: { Authorization: `Bearer ${cleanToken}` } });
+      const older = data.projectedMessages || data.messages || [];
+      setMessages((prev) => [...older, ...prev]);
+      setHasMore(data.hasMore || false);
+      cursorRef.current = data.nextCursor || null;
+    } catch (error) {
+      console.error("Failed to load more messages:", error);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [currentChat, currentUser, isLoadingMore, hasMore]);
+
+  // ✅ ADDED: View-once media handler
+  const handleOpenViewOnce = useCallback(async (messageId) => {
+    try {
+      const rawToken = currentUser.token || sessionStorage.getItem("chat-app-token") || "";
+      const cleanToken = rawToken.replace(/(Bearer\s*)+/gi, "").trim();
+      await axios.post(`${host}/api/messages/viewonce`, { messageId }, {
+        headers: { Authorization: `Bearer ${cleanToken}` },
+      });
+      setMessages((prev) =>
+        prev.map((m) => m.id === messageId ? { ...m, viewed: true } : m)
+      );
+    } catch (error) {
+      console.error("Failed to mark view-once as viewed:", error);
+    }
+  }, [currentUser]);
+
+  // ✅ ADDED: Retry a failed message
+  const handleRetryMsg = useCallback((failedMsg) => {
+    // Remove the failed copy and re-send
+    setMessages((prev) => prev.filter((m) => m.id !== failedMsg.id));
+    handleSendMsg(failedMsg.message, failedMsg.type, failedMsg.replyTo, {
+      localId: failedMsg.localId,
+    });
+  }, [handleSendMsg]);
 
   useEffect(() => {
     if (currentUser) {
@@ -252,16 +431,25 @@ export default function Chat() {
       });
 
       // ✅ FIXED: Incoming Message Listener uses ref to prevent stale closures
-      socket.current.on("msg-recieve", (data) => {
-        const chatId = data.chatId || data.from;
-        
+      socket.current.on("msg-recieve", async (data) => {
+        // FIX BUG 1: For direct messages the server sends `from` as the sender's userId.
+        // For group messages the server sends `to` as the groupId.
+        // Use isGroup flag to pick the correct chatId.
+        const chatId = data.isGroup ? data.to : (data.chatId || data.from);
+
+        // FIX BUG 3: Two server paths emit this event with different field names:
+        //   - messageHandler.js  → `msg: data.msg`         (socket protocol field)
+        //   - changeStreams.js   → `msg: message.message.text` (same field name)
+        // The UI (MessageItem) reads `msg.message`, not `msg.msg`.
+        // Normalize here so both paths produce a consistent shape.
         const newMsg = {
             ...data,
+            message: data.message ?? data.msg,  // prefer existing .message, fall back to .msg
             fromSelf: false,
             id: data.id || data._id,
         };
 
-        addMessage?.(chatId, newMsg);
+        await addMessage?.(chatId, newMsg);
 
         const activeChat = currentChatRef.current;
         if (activeChat && (activeChat._id === chatId || activeChat.name === chatId)) {
@@ -273,11 +461,54 @@ export default function Chat() {
         }
       });
 
+      // ✅ ADDED: Listen for remote delete/edit/reaction events
+      socket.current.on("msg-deleted", ({ messageId }) => {
+        setMessages((prev) =>
+          prev.map((m) => m.id === messageId ? { ...m, message: "🚫 This message was deleted", isDeleted: true } : m)
+        );
+      });
+
+      socket.current.on("msg-edited", ({ messageId, newText }) => {
+        setMessages((prev) =>
+          prev.map((m) => m.id === messageId ? { ...m, message: newText, isEdited: true } : m)
+        );
+      });
+
+      socket.current.on("receive-reaction", ({ messageId, emoji, by, username }) => {
+        setMessages((prev) =>
+          prev.map((m) => {
+            if (m.id !== messageId) return m;
+            const reactions = [...(m.reactions || [])];
+            const idx = reactions.findIndex((r) => r.by?.toString() === by?.toString());
+            if (idx > -1) {
+              if (reactions[idx].emoji === emoji) reactions.splice(idx, 1);
+              else reactions[idx] = { ...reactions[idx], emoji };
+            } else {
+              reactions.push({ emoji, by, username });
+            }
+            return { ...m, reactions };
+          })
+        );
+      });
+
       return () => {
         if (socket.current) { socket.current.disconnect(); socket.current = null; }
       };
     }
-  }, [currentUser, navigate, setOnlineUsers, setCurrentUser, setCurrentChat]);
+  }, [currentUser?._id, navigate, setOnlineUsers, setCurrentUser, setCurrentChat]);
+
+  // ✅ FIX BUG 8: Emit a heartbeat every 45s to keep the Redis user_sockets TTL alive.
+  // The server sets a 90s TTL on connect but nothing was refreshing it — keys were
+  // expiring mid-session making the user appear offline to everyone else.
+  useEffect(() => {
+    if (!socket.current || !currentUser) return;
+    const heartbeatInterval = setInterval(() => {
+      if (socket.current?.connected) {
+        socket.current.emit("heartbeat", currentUser._id);
+      }
+    }, 45000);
+    return () => clearInterval(heartbeatInterval);
+  }, [currentUser?._id]);
 
   useEffect(() => {
     if (socket.current) {
@@ -368,6 +599,14 @@ export default function Chat() {
     setCurrentChat(chat);
     setIsTyping(false);
     setIsMobileMenuOpen(false);
+    setReplyingTo(null);
+    setEditingMessage(null);
+    // FIX BUG 2: Join the server-side Socket.IO room for group chats.
+    // Without this, socket.to(groupId).emit() on the server reaches nobody
+    // except the sender, because no other member has joined the room.
+    if (chat && chat.admin && socket.current) {
+      socket.current.emit("join-group", chat._id);
+    }
   }, [setCurrentChat]);
 
   const isCurrentChatOnline = currentChat && !currentChat.admin && onlineUsers.includes(currentChat._id);
@@ -445,15 +684,34 @@ export default function Chat() {
                   currentUser={currentUser}
                   theme={theme}
                   isCompact={isCompact}
-                  isFetchingHistory={isFetchingHistory} // ✅ Wired Up
-                  filteredMessages={messages} // ✅ Wired Up
+                  isFetchingHistory={isFetchingHistory}
+                  filteredMessages={messages}
+                  hasMore={hasMore}
+                  isLoadingMore={isLoadingMore}
+                  loadMoreMessages={loadMoreMessages}
+                  highlightedMsgId={highlightedMsgId}
+                  setLightboxImage={setLightboxImage}
+                  setReadReceiptsMsg={setReadReceiptsMsg}
+                  scrollToMessage={scrollToMessage}
+                  setReplyingTo={setReplyingTo}
+                  setEditingMessage={setEditingMessage}
+                  handleDeleteMsg={handleDeleteMsg}
+                  handleReaction={handleReaction}
+                  handleOpenViewOnce={handleOpenViewOnce}
+                  handleRetryMsg={handleRetryMsg}
               />
               
               <ChatInput 
                   socket={socket} 
                   currentChat={currentChat}
                   currentUser={currentUser}
-                  handleSendMsg={handleSendMsg} // ✅ Wired Up
+                  handleSendMsg={handleSendMsg}
+                  handleTyping={handleTyping}
+                  replyingTo={replyingTo}
+                  setReplyingTo={setReplyingTo}
+                  editingMessage={editingMessage}
+                  setEditingMessage={setEditingMessage}
+                  handleEditMsgSubmit={handleEditMsgSubmit}
               />
             </ChatAreaWrapper>
           )}
@@ -461,6 +719,7 @@ export default function Chat() {
       </div>
 
       {showOnboarding && <Onboarding onComplete={() => setShowOnboarding(false)} />}
+      {lightboxImage && <Lightbox lightboxImage={lightboxImage} onClose={() => setLightboxImage(null)} />}
       <ToastContainer position="top-right" autoClose={4000} hideProgressBar newestOnTop theme={theme === "light" ? "light" : "dark"} />
     </AppShell>
   );

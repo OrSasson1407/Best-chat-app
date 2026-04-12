@@ -50,10 +50,11 @@ module.exports = (io, socket, redisClient) => {
         username: data.username
       });
     } else {
-      const receiverSocket = await redisClient.hGet("online_users", data.to);
-
-      if (receiverSocket) {
-        socket.to(receiverSocket).emit("typing-status", {
+      // FIX BUG 4: `online_users` is a hash that is never written anywhere in the codebase.
+      // All other handlers use `user_sockets:${userId}` (a Redis Set). Use that instead.
+      const receiverSockets = await redisClient.sMembers(`user_sockets:${data.to}`);
+      for (const socketId of receiverSockets) {
+        socket.to(socketId).emit("typing-status", {
           from: data.from,
           isTyping: data.isTyping
         });

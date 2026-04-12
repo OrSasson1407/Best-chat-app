@@ -14,11 +14,11 @@ module.exports = (io, socket, redisClient, heartbeatThrottles) => {
     try {
       // Multi-device support
       await redisClient.sAdd(`user_sockets:${userId}`, socket.id);
-      await redisClient.expire(`user_sockets:${userId}`, 90); 
+      await redisClient.expire(`user_sockets:${userId}`, 120); 
       
       // Reverse lookup
       await redisClient.set(`socket_user:${socket.id}`, userId);
-      await redisClient.expire(`socket_user:${socket.id}`, 90);
+      await redisClient.expire(`socket_user:${socket.id}`, 120);
 
       // Fetch user first so we can read their e2eKeys before updating
       const user = await User.findById(userId).select("e2eKeys e2eStatus privacySettings");
@@ -105,8 +105,8 @@ module.exports = (io, socket, redisClient, heartbeatThrottles) => {
     try {
       // Refresh TTL for this device
       await redisClient.sAdd(`user_sockets:${userId}`, socket.id);
-      await redisClient.expire(`user_sockets:${userId}`, 90);
-      await redisClient.expire(`socket_user:${socket.id}`, 90);
+      await redisClient.expire(`user_sockets:${userId}`, 120);
+      await redisClient.expire(`socket_user:${socket.id}`, 120);
 
       const now = Date.now();
       const lastDbUpdate = heartbeatThrottles.get(userId) || 0;

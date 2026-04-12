@@ -20,8 +20,12 @@ module.exports = (io, redisClient) => {
         if (message.status === "sent" || message.status === "delivered") {
           const payload = {
             id: message._id,
-            msg: message.message.text,
+            // FIX BUG 3: was `msg:` — renamed to `message:` to match the field name
+            // the REST history fetch returns and that MessageItem reads.
+            message: message.message.text,
             from: message.sender,
+            to: message.users.find(u => u.toString() !== message.sender.toString()),
+            isGroup: message.isGroupMsg || false,
             type: message.type,
             createdAt: message.createdAt,
             replyTo: message.replyTo,
@@ -33,14 +37,13 @@ module.exports = (io, redisClient) => {
             fileMetadata: message.fileMetadata
           };
 
-          // FIX: Use user_sockets Set (multi-device) — online_users Hash is never written.
-          // forEach with async callbacks doesn't await properly; use for...of instead.
+          // FIX BUG 11: forEach with async callbacks doesn't await — use for...of
           for (const userId of message.users) {
             if (userId.toString() !== message.sender.toString()) {
               const receiverSockets = await redisClient.sMembers(`user_sockets:${userId.toString()}`);
-              receiverSockets.forEach(socketId => {
+              for (const socketId of receiverSockets) {
                 io.to(socketId).emit("msg-recieve", payload);
-              });
+              }
             }
           }
         }
@@ -50,9 +53,30 @@ module.exports = (io, redisClient) => {
         const messageId = change.documentKey._id;
         const updatedFields = change.updateDescription.updatedFields;
 
+        // FIX: Actually broadcast deletion updates that come through the change stream
         if (updatedFields.isDeleted === true) {
-           // Example implementation
-           // io.emit("msg-deleted", { messageId });
+          const msg = await Message.findById(messageId).select("users sender");
+          if (msg) {
+            for (const userId of msg.users) {
+              const userSockets = await redisClient.sMembers(`user_sockets:${userId.toString()}`);
+              for (const socketId of userSockets) {
+                io.to(socketId).emit("msg-deleted", { messageId });
+              }
+            }
+          }
+        }
+
+        // Broadcast text edits that come through the change stream
+        if (updatedFields["message.text"]) {
+          const msg = await Message.findById(messageId).select("users");
+          if (msg) {
+            for (const userId of msg.users) {
+              const userSockets = await redisClient.sMembers(`user_sockets:${userId.toString()}`);
+              for (const socketId of userSockets) {
+                io.to(socketId).emit("msg-edited", { messageId, newText: updatedFields["message.text"] });
+              }
+            }
+          }
         }
       }
     });

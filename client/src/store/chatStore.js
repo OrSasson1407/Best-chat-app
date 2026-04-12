@@ -110,37 +110,49 @@ const useChatStore = create(
       loadOfflineMessages: async (chatId) => {
         try {
           const cached = await idbGet(`chat_history_${chatId}`);
-          if (cached) { set({ offlineMessages: { [chatId]: cached } }); return cached; }
+          if (cached) { set((state) => ({ offlineMessages: { ...state.offlineMessages, [chatId]: cached } })); return cached; }
           return [];
         } catch (error) { console.error("Failed to load offline messages", error); return []; }
       },
 
       cacheMessages: async (chatId, messages) => {
-        set({ offlineMessages: { [chatId]: messages } });
+        // FIX BUG 7: Merge into existing offlineMessages instead of replacing the
+        // whole object — otherwise caching one chat wipes all other chats' caches.
+        set((state) => ({ offlineMessages: { ...state.offlineMessages, [chatId]: messages } }));
         await idbSet(`chat_history_${chatId}`, messages);
       },
 
       addMessage: async (chatId, incomingMsg) => {
-        // 🚨 CRITICAL FIX: Normalize real-time socket payloads!
-        // The socket sends raw MongoDB docs, but the UI expects a flattened string.
+        // Normalize real-time socket payloads — socket sends `msg`, UI reads `message`.
         const normalizedMsg = {
           ...incomingMsg,
-          id: incomingMsg.id || incomingMsg._id, // Map MongoDB _id to UI id
-          message: typeof incomingMsg.message === "object" ? incomingMsg.message.text : incomingMsg.message
+          id: incomingMsg.id || incomingMsg._id,
+          message: typeof incomingMsg.message === "object"
+            ? incomingMsg.message.text
+            : (incomingMsg.message ?? incomingMsg.msg),
         };
 
-        const state = get();
-        const newMessages = [...(state.offlineMessages[chatId] || []), normalizedMsg];
-        set({ offlineMessages: { [chatId]: newMessages } });
+        // FIX BUG 7: Use set() with an updater function so we always read the latest
+        // state snapshot. The old pattern did get() then set() in two separate steps —
+        // if two messages arrived in quick succession the second get() could read stale
+        // state and the first message would be lost from the IndexedDB cache.
+        let newMessages;
+        set((state) => {
+          newMessages = [...(state.offlineMessages[chatId] || []), normalizedMsg];
+          return { offlineMessages: { ...state.offlineMessages, [chatId]: newMessages } };
+        });
         await idbSet(`chat_history_${chatId}`, newMessages);
       },
 
       updateMessageStatus: async (chatId, localId, dbId, status) => {
-        const state = get();
-        const newMessages = (state.offlineMessages[chatId] || []).map((msg) =>
-          msg.localId === localId ? { ...msg, _id: dbId, status } : msg
-        );
-        set({ offlineMessages: { [chatId]: newMessages } });
+        // FIX BUG 7: Same merge fix — use updater function and spread existing chats.
+        let newMessages;
+        set((state) => {
+          newMessages = (state.offlineMessages[chatId] || []).map((msg) =>
+            msg.localId === localId ? { ...msg, _id: dbId, status } : msg
+          );
+          return { offlineMessages: { ...state.offlineMessages, [chatId]: newMessages } };
+        });
         await idbSet(`chat_history_${chatId}`, newMessages);
       },
 
