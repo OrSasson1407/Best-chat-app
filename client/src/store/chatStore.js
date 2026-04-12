@@ -120,9 +120,17 @@ const useChatStore = create(
         await idbSet(`chat_history_${chatId}`, messages);
       },
 
-      addMessage: async (chatId, message) => {
+      addMessage: async (chatId, incomingMsg) => {
+        // 🚨 CRITICAL FIX: Normalize real-time socket payloads!
+        // The socket sends raw MongoDB docs, but the UI expects a flattened string.
+        const normalizedMsg = {
+          ...incomingMsg,
+          id: incomingMsg.id || incomingMsg._id, // Map MongoDB _id to UI id
+          message: typeof incomingMsg.message === "object" ? incomingMsg.message.text : incomingMsg.message
+        };
+
         const state = get();
-        const newMessages = [...(state.offlineMessages[chatId] || []), message];
+        const newMessages = [...(state.offlineMessages[chatId] || []), normalizedMsg];
         set({ offlineMessages: { [chatId]: newMessages } });
         await idbSet(`chat_history_${chatId}`, newMessages);
       },
