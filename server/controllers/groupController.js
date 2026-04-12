@@ -169,10 +169,14 @@ module.exports.getGroupById = async (req, res, next) => {
   try {
     const group = await Group.findById(req.params.id);
     if (!group) return res.status(404).json({ status: false, msg: "Group not found" });
-    // Only members can fetch the group (to protect groupKeys from non-members)
-    if (!group.members.map(String).includes(String(req.user.id))) {
-      return res.status(403).json({ status: false, msg: "Not a member of this group" });
+    
+    // ✅ CRITICAL FIX: Broken Access Control (IDOR) Protection
+    // Ensure the requester is actually a member of this group before returning the payload
+    const isMember = group.members.some(memberId => memberId.toString() === req.user.id.toString());
+    if (!isMember) {
+      return res.status(403).json({ status: false, msg: "Access denied. You are not a member of this group." });
     }
-    return res.json(group);
+
+    return res.json({ status: true, group });
   } catch (ex) { next(ex); }
 };

@@ -14,8 +14,10 @@ const parseJwk = (key, keyType = "Public") => {
 const keyCache = new Map();
 
 const getImportedKey = async (jwk, algoName, extractable, keyUsages) => {
-    // Create a unique cache string based on the key geometry
-    const cacheId = jwk.n ? jwk.n : (jwk.k ? jwk.k : JSON.stringify(jwk));
+    // ✅ FIX: Include the required keyUsages in the cache ID to prevent collision
+    // between encryption keys and decryption keys of the exact same geometry.
+    const keyMaterial = jwk.n ? jwk.n : (jwk.k ? jwk.k : JSON.stringify(jwk));
+    const cacheId = `${keyMaterial}_${keyUsages.join("-")}`;
     
     if (keyCache.has(cacheId)) {
         return keyCache.get(cacheId);
@@ -30,6 +32,12 @@ const getImportedKey = async (jwk, algoName, extractable, keyUsages) => {
         extractable, 
         keyUsages
     );
+
+    // Limit cache size to prevent memory leaks in the browser (e.g., max 500 keys)
+    if (keyCache.size > 500) {
+        const firstKey = keyCache.keys().next().value;
+        keyCache.delete(firstKey);
+    }
 
     // Store in cache for instant retrieval next time
     keyCache.set(cacheId, importedKey);
@@ -225,10 +233,6 @@ export const decryptGroupMessage = async (base64Ciphertext, aesKeyJwk) => {
 
         return new TextDecoder().decode(decryptedBuffer);
     } catch (err) {
-        // Never show raw base64 ciphertext to the user — show a friendly placeholder.
-        // This happens when the AES key in memory doesn't match the one used to
-        // encrypt the message (e.g. after page refresh before the key is re-derived,
-        // or for a newly-added member whose key entry was missing).
         console.warn("[Crypto] Group AES Decryption failed (key mismatch or legacy message):", err.message);
         return "🔒 Message encrypted — please refresh to reload the key.";
     }

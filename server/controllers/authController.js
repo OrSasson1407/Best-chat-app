@@ -113,6 +113,8 @@ module.exports.logout = async (req, res, next) => {
       };
       if (refreshToken) await blacklist(refreshToken);
       if (accessToken)  await blacklist(accessToken);
+    } else {
+      console.warn("[Auth] Redis is down. Logout requested but token blacklisting is unavailable.");
     }
 
     console.log("[Auth] User logged out and tokens blacklisted.");
@@ -120,19 +122,32 @@ module.exports.logout = async (req, res, next) => {
   } catch (ex) { console.error("[Auth] Logout error:", ex); next(ex); }
 };
 
-// ─── REFRESH TOKEN ───────────────────────────────────────────────────────────
+// ─── REFRESH TOKEN (FIXED: Rotation Added) ───────────────────────────────────
 
 module.exports.refreshToken = async (req, res) => {
-  const refreshToken = req.body.refreshToken;
-  if (!refreshToken) return res.sendStatus(401);
+  const oldRefreshToken = req.body.refreshToken;
+  if (!oldRefreshToken) return res.sendStatus(401);
+  
   if (cacheClient.isReady) {
-    const isBlacklisted = await cacheClient.get(`bl_${refreshToken}`);
-    if (isBlacklisted) return res.sendStatus(403);
+    const isBlacklisted = await cacheClient.get(`bl_${oldRefreshToken}`);
+    if (isBlacklisted) return res.sendStatus(403); // Replay attack prevented
   }
-  jwt.verify(refreshToken, process.env.REFRESH_SECRET, (err, decoded) => {
+  
+  jwt.verify(oldRefreshToken, process.env.REFRESH_SECRET, async (err, decoded) => {
     if (err) return res.sendStatus(403);
-    const accessToken = jwt.sign({ id: String(decoded.id) }, process.env.JWT_SECRET, { expiresIn: "15m" });
-    res.json({ status: true, token: accessToken });
+    
+    // CRITICAL FIX: Refresh Token Rotation
+    // Generate both a new Access Token AND a new Refresh Token
+    const newAccessToken = jwt.sign({ id: String(decoded.id) }, process.env.JWT_SECRET, { expiresIn: "15m" });
+    const newRefreshToken = jwt.sign({ id: String(decoded.id) }, process.env.REFRESH_SECRET, { expiresIn: "7d" });
+
+    // Blacklist the old refresh token to prevent indefinite use
+    if (cacheClient.isReady) {
+      const ttl = 7 * 24 * 60 * 60; // 7 days in seconds
+      await cacheClient.setEx(`bl_${oldRefreshToken}`, ttl, "revoked");
+    }
+
+    res.json({ status: true, token: newAccessToken, refreshToken: newRefreshToken });
   });
 };
 
@@ -291,6 +306,13 @@ module.exports.setup2FA = async (req, res, next) => {
   try {
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ status: false, msg: "User not found" });
+    
+    // CRITICAL FIX: Race Condition Protection
+    // Prevent overwriting the 2FA secret if it's already active, which would lock the user out.
+    if (user.twoFactor?.enabled) {
+      return res.status(400).json({ status: false, msg: "2FA is already active. Disable it first to reconfigure." });
+    }
+
     const secret = speakeasy.generateSecret({ name: `BestChat (${user.username})`, length: 20 });
     user.twoFactor.secret = secret.base32;
     await user.save();

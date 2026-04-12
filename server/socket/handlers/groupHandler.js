@@ -17,12 +17,10 @@ module.exports = (io, socket, redisClient) => {
      ===================================================== */
   socket.on("join-group", async (groupId) => {
     try {
-      const group = await Group.findById(groupId).select("users");
+      // ✅ FIX: Change .select("users") to .select("members")
+      const group = await Group.findById(groupId).select("members");
       
       // Strict Room Validation: Make sure the user is actually a member of the group
-      // FIX: Group schema field is `members`, not `users`. The wrong field name
-      // meant the check always failed, so no socket ever joined the group room,
-      // and real-time group messages were never delivered to anyone.
       if (group && group.members.map(id => id.toString()).includes(socket.userId)) {
         socket.join(groupId);
       } else {

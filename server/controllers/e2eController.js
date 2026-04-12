@@ -5,6 +5,11 @@ module.exports.uploadKeyBundle = async (req, res, next) => {
     const userId = req.user.id; // Extracted from verifyToken middleware
     const { identityKey, registrationId, signedPreKey, preKeys } = req.body;
     
+    // ✅ FIX: Payload validation to prevent massive strings that could crash clients parsing the JSON
+    if (identityKey && typeof identityKey === "string" && identityKey.length > 5000) {
+      return res.status(400).json({ status: false, msg: "Payload too large." });
+    }
+
     await User.findByIdAndUpdate(userId, {
       e2eKeys: { identityKey, registrationId, signedPreKey, preKeys },
       "e2eStatus.hasKeys": true,
@@ -23,15 +28,21 @@ module.exports.getKeyBundle = async (req, res, next) => {
     const user = await User.findById(targetUserId).select("e2eKeys");
 
     if (!user || !user.e2eKeys || !user.e2eKeys.identityKey) {
-      // Do NOT update the user record here — we are reading someone else's keys,
-      // not our own. Writing to their document would corrupt their e2eStatus.
       return res.status(404).json({ status: false, hasKeys: false, msg: "Target user has no E2E keys. They need to log out and back in." });
     }
 
-    // Read a one-time pre-key without consuming it.
-    // We only generate 1 pre-key per registration and have no replenishment flow,
-    // so popping here would leave every user after the first contact with no pre-key.
-    const oneTimePreKey = user.e2eKeys.preKeys?.[0];
+    // ✅ CRITICAL FIX: Perfect Forward Secrecy (PFS)
+    // Shift the first pre-key out of the array and save the user.
+    // If none are left, oneTimePreKey is undefined, and the frontend must fallback to signedPreKey.
+    let oneTimePreKey = undefined;
+    
+    if (user.e2eKeys.preKeys && user.e2eKeys.preKeys.length > 0) {
+      oneTimePreKey = user.e2eKeys.preKeys.shift(); // Remove it from the array
+      // Save the array so this key can never be given out again
+      await User.findByIdAndUpdate(targetUserId, { 
+        $set: { "e2eKeys.preKeys": user.e2eKeys.preKeys } 
+      });
+    }
 
     return res.json({
       status: true,

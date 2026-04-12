@@ -30,12 +30,12 @@ services:
     image: redis:alpine
     container_name: chat-app-redis
     restart: unless-stopped
-    ports:
-      - "6379:6379" # FIXED: Exposes Redis to your host machine for local Node.js processes
+    # CRITICAL SECURITY FIX: Removed ports mapping (6379:6379)
+    # Redis is now isolated in the internal Docker network and protected from public internet exposure.
     networks:
       - chat-network
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"] # FIXED: Ensures Redis is fully ready before server starts
+      test: ["CMD", "redis-cli", "ping"] # Ensures Redis is fully ready before server starts
       interval: 5s
       timeout: 3s
       retries: 5
@@ -60,7 +60,7 @@ services:
       mongo:
         condition: service_healthy
       redis:
-        condition: service_healthy # FIXED: Waits for Redis healthcheck to pass, not just container start
+        condition: service_healthy # Waits for Redis healthcheck to pass, not just container start
     restart: unless-stopped
     networks:
       - chat-network

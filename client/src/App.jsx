@@ -45,29 +45,35 @@ const processQueue = (error, token = null) => {
 };
 
 const forceLogout = () => {
-  // FIX: Prevent Incomplete Forced Logout by clearing local storage items (E2E Keys, Drafts)
-  const storedUser = sessionStorage.getItem("chat-app-user");
-  if (storedUser) {
-    try {
+  // FIX: Added robust safety checks and try/catch. 
+  // If storedUser is the string "undefined", JSON.parse will crash and 
+  // halt the logout process, leaving E2E keys exposed.
+  try {
+    const storedUser = sessionStorage.getItem("chat-app-user");
+    if (storedUser && storedUser !== "undefined" && storedUser !== "null") {
       const parsed = JSON.parse(storedUser);
-      if (parsed._id) {
+      if (parsed && parsed._id) {
         localStorage.removeItem(`privateKey_${parsed._id}`);
         localStorage.removeItem(`fullE2EKeys_${parsed._id}`);
       }
-    } catch (e) {
-      console.error("Failed to parse user for logout cleanup", e);
     }
+  } catch (e) {
+    console.warn("Failed to parse user for logout cleanup. Proceeding with global wipe.", e);
   }
 
-  // Cleanup any remaining draft or encryption keys from other sessions locally
-  const keysToRemove = [];
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
-    if (key && (key.startsWith('draft_') || key.startsWith('privateKey_') || key.startsWith('fullE2EKeys_'))) {
-      keysToRemove.push(key);
+  // Cleanup any remaining draft or encryption keys from other sessions locally safely
+  try {
+    const keysToRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && (key.startsWith('draft_') || key.startsWith('privateKey_') || key.startsWith('fullE2EKeys_'))) {
+        keysToRemove.push(key);
+      }
     }
+    keysToRemove.forEach(k => localStorage.removeItem(k));
+  } catch (e) {
+    console.warn("Local storage cleanup encountered an error.", e);
   }
-  keysToRemove.forEach(k => localStorage.removeItem(k));
 
   sessionStorage.removeItem("chat-app-user");
   sessionStorage.removeItem("chat-app-token");
@@ -125,10 +131,16 @@ axios.interceptors.response.use(
         );
 
         const newAccessToken = data.token;
+        // FIX: Also capture the new refresh token (Rotated from Backend)
+        const newRefreshToken = data.refreshToken; 
+        
         sessionStorage.setItem("chat-app-token", newAccessToken);
+        if (newRefreshToken) {
+          sessionStorage.setItem("chat-app-refresh-token", newRefreshToken);
+        }
 
         const storedUser = sessionStorage.getItem("chat-app-user");
-        if (storedUser) {
+        if (storedUser && storedUser !== "undefined" && storedUser !== "null") {
           const parsed = JSON.parse(storedUser);
           parsed.token = newAccessToken;
           sessionStorage.setItem("chat-app-user", JSON.stringify(parsed));
@@ -143,6 +155,7 @@ axios.interceptors.response.use(
         forceLogout();
         return Promise.reject(refreshError);
       } finally {
+        // CRITICAL FIX: Ensure isRefreshing is ALWAYS released
         isRefreshing = false;
       }
     }

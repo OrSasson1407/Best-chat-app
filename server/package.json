@@ -7,7 +7,8 @@
     "start": "node index.js",
     "prod": "pm2 start index.js --name 'chat-backend' --time",
     "dev": "nodemon index.js",
-    "test": "jest --detectOpenHandles --forceExit"
+    "test": "jest --detectOpenHandles --forceExit",
+    "sync:search": "node scripts/syncMeilisearch.js"
   },
   "keywords": [
     "socket.io",

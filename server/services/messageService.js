@@ -32,9 +32,6 @@ class MessageService {
     const { from, to, message, type, replyTo, isForwarded, isViewOnce, pollData, timer, scheduledAt, fileName, fileSize, localId } = payload;
 
     // ✅ FIX: Guard against null/empty/non-string message BEFORE any processing.
-    //         Without this, message.startsWith("data:") below throws a TypeError
-    //         which gets swallowed by the controller and returns a misleading 400.
-    //         This happens when group encryption throws and the frontend sends null.
     if (!message || typeof message !== "string" || message.trim() === "") {
       console.error("[MessageService] Rejected: message field is null, empty, or not a string.", { from, to, type });
       return null;
@@ -53,7 +50,16 @@ class MessageService {
         const urls = extractUrls(message);
         if (urls && urls.length > 0) {
             try {
-                const metadata = await urlMetadata(urls[0]);
+                // CRITICAL FIX: Link Preview Timeout Protection
+                // Prevent slow external websites from hanging the real-time message delivery.
+                const metadataPromise = urlMetadata(urls[0]);
+                const timeoutPromise = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error("Link preview timeout")), 3000)
+                );
+                
+                // Race the metadata fetch against a 3-second timer
+                const metadata = await Promise.race([metadataPromise, timeoutPromise]);
+                
                 linkMetadata = {
                     title: metadata.title,
                     description: metadata.description,
@@ -62,7 +68,9 @@ class MessageService {
                 };
                 finalType = "link";
             } catch (err) { 
-                console.log("Failed to fetch metadata for link:", err.message); 
+                console.log("[MessageService] Failed/Timed out fetching metadata for link:", err.message); 
+                // Fallback to sending as a standard text message without hanging
+                finalType = "text"; 
             }
         }
     }
@@ -151,7 +159,6 @@ class MessageService {
     }
 
     // FIX: User model stores fcmTokens as an array (multi-device support).
-    // Old field fcmToken (singular) no longer exists — always check fcmTokens.
     if (isSent && receiver && receiver.fcmTokens && receiver.fcmTokens.length > 0) {
        try {
          const senderUser = await User.findById(from);

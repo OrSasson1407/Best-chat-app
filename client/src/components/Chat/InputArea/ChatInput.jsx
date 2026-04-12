@@ -11,6 +11,7 @@ import { MdSentimentDissatisfied } from "react-icons/md";
 import { toast } from "react-toastify";
 import { v4 as uuidv4 } from "uuid";
 import useChatStore from "../../../store/chatStore";
+import { useShallow } from "zustand/react/shallow"; // ✅ ADDED: Shallow routing
 import { triggerHaptic } from "../../../utils/haptics";
 import { grammarCheckRoute, toneCheckRoute } from "../../../utils/APIRoutes";
 
@@ -39,7 +40,12 @@ export default function ChatInput({
   editingMessage, setEditingMessage, handleEditMsgSubmit,
   droppedFile, onClearDrop,
 }) {
-  const { currentChat, currentUser, theme } = useChatStore();
+  // ✅ CRITICAL FIX: Only subscribe to the exact state slices you need
+  const { currentChat, currentUser, theme } = useChatStore(useShallow(state => ({
+    currentChat: state.currentChat,
+    currentUser: state.currentUser,
+    theme: state.theme
+  })));
 
   // ── Core state ──────────────────────────────────────────────────────────────
   const [msg, setMsg]                   = useState("");
@@ -59,6 +65,9 @@ export default function ChatInput({
 
   // Current message ref strictly for preventing ghost warnings after sent messages
   const currentMsgRef = useRef(msg);
+  // Typing indicator debounce ref
+  const typingTimeoutRef = useRef(null);
+
   useEffect(() => { currentMsgRef.current = msg; }, [msg]);
 
   // ── FIX: Draft Key Bleed ───────────────────────────────────────────────────
@@ -96,7 +105,6 @@ export default function ChatInput({
       const token = currentUser?.token || sessionStorage.getItem("chat-app-token");
       const { data } = await axios.post(grammarCheckRoute, { message: msgToCheck }, { headers: { Authorization: `Bearer ${token}` } });
       
-      // FIX: Tone/Grammar Checker Ghost Warnings - Only apply if the message hasn't been sent/changed
       if (currentMsgRef.current === msgToCheck) {
           if (data.status && data.wasChanged) {
             setGrammarSuggestion({ original: msgToCheck, corrected: data.corrected });
@@ -127,7 +135,6 @@ export default function ChatInput({
         const token = currentUser?.token || sessionStorage.getItem("chat-app-token");
         const { data } = await axios.post(toneCheckRoute, { message: msgToCheck }, { headers: { Authorization: `Bearer ${token}` } });
         
-        // FIX: Tone/Grammar Checker Ghost Warnings
         if (currentMsgRef.current === msgToCheck) {
             if (data.status && data.warning) {
               const meta = TONE_META[data.tone] || {};
@@ -195,11 +202,12 @@ export default function ChatInput({
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
       if (audioContextRef.current?.state !== "closed") audioContextRef.current?.close().catch(() => {});
       if (streamRef.current) { streamRef.current.getTracks().forEach((t) => t.stop()); streamRef.current = null; }
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     };
   }, []);
 
   // ── Handlers ────────────────────────────────────────────────────────────────
-  const handleEmojiClick = (emojiData) => { triggerHaptic("light"); setMsg((p) => p + emojiData.emoji); handleTyping?.(true); };
+  const handleEmojiClick = (emojiData) => { triggerHaptic("light"); setMsg((p) => p + emojiData.emoji); };
   const resetTextarea = () => { if (textareaRef.current) textareaRef.current.style.height = "auto"; };
 
   const executeCommand = (cmdStr) => {
@@ -222,7 +230,12 @@ export default function ChatInput({
         });
       }
       setMsg(""); resetTextarea(); setIsCodeMode(false); setReplyingTo?.(null);
-      handleTyping?.(false); setShowEmojiPicker(false); setScheduleDate("");
+      
+      // Clear typing indicator
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      handleTyping?.(false); 
+      
+      setShowEmojiPicker(false); setScheduleDate("");
       setShowScheduleMenu(false); setDetectedUrl(null); setShowCommands(false);
       setToneWarning(null); setGrammarSuggestion(null);
       if (draftKey) localStorage.removeItem(draftKey);
@@ -231,11 +244,20 @@ export default function ChatInput({
 
   const handleInput = (e) => {
     const val = e.target.value;
-    setMsg(val); handleTyping?.(val.length > 0);
+    setMsg(val); 
     if (draftKey) { if (val) localStorage.setItem(draftKey, val); else localStorage.removeItem(draftKey); }
     setShowCommands(val.startsWith("/"));
     e.target.style.height = "auto";
     e.target.style.height = `${Math.min(e.target.scrollHeight, 150)}px`;
+
+    // ✅ FIX: Debounced Typing Indicator
+    if (handleTyping) {
+      handleTyping(true);
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = setTimeout(() => {
+        handleTyping(false);
+      }, 1500);
+    }
   };
 
   const handleKeyDown = (e) => {
@@ -301,8 +323,6 @@ export default function ChatInput({
       const pendingReply = replyingTo;
       handleSendMsg?.(cloudUrl, mediaPreview.type, replyingTo?.id, { isViewOnce: isViewOnceMedia, fileName: mediaPreview.fileName, fileSize: formatFileSize(fileToUpload.size), localId: uuidv4() });
       
-      // FIX: Lost Context on "Reply To"
-      // Ensure the text message is queued with the reply ID BEFORE we nullify it locally.
       if (msg.trim().length > 0) {
           const textToSend = msg;
           setMsg(""); 
@@ -359,7 +379,6 @@ export default function ChatInput({
       };
       triggerHaptic("medium"); mediaRecorder.start(); setIsRecording(true);
     } catch (error) {
-      // FIX: Undefined Behavior on Cancelled Audio - clean up state so UI isn't stuck
       if (streamRef.current) { streamRef.current.getTracks().forEach((t) => t.stop()); streamRef.current = null; }
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
       setIsRecording(false);
@@ -547,7 +566,10 @@ export default function ChatInput({
               id="chat-message-input" name="chat-message-input" ref={textareaRef}
               placeholder={isUploading ? "Uploading media…" : (showCommands ? "Select a command…" : "Type a message or use '/' for commands…")}
               onChange={handleInput} onKeyDown={handleKeyDown} value={msg} onPaste={handlePaste}
-              onBlur={() => handleTyping?.(false)} 
+              onBlur={() => {
+                if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+                handleTyping?.(false);
+              }} 
               disabled={isUploading} rows="1"
             />
           )}

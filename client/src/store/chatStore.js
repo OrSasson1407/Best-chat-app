@@ -157,7 +157,8 @@ const useChatStore = create(
       },
     }),
     {
-      name: `best-chat-app-settings-${sessionStorage.getItem('chat-app-token')?.slice(-8) || 'default'}`,
+      // CRITICAL FIX: Use a static versioned key to prevent UI preference loss on token refresh
+      name: 'best-chat-app-settings-v1',
       storage: createJSONStorage(() => idbStorage),
       partialize: (state) => ({ theme: state.theme, isCompact: state.isCompact }),
       onRehydrateStorage: () => (state) => { if (state) state.setHasHydrated(true); },

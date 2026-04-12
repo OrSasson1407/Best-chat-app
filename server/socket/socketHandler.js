@@ -50,6 +50,17 @@ module.exports = (io, redisClient) => {
     }
 
     /* =====================================================
+       CRITICAL FIX: Memory Leak Prevention
+       ===================================================== */
+    socket.on("disconnect", () => {
+      // Ensure we remove the user from the heartbeat throttle Map
+      // when their socket disconnects to prevent indefinite memory growth.
+      if (socket.userId && heartbeatThrottles.has(socket.userId)) {
+        heartbeatThrottles.delete(socket.userId);
+      }
+    });
+
+    /* =====================================================
        REGISTER MODULAR HANDLERS
        ===================================================== */
     

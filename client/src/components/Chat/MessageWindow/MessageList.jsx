@@ -1,15 +1,20 @@
-import React, { useRef, useState, useCallback, useEffect } from "react";
+import React, { useRef, useState, useCallback, useEffect, memo } from "react";
 import { Virtuoso } from "react-virtuoso";
 import { AnimatePresence, motion } from "framer-motion";
 import { FaSpinner, FaArrowDown } from "react-icons/fa";
 import MessageItem from "./MessageItem";
 import { MessagesArea, ScrollButton } from "./MessageWindow.styles";
 
-// ✅ ADDED: Pull UI states globally
+// ✅ ADDED: Pull UI states globally using shallow equality
 import useChatStore from "../../../store/chatStore";
+import { useShallow } from "zustand/react/shallow";
+
+// ✅ CRITICAL FIX: Wrap the single message item in React.memo to prevent 
+// deep re-renders across the entire list when unrelated state updates.
+const MemoizedMessageItem = memo(MessageItem);
 
 export default function MessageList({
-  filteredMessages = [], // ✅ ADDED: Fallback to prevent .length crashes
+  filteredMessages = [], 
   isFetchingHistory,
   isLoadingMore,
   isTyping,
@@ -34,8 +39,12 @@ export default function MessageList({
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [unreadScrollCount, setUnreadScrollCount] = useState(0);
 
-  // ✅ FIX: Pull theme, compactness, and search query directly from Zustand
-  const { theme, isCompact, searchQuery } = useChatStore();
+  // ✅ FIX: Use useShallow so the list component only re-renders when THESE values change
+  const { theme, isCompact, searchQuery } = useChatStore(useShallow(state => ({
+    theme: state.theme,
+    isCompact: state.isCompact,
+    searchQuery: state.searchQuery
+  })));
 
   const skeletonWidths = ["45%", "65%", "35%", "80%", "50%"];
 
@@ -58,6 +67,35 @@ export default function MessageList({
     }
   }, [filteredMessages.length]);
 
+  // ✅ FIX: Extract the Virtuoso item content render function using useCallback
+  // This prevents the entire Virtual DOM tree from recreating functions on every tick
+  const itemRenderer = useCallback((index, message) => {
+    return (
+      <MemoizedMessageItem
+        message={message}
+        prevMsg={index > 0 ? filteredMessages[index - 1] : null}
+        nextMsg={index < filteredMessages.length - 1 ? filteredMessages[index + 1] : null}
+        currentChat={currentChat}
+        currentUser={currentUser}
+        searchQuery={searchQuery}
+        highlightedMsgId={highlightedMsgId}
+        setLightboxImage={setLightboxImage}
+        setReadReceiptsMsg={setReadReceiptsMsg}
+        scrollToMessage={scrollToMessage}
+        setReplyingTo={setReplyingTo}
+        setEditingMessage={setEditingMessage}
+        handleDeleteMsg={handleDeleteMsg}
+        handleReaction={handleReaction}
+        handleOpenViewOnce={handleOpenViewOnce}
+        handleRetryMsg={handleRetryMsg}
+      />
+    );
+  }, [
+    filteredMessages, currentChat, currentUser, searchQuery, highlightedMsgId,
+    setLightboxImage, setReadReceiptsMsg, scrollToMessage, setReplyingTo,
+    setEditingMessage, handleDeleteMsg, handleReaction, handleOpenViewOnce, handleRetryMsg
+  ]);
+
   return (
     <div style={{ position: "relative", height: "100%", display: "flex", flexDirection: "column" }}>
       <MessagesArea $themeType={theme} $isCompact={isCompact}>
@@ -79,7 +117,7 @@ export default function MessageList({
             data={filteredMessages}
             firstItemIndex={0}
             initialTopMostItemIndex={filteredMessages.length - 1}
-            startReached={() => hasMore && loadMoreMessages?.()} // ✅ Safe optional chaining
+            startReached={() => hasMore && loadMoreMessages?.()} 
             atBottomStateChange={(bottom) => {
               setShowScrollBtn(!bottom);
               if (bottom) setUnreadScrollCount(0);
@@ -117,28 +155,8 @@ export default function MessageList({
                   <div style={{ height: "20px" }} />
                 ),
             }}
-            itemContent={(index, message) => (
-              <MessageItem
-                message={message}
-                prevMsg={index > 0 ? filteredMessages[index - 1] : null}
-                nextMsg={
-                  index < filteredMessages.length - 1 ? filteredMessages[index + 1] : null
-                }
-                currentChat={currentChat}
-                currentUser={currentUser}
-                searchQuery={searchQuery}
-                highlightedMsgId={highlightedMsgId}
-                setLightboxImage={setLightboxImage}
-                setReadReceiptsMsg={setReadReceiptsMsg}
-                scrollToMessage={scrollToMessage}
-                setReplyingTo={setReplyingTo}
-                setEditingMessage={setEditingMessage}
-                handleDeleteMsg={handleDeleteMsg}
-                handleReaction={handleReaction}
-                handleOpenViewOnce={handleOpenViewOnce}
-                handleRetryMsg={handleRetryMsg}
-              />
-            )}
+            // ✅ FIX: Use the stable callback instead of an inline arrow function
+            itemContent={itemRenderer}
           />
         )}
       </MessagesArea>
