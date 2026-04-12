@@ -24,12 +24,19 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18.x'
+          # ✅ FIX 1: Upgraded to Node 20 to match your Dockerfiles and Vite 6 requirements
+          node-version: '20.x' 
           cache: 'npm'
           cache-dependency-path: ./${{ matrix.directory }}/package-lock.json
           
       - name: Install Dependencies
-        run: npm ci
+        # ✅ FIX 2: Conditionally use --legacy-peer-deps for the client to prevent React 19 conflicts
+        run: |
+          if [ "${{ matrix.directory }}" == "client" ]; then
+            npm ci --legacy-peer-deps
+          else
+            npm ci
+          fi
         
       - name: Build Client
         if: matrix.directory == 'client'
