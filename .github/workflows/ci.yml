@@ -6,54 +6,56 @@ on:
   pull_request:
     branches: [ "main" ]
 
+# ✅ FIX 1: This environment variable silences the Node 20 deprecation warnings
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
-  build-and-test:
-    name: Build & Test ${{ matrix.directory }}
+  # ✅ FIX 2: Split the Client into its own job so we can safely use --legacy-peer-deps
+  build-client:
+    name: Build Client
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        directory: [client, server]
-    
     defaults:
       run:
-        working-directory: ./${{ matrix.directory }}
-
+        working-directory: ./client
     steps:
       - uses: actions/checkout@v4
-      
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          # ✅ FIX 1: Upgraded to Node 20 to match your Dockerfiles and Vite 6 requirements
-          node-version: '20.x' 
+          node-version: '20.x'
           cache: 'npm'
-          cache-dependency-path: ./${{ matrix.directory }}/package-lock.json
-          
+          cache-dependency-path: ./client/package-lock.json
       - name: Install Dependencies
-        # ✅ FIX 2: Conditionally use --legacy-peer-deps for the client to prevent React 19 conflicts
-        run: |
-          if [ "${{ matrix.directory }}" == "client" ]; then
-            npm ci --legacy-peer-deps
-          else
-            npm ci
-          fi
-        
+        run: npm ci --legacy-peer-deps
       - name: Build Client
-        if: matrix.directory == 'client'
         run: npm run build
-        
-      # - name: Run Tests
-      #   run: npm test
+
+  # ✅ FIX 3: Keep the Server job standard
+  build-server:
+    name: Build Server
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./server
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+          cache-dependency-path: ./server/package-lock.json
+      - name: Install Dependencies
+        run: npm ci
 
   docker-build-check:
     name: Verify Docker Builds
-    needs: build-and-test
+    needs: [build-client, build-server]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
       - name: Test Server Docker Build
         run: docker build -t chat-server-test ./server
-        
       - name: Test Client Docker Build
         run: docker build -t chat-client-test ./client
