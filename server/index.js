@@ -183,7 +183,10 @@ app.use("/api/auth/register", authLimiter);
 app.use("/api/auth", authRoutes);
 app.use("/api/messages", verifyToken, messageRoutes);
 app.use("/api/groups", verifyToken, groupRoutes);
-app.use("/api/stories", storyRoutes);
+
+// BUG-013 FIX: Verify JWT universally on the story routes
+app.use("/api/stories", verifyToken, storyRoutes);
+
 app.use("/health", require("./routes/healthRoute"));
 app.use("/api/ai", aiRoutes);
 app.use("/api/e2e", verifyToken, e2eRoutes);

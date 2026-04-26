@@ -86,7 +86,10 @@ class GroupService {
               id: msg.replyTo._id,
               text: msg.replyTo.isDeleted ? "🚫 This message was deleted" : msg.replyTo.message.text,
               type: msg.replyTo.type,
-              isSelfQuote: msg.replyTo.sender.toString() === from,
+              // BUG-014 FIX: Handle populated object vs ObjectId string safely to determine isSelfQuote
+              isSelfQuote: msg.replyTo.sender && msg.replyTo.sender._id 
+                             ? msg.replyTo.sender._id.toString() === from 
+                             : msg.replyTo.sender?.toString() === from,
             }
           : null,
       };
@@ -314,8 +317,8 @@ class GroupService {
     return { inviteCode: group.inviteCode, inviteLinkEnabled: group.inviteLinkEnabled };
   }
 
-  // Join a group via invite code
-  async joinViaInviteCode({ code }, userId) {
+  // BUG-015 FIX: Modified to capture encryptedKey payload and assign it
+  async joinViaInviteCode({ code, encryptedKey }, userId) {
     const group = await Group.findOne({ inviteCode: code });
     if (!group) this.throwError(404, "Invalid or expired invite code.");
     if (!group.inviteLinkEnabled) this.throwError(403, "Invite link has been disabled.");
@@ -324,7 +327,14 @@ class GroupService {
     if (group.maxMembers > 0 && group.members.length >= group.maxMembers) {
       this.throwError(400, `This group is full (max ${group.maxMembers} members).`);
     }
+    
     group.members.push(userId);
+    
+    // BUG-015 FIX: Ensure new members store their E2E encrypted group payload when rejoining via link code.
+    if (encryptedKey) {
+      group.groupKeys.push({ userId, encryptedKey });
+    }
+
     await group.save();
     return group;
   }

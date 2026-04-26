@@ -70,7 +70,9 @@ module.exports = (io, socket, redisClient) => {
       try {
         const group = await Group.findById(data.to).select("isChannel admins moderators");
         if (group && group.isChannel) {
-          const isAllowed = group.admins.includes(data.from) || group.moderators.includes(data.from);
+          // BUG-011 FIX: Handle strict equality of ObjectIds safely by converting to strings
+          const isAllowed = group.admins.some(id => id.toString() === data.from.toString()) || 
+                            group.moderators.some(id => id.toString() === data.from.toString());
           if (!isAllowed) {
             if (callback) callback({ status: "error", msg: "Only admins and moderators can post in this channel." });
             return;

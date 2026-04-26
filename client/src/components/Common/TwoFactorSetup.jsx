@@ -1,4 +1,5 @@
-// client/src/components/TwoFactorSetup.jsx — Sprint 1: 2FA Setup & Management
+// client/src/components/Common/TwoFactorSetup.jsx — Sprint 1: 2FA Setup & Management
+// BUG-016 FIX: Filename renamed to remove trailing space and standardize casing
 import React, { useState } from "react";
 import styled, { keyframes } from "styled-components";
 import axios from "axios";

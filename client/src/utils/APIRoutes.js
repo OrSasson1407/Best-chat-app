@@ -4,11 +4,13 @@
  * Centralizes all backend API endpoints..
  */
 
-export const host = import.meta.env.VITE_API_URL || (
+// BUG-017 FIX: Safely strip any trailing slashes from the environment variable 
+// to prevent double-slashes (e.g., ...onrender.com//api/...)
+export const host = (import.meta.env.VITE_API_URL || (
   import.meta.env.DEV
     ? "http://localhost:5000"
     : "https://best-chat-app.onrender.com"
-);
+)).replace(/\/+$/, "");
 
 // ── Auth & User ───────────────────────────────────────────────────────────────
 export const loginRoute              = `${host}/api/auth/login`;

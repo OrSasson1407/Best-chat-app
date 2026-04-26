@@ -434,15 +434,33 @@ export default function Chat() {
         reconnectionDelayMax: 5000,
       });
 
-      socket.current.on("connect", () => { socket.current.emit("add-user", currentUser._id); });
+      socket.current.on("connect", () => { 
+        socket.current.emit("add-user", currentUser._id); 
+        
+        // BUG-010 FIX: Ensure we automatically join the group room on initial connect if a group is already selected
+        const activeChat = currentChatRef.current;
+        if (activeChat && Array.isArray(activeChat.admins)) {
+          socket.current.emit("join-group", activeChat._id);
+        }
+      });
+      
       socket.current.on("disconnect", (reason) => { if (reason === "io server disconnect") socket.current.connect(); });
+      
       socket.current.on("reconnect_attempt", () => {
         const freshToken = (currentUser?.token || sessionStorage.getItem("chat-app-token") || "").replace(/(Bearer\s*)+/gi, "").trim();
         if (freshToken) socket.current.auth.token = freshToken;
       });
+
       socket.current.on("reconnect", (n) => {
         socket.current.emit("add-user", currentUser._id);
+
+        // BUG-010 FIX: Re-join group room automatically when socket reconnects dynamically.
+        const activeChat = currentChatRef.current;
+        if (activeChat && Array.isArray(activeChat.admins)) {
+          socket.current.emit("join-group", activeChat._id);
+        }
       });
+
       socket.current.on("connect_error", (err) => {
         if (err.message.includes("Authentication error") || err.message.includes("Invalid token")) {
           if (hasRedirected.current) return;
