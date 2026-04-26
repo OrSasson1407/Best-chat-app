@@ -2,7 +2,9 @@ const mongoose = require("mongoose");
 
 const GroupSchema = new mongoose.Schema(
   {
-    name: { type: String, required: true, min: 3, max: 50 },
+    // BUG-006 FIX: min/max are Number-type validators and are silently ignored
+    // on String fields. The correct String validators are minlength/maxlength.
+    name: { type: String, required: true, minlength: 3, maxlength: 50 },
     description: { type: String, default: "" },
     avatarImage:  { type: String, default: "" },
 

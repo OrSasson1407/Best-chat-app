@@ -7,7 +7,7 @@
 export const host = import.meta.env.VITE_API_URL || (
   import.meta.env.DEV
     ? "http://localhost:5000"
-    : "https://best-chat-app.onrender.com/" 
+    : "https://best-chat-app.onrender.com"
 );
 
 // ── Auth & User ───────────────────────────────────────────────────────────────
@@ -39,8 +39,11 @@ export const createGroupRoute        = `${host}/api/groups/create`;
 export const getUserGroupsRoute      = `${host}/api/groups/getgroups`;
 export const getGroupRoute           = `${host}/api/groups`; // GET /api/groups/:id
 export const getGroupMessagesRoute   = `${host}/api/groups/getmessages`;
-export const addGroupMemberRoute     = `${host}/api/groups/addmember`;
-export const removeGroupMemberRoute  = `${host}/api/groups/removemember`;
+export const addGroupMemberRoute     = `${host}/api/groups/add-member`;
+export const removeGroupMemberRoute  = `${host}/api/groups/remove-member`;
+// BUG-007 FIX: these routes exist on the server but were missing client-side
+export const leaveGroupRoute         = `${host}/api/groups/leave`;   // DELETE /leave/:id
+export const deleteGroupRoute        = `${host}/api/groups/delete`;  // DELETE /delete/:id
 
 // ── Channels ──────────────────────────────────────────────────────────────────
 export const createChannelRoute      = `${host}/api/groups/createChannel`;

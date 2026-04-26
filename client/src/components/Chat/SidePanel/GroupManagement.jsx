@@ -45,13 +45,27 @@ export default function GroupManagement({ currentChat, isGroup, myRoleIsAdmin, m
         setCurrentChat(optimisticChat);
         res = await axios.post(promoteToModeratorRoute, { groupId: currentChat._id, targetUserId }, authHeaders);
       } else if (action === "demote_mod") {
-        optimisticChat.moderators = optimisticChat.moderators.filter((id) => id !== targetUserId);
+        // BUG-005 FIX: optimisticChat.moderators contains ObjectIds; targetUserId
+        // is a plain string. Use toString() on both sides so the filter actually
+        // removes the correct entry instead of silently keeping it.
+        optimisticChat.moderators = optimisticChat.moderators.filter(
+          (id) => id.toString() !== targetUserId.toString()
+        );
         setCurrentChat(optimisticChat);
         res = await axios.post(demoteModeratorRoute, { groupId: currentChat._id, targetUserId }, authHeaders);
       } else if (action === "kick") {
-        optimisticChat.members = optimisticChat.members.filter((m) => (m._id || m) !== targetUserId);
-        optimisticChat.admins = optimisticChat.admins?.filter((id) => id !== targetUserId);
-        optimisticChat.moderators = optimisticChat.moderators?.filter((id) => id !== targetUserId);
+        // BUG-005 FIX: members may be populated objects ({ _id, username }) or
+        // bare ObjectIds — normalise to string before comparing. admins and
+        // moderators also hold ObjectIds, so use .toString() on both sides.
+        optimisticChat.members = optimisticChat.members.filter(
+          (m) => (m._id || m).toString() !== targetUserId.toString()
+        );
+        optimisticChat.admins = optimisticChat.admins?.filter(
+          (id) => id.toString() !== targetUserId.toString()
+        );
+        optimisticChat.moderators = optimisticChat.moderators?.filter(
+          (id) => id.toString() !== targetUserId.toString()
+        );
         setCurrentChat(optimisticChat);
         res = await axios.post(kickMemberRoute, { groupId: currentChat._id, userId: targetUserId }, authHeaders);
       }
@@ -168,11 +182,17 @@ export default function GroupManagement({ currentChat, isGroup, myRoleIsAdmin, m
 
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {displayedMembers?.map((member) => {
-            const memberId    = member._id || member;
+            // memberId may be an ObjectId or a populated-object's _id — normalise to string
+            const memberIdStr = (member._id || member).toString();
             const memberName  = member.username || "User";
-            const isUserAdmin = currentChat.admins?.includes(memberId);
-            const isUserMod   = currentChat.moderators?.includes(memberId);
-            const isMe        = memberId === currentUser._id;
+
+            // BUG-004 FIX: admins/moderators hold ObjectIds; compare via toString()
+            const isUserAdmin = (currentChat.admins ?? []).some((id) => id.toString() === memberIdStr);
+            const isUserMod   = (currentChat.moderators ?? []).some((id) => id.toString() === memberIdStr);
+            const isMe        = memberIdStr === currentUser._id.toString();
+
+            // Pass the plain string id so handleMemberAction sends a string to the API
+            const memberId    = memberIdStr;
             const canKick          = (myRoleIsAdmin && !isMe) || (myRoleIsMod && !isUserAdmin && !isUserMod && !isMe);
             const canPromoteToMod  = myRoleIsAdmin && !isUserAdmin && !isUserMod && !isMe;
             const canPromoteToAdmin = myRoleIsAdmin && !isUserAdmin && !isMe;

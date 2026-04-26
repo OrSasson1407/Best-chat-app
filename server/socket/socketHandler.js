@@ -50,18 +50,14 @@ module.exports = (io, redisClient) => {
     }
 
     /* =====================================================
-       CRITICAL FIX: Memory Leak Prevention
-       ===================================================== */
-    socket.on("disconnect", () => {
-      // Ensure we remove the user from the heartbeat throttle Map
-      // when their socket disconnects to prevent indefinite memory growth.
-      if (socket.userId && heartbeatThrottles.has(socket.userId)) {
-        heartbeatThrottles.delete(socket.userId);
-      }
-    });
-
-    /* =====================================================
        REGISTER MODULAR HANDLERS
+       =====================================================
+       NOTE (BUG-008 FIX): There is NO disconnect listener here anymore.
+       The old listener only deleted from heartbeatThrottles, but
+       connectionHandler.js already does that at line ~153 inside its own
+       full disconnect handler. Having two listeners on the same event
+       caused a race condition on high-traffic disconnects. All disconnect
+       cleanup now lives exclusively in connectionHandler.
        ===================================================== */
     
     // 1. Connection & Presence Events (add-user, heartbeat, check-presence, disconnect)

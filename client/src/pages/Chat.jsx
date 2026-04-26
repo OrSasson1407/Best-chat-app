@@ -6,8 +6,8 @@ import { io } from "socket.io-client";
 import customParser from "socket.io-msgpack-parser";
 import styled, { keyframes, css } from "styled-components";
 
-// ✅ ADDED: sendMessageRoute and receiveMessageRoute
-import { allUsersRoute, host, updateFcmTokenRoute, sendMessageRoute, receiveMessageRoute, editMessageRoute, deleteMessageRoute, deleteMessageForMeRoute, reactMessageRoute } from "../utils/APIRoutes";
+// ✅ FIXED: Added getGroupMessagesRoute for group history fetching
+import { allUsersRoute, host, updateFcmTokenRoute, sendMessageRoute, receiveMessageRoute, getGroupMessagesRoute, editMessageRoute, deleteMessageRoute, deleteMessageForMeRoute, reactMessageRoute } from "../utils/APIRoutes";
 
 // Updated component imports based on new folder structure
 import Contacts from "../components/Sidebar/Contacts";
@@ -67,7 +67,10 @@ export default function Chat() {
     }
   }, [currentChat]);
 
-  // ✅ ADDED: Fetch Chat History when switching chats
+  // ✅ FIXED BUG-002 + BUG-003: Fetch Chat History when switching chats.
+  // - isGroup now checks currentChat.admins (the real field) not the non-existent .admin
+  // - Groups use getGroupMessagesRoute with { from, groupId }
+  // - DMs use receiveMessageRoute with { from, to }
   useEffect(() => {
     const fetchChatHistory = async () => {
       if (!currentChat || !currentUser) return;
@@ -75,14 +78,27 @@ export default function Chat() {
       try {
         const rawToken = currentUser.token || sessionStorage.getItem("chat-app-token") || "";
         const cleanToken = rawToken.replace(/(Bearer\s*)+/gi, "").trim();
-        
-        const { data } = await axios.post(receiveMessageRoute, {
-          from: currentUser._id,
-          to: currentChat._id || currentChat.name
-        }, {
-          headers: { Authorization: `Bearer ${cleanToken}` }
-        });
-        
+        const headers = { Authorization: `Bearer ${cleanToken}` };
+
+        // BUG-002 FIX: groups have an `admins` array — never a singular `.admin` field
+        const isGroupChat = Array.isArray(currentChat.admins);
+
+        let data;
+        if (isGroupChat) {
+          // BUG-003 FIX: use the dedicated group messages endpoint with groupId
+          const res = await axios.post(getGroupMessagesRoute, {
+            from: currentUser._id,
+            groupId: currentChat._id,
+          }, { headers });
+          data = res.data;
+        } else {
+          const res = await axios.post(receiveMessageRoute, {
+            from: currentUser._id,
+            to: currentChat._id || currentChat.name,
+          }, { headers });
+          data = res.data;
+        }
+
         setMessages(data.projectedMessages || data.messages || []);
         setHasMore(data.hasMore || false);
         cursorRef.current = data.nextCursor || null;
@@ -99,7 +115,8 @@ export default function Chat() {
   const handleSendMsg = async (msgText, type = "text", replyTo = null, options = {}) => {
     const chatId = currentChat._id || currentChat.name;
     const localId = options.localId || Date.now().toString();
-    const isGroup = !!currentChat.admin;
+    // BUG-002 FIX: groups have `admins` array, never a singular `.admin` field
+    const isGroup = Array.isArray(currentChat.admins);
 
     // 1. Optimistic UI Update (Shows immediately)
     const newMsg = {
@@ -165,7 +182,8 @@ export default function Chat() {
   // ✅ ADDED: Typing indicator emitter
   const handleTyping = useCallback((isTyping) => {
     if (!socket.current || !currentChat || !currentUser) return;
-    const isGroup = !!currentChat.admin;
+    // BUG-002 FIX: groups have `admins` array, never a singular `.admin` field
+    const isGroup = Array.isArray(currentChat.admins);
     socket.current.emit("typing", {
       to: currentChat._id || currentChat.name,
       from: currentUser._id,
@@ -194,7 +212,8 @@ export default function Chat() {
           messageId,
           newText,
           to: currentChat._id || currentChat.name,
-          isGroup: !!currentChat.admin,
+          // BUG-002 FIX: groups have `admins` array, never a singular `.admin` field
+          isGroup: Array.isArray(currentChat.admins),
         });
       }
     } catch (error) {
@@ -222,7 +241,8 @@ export default function Chat() {
           socket.current.emit("delete-msg", {
             messageId,
             to: currentChat._id || currentChat.name,
-            isGroup: !!currentChat.admin,
+            // BUG-002 FIX: groups have `admins` array, never a singular `.admin` field
+            isGroup: Array.isArray(currentChat.admins),
           });
         }
       } else {
@@ -254,7 +274,8 @@ export default function Chat() {
           messageId, emoji,
           to: currentChat._id || currentChat.name,
           from: currentUser._id,
-          isGroup: !!currentChat.admin,
+          // BUG-002 FIX: groups have `admins` array, never a singular `.admin` field
+          isGroup: Array.isArray(currentChat.admins),
           username: currentUser.username,
         });
       }
@@ -285,11 +306,27 @@ export default function Chat() {
     try {
       const rawToken = currentUser.token || sessionStorage.getItem("chat-app-token") || "";
       const cleanToken = rawToken.replace(/(Bearer\s*)+/gi, "").trim();
-      const { data } = await axios.post(receiveMessageRoute, {
-        from: currentUser._id,
-        to: currentChat._id || currentChat.name,
-        cursor: cursorRef.current,
-      }, { headers: { Authorization: `Bearer ${cleanToken}` } });
+      const headers = { Authorization: `Bearer ${cleanToken}` };
+
+      // BUG-002 + BUG-003 FIX: branch on group vs DM, use correct endpoint and params
+      const isGroupChat = Array.isArray(currentChat.admins);
+      let data;
+      if (isGroupChat) {
+        const res = await axios.post(getGroupMessagesRoute, {
+          from: currentUser._id,
+          groupId: currentChat._id,
+          cursor: cursorRef.current,
+        }, { headers });
+        data = res.data;
+      } else {
+        const res = await axios.post(receiveMessageRoute, {
+          from: currentUser._id,
+          to: currentChat._id || currentChat.name,
+          cursor: cursorRef.current,
+        }, { headers });
+        data = res.data;
+      }
+
       const older = data.projectedMessages || data.messages || [];
       setMessages((prev) => [...older, ...prev]);
       setHasMore(data.hasMore || false);
@@ -601,17 +638,18 @@ export default function Chat() {
     setIsMobileMenuOpen(false);
     setReplyingTo(null);
     setEditingMessage(null);
-    // FIX BUG 2: Join the server-side Socket.IO room for group chats.
-    // Without this, socket.to(groupId).emit() on the server reaches nobody
-    // except the sender, because no other member has joined the room.
-    if (chat && chat.admin && socket.current) {
+    // BUG-002 FIX: groups have `admins` array — never a singular `.admin` field.
+    // Without emitting join-group the user is never in the Socket.IO room,
+    // so group messages, typing indicators and read-receipts all silently fail.
+    if (chat && Array.isArray(chat.admins) && socket.current) {
       socket.current.emit("join-group", chat._id);
     }
   }, [setCurrentChat]);
 
-  const isCurrentChatOnline = currentChat && !currentChat.admin && onlineUsers.includes(currentChat._id);
-  const currentChatLastSeen = currentChat && !currentChat.admin 
-    ? contacts.find(c => c._id === currentChat._id)?.lastSeen 
+  // BUG-002 FIX: groups have `admins` array — never a singular `.admin` field
+  const isCurrentChatOnline = currentChat && !Array.isArray(currentChat.admins) && onlineUsers.includes(currentChat._id);
+  const currentChatLastSeen = currentChat && !Array.isArray(currentChat.admins)
+    ? contacts.find(c => c._id === currentChat._id)?.lastSeen
     : null;
 
   if (!_hasHydrated) {

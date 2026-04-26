@@ -24,9 +24,21 @@ export default function SidePanel({
   const [inviteCode, setInviteCode] = useState(null);
   const [loadingQR, setLoadingQR] = useState(false);
 
-  const isGroup = currentChat?.admins !== undefined;
-  const myRoleIsAdmin = isGroup && currentChat.admins?.includes(currentUser._id);
-  const myRoleIsMod   = isGroup && currentChat.moderators?.includes(currentUser._id);
+  // BUG-012 FIX: Use a reliable structural check — a group always has both
+  // a members array and an admins array. Checking admins !== undefined is
+  // fragile; Array.isArray guards against null/undefined and partial objects.
+  const isGroup = Array.isArray(currentChat?.admins) && Array.isArray(currentChat?.members);
+
+  // BUG-004 FIX: admins/moderators contain MongoDB ObjectIds; currentUser._id
+  // is a plain string. Array.includes() uses strict equality so ObjectId !==
+  // string always — every admin saw their controls hidden. Use .some() with
+  // an explicit .toString() comparison on both sides.
+  const myRoleIsAdmin = isGroup && (currentChat.admins ?? []).some(
+    (id) => id.toString() === currentUser._id.toString()
+  );
+  const myRoleIsMod = isGroup && (currentChat.moderators ?? []).some(
+    (id) => id.toString() === currentUser._id.toString()
+  );
 
   const token = currentUser?.token || sessionStorage.getItem("chat-app-token");
   const authHeaders = { headers: { Authorization: `Bearer ${token}` } };
