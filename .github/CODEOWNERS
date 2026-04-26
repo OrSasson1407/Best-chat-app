@@ -1,0 +1,19 @@
+# Default reviewers
+
+# Global fallback
+* @yourusername
+
+# Backend & Database
+/server/models/                    @yourusername
+/server/config/                    @yourusername
+
+# Realtime / Sockets
+/server/socket/                    @yourusername
+
+# E2E Security
+/client/src/utils/crypto.js        @yourusername
+/server/controllers/e2eController.js @yourusername
+
+# DevOps
+/.github/workflows/                @yourusername
+docker-compose.yml                 @yourusername
