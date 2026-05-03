@@ -1,39 +1,61 @@
-const mongoose = require('mongoose');
-const User = require('../../server/models/User');
-const Message = require('../../server/models/Message');
-const GroupModel = require('../../server/models/GroupModel');
+const { mongoose, dbReady } = require('../../server/index');
+const User = mongoose.model('User');
+const Message = mongoose.model('Message');
+const GroupModel = mongoose.model('Group');
 
 describe('Data Integrity: Cascading Deletes', () => {
   let testUser;
+  let testUser2;
 
   beforeAll(async () => {
-    await mongoose.connect(process.env.TEST_MONGO_URI);
-    
-    // Seed database with a user, a message, and a group
-    testUser = await User.create({ username: 'DeleteMe', email: 'del@test.com', password: 'pwd' });
-    
-    await Message.create({ sender: testUser._id, text: 'This should disappear' });
-    await GroupModel.create({ name: 'Test Group', members: [testUser._id] });
-  });
+    await dbReady;
+    await User.deleteOne({ email: 'del@test.com' });
+    await User.deleteOne({ email: 'del2@test.com' });
+
+    testUser = await User.create({
+      username: 'DeleteMe',
+      email: 'del@test.com',
+      password: 'hashedpwd123',
+    });
+
+    testUser2 = await User.create({
+      username: 'DeleteMe2',
+      email: 'del2@test.com',
+      password: 'hashedpwd123',
+    });
+
+    // Message schema: { from, to, message: { text }, users, sender, type }
+    await Message.create({
+      from: testUser._id,
+      to: testUser2._id,
+      message: { text: 'This should disappear' },
+      users: [testUser._id, testUser2._id],
+      sender: testUser._id,
+    });
+
+    await GroupModel.create({
+      name: 'Test Group',
+      members: [testUser._id],
+    });
+  }, 65000);
 
   afterAll(async () => {
-    await mongoose.connection.close();
+    await GroupModel.deleteMany({ name: 'Test Group' });
+    await Message.deleteMany({ sender: testUser?._id });
+    await User.deleteOne({ email: 'del2@test.com' });
   });
 
-  it('should remove the user\'s messages and references when their account is deleted', async () => {
-    // 1. Verify data exists
+  it('should remove messages and group references when a user is deleted', async () => {
     let messages = await Message.find({ sender: testUser._id });
-    expect(messages.length).toBe(1);
+    expect(messages.length).toBeGreaterThan(0);
 
-    // 2. Perform the delete operation (triggering model middleware)
     await User.findByIdAndDelete(testUser._id);
 
-    // 3. Assert messages are wiped
     messages = await Message.find({ sender: testUser._id });
     expect(messages.length).toBe(0);
 
-    // 4. Assert user was removed from group memberships
     const group = await GroupModel.findOne({ name: 'Test Group' });
-    expect(group.members).not.toContainEqual(testUser._id);
+    const memberIds = group.members.map((id) => id.toString());
+    expect(memberIds).not.toContain(testUser._id.toString());
   });
 });

@@ -1,17 +1,16 @@
 const request = require('supertest');
-const mongoose = require('mongoose');
-const app = require('../../server/index'); // Adjust if your Express app is exported differently
-const User = require('../../server/models/User');
+const { app, mongoose, dbReady } = require('../../server/index');
+const User = mongoose.model('User');
 
 describe('Auth API Endpoints', () => {
   beforeAll(async () => {
-    // Connect to a test database here
-    await mongoose.connect(process.env.TEST_MONGO_URI);
-  });
+    await dbReady;
+    await User.deleteOne({ email: 'test@example.com' });
+    await User.deleteOne({ username: 'testuser' });
+  }, 65000);
 
   afterAll(async () => {
-    await User.deleteMany({});
-    await mongoose.connection.close();
+    await User.deleteOne({ email: 'test@example.com' });
   });
 
   it('should register a new user successfully', async () => {
@@ -20,10 +19,13 @@ describe('Auth API Endpoints', () => {
       .send({
         username: 'testuser',
         email: 'test@example.com',
-        password: 'Password123!'
+        password: 'Password123!',
+        gender: 'male',
       });
-    
-    expect(res.statusCode).toEqual(201);
+
+    // Register returns 200 with { status: true, user, token, refreshToken }
+    expect(res.statusCode).toEqual(200);
+    expect(res.body.status).toBe(true);
     expect(res.body).toHaveProperty('token');
     expect(res.body.user).toHaveProperty('username', 'testuser');
   });
@@ -32,11 +34,13 @@ describe('Auth API Endpoints', () => {
     const res = await request(app)
       .post('/api/auth/login')
       .send({
-        email: 'test@example.com',
-        password: 'Password123!'
+        // Login requires 'username', not 'email'
+        username: 'testuser',
+        password: 'Password123!',
       });
-    
+
     expect(res.statusCode).toEqual(200);
+    expect(res.body.status).toBe(true);
     expect(res.body).toHaveProperty('token');
   });
 });

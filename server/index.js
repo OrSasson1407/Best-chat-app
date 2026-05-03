@@ -330,4 +330,10 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 // Export for testingggg
-module.exports = { app, server };
+const mongoose = require("mongoose");
+const dbReady = new Promise((resolve, reject) => {
+  if (mongoose.connection.readyState === 1) return resolve();
+  mongoose.connection.once("connected", resolve);
+  mongoose.connection.once("error", reject);
+});
+module.exports = { app, server, mongoose, dbReady };
