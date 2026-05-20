@@ -1,36 +1,24 @@
-const storyService = require("../services/storyService");
+﻿const storyService = require('../services/storyService');
 
-exports.addStory = async (req, res, next) => {
+const createStory = async (req, res, next) => {
   try {
-    const newStory = await storyService.addStory(req.body, req.user.id);
-
-    // Emit via Socket.io to notify online users about the new story
-    const io = req.app.get("io");
-    if (io) {
-       // Broadcast the new story event so clients can show the status ring
-       io.emit("new-story-published", { userId: req.user.id, storyId: newStory._id });
-    }
-
-    return res.status(201).json({ status: true, story: newStory });
+    const { mediaUrl, mediaType } = req.body;
+    const story = await storyService.createStory(req.user._id, mediaUrl, mediaType);
+    res.status(201).json({ success: true, data: story });
   } catch (error) {
     next(error);
   }
 };
 
-exports.getFeed = async (req, res, next) => {
+const getFeed = async (req, res, next) => {
   try {
-    const feed = await storyService.getFeed(req.user.id);
-    return res.status(200).json({ status: true, feed });
+    // Assuming friends/contacts array is passed or retrieved
+    const { contactIds } = req.body; 
+    const stories = await storyService.getActiveStories([...contactIds, req.user._id]);
+    res.status(200).json({ success: true, count: stories.length, data: stories });
   } catch (error) {
     next(error);
   }
 };
 
-exports.viewStory = async (req, res, next) => {
-  try {
-    await storyService.viewStory(req.params.storyId, req.user.id);
-    return res.status(200).json({ status: true, msg: "Story marked as viewed" });
-  } catch (error) {
-    next(error);
-  }
-};
+module.exports = { createStory, getFeed };
