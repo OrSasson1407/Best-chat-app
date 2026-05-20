@@ -1,5 +1,10 @@
-// jest.config.js
 module.exports = {
   testEnvironment: 'node',
-  modulePathIgnorePatterns: ["<rootDir>/or/", "<rootDir>/functions/"],
+  rootDir: './',
+  setupFilesAfterEnv: ['<rootDir>/tests/setup.js'],
+  transformIgnorePatterns: ['/node_modules/'],
+  moduleNameMapper: {
+    '^@/(.*)$': '<rootDir>/',
+    '^server/(.*)$': '<rootDir>/server/'
+  }
 };
