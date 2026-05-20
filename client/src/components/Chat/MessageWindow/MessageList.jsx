@@ -2,7 +2,7 @@ import React, { useRef, useEffect, useCallback, useState } from 'react';
 import { Virtuoso } from 'react-virtuoso';
 import MessageItem from './MessageItem';
 import TypingIndicator from './TypingIndicator';
-import useChatStore from '../../../../store/chatStore';
+import useChatStore from '../../../store/chatStore'; // ?? Fixed the import path!
 
 // ?? High Impact: Extracted Virtuoso Footer component (Memoized)
 const TypingFooter = React.memo(({ context }) => {
@@ -56,7 +56,9 @@ const MessageList = ({ activeGroupId }) => {
 
       <button
         onClick={scrollToBottom}
-        className={bsolute bottom-12 right-6 p-3 bg-blue-500 text-white rounded-full shadow-lg transition-all duration-300 ease-in-out }
+        className={`absolute bottom-12 right-6 p-3 bg-blue-500 text-white rounded-full shadow-lg transition-all duration-300 ease-in-out ${
+          showScrollButton ? 'opacity-100 translate-y-0 cursor-pointer pointer-events-auto' : 'opacity-0 translate-y-4 pointer-events-none'
+        }`}
         aria-label="Scroll to bottom"
       >
         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">

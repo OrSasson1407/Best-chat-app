@@ -1,7 +1,7 @@
-﻿import React, { useState, Suspense } from 'react';
-import useChatStore from '../../../../store/chatStore'; // Adjusted path based on structure
+import React, { useState, Suspense } from 'react';
+import useChatStore from '../../../store/chatStore'; // ?? Fixed the import path!
 
-// 🔥 High Impact: Lazy load the 700KB emoji picker. 
+// ?? High Impact: Lazy load the 700KB emoji picker. 
 // It will ONLY be fetched from the network when the user clicks the emoji button.
 const EmojiPicker = React.lazy(() => import('emoji-picker-react'));
 
@@ -47,7 +47,7 @@ const ChatInput = ({ activeGroupId }) => {
           className="p-2 text-gray-500 hover:text-blue-500 transition-colors"
           aria-label="Toggle emoji picker"
         >
-          😀
+          ??
         </button>
         
         <input

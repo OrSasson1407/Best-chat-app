@@ -1,7 +1,7 @@
-﻿import React, { memo } from 'react';
-import useChatStore from '../../../../store/chatStore';
+import React, { memo } from 'react';
+import useChatStore from '../../../store/chatStore'; // ?? Fixed the import path (3 levels up)!
 
-// 🔥 High Impact: Memoized component. The main MessageList will no longer re-render on every keystroke.
+// ?? High Impact: Memoized component. The main MessageList will no longer re-render on every keystroke.
 const TypingIndicator = memo(({ groupId }) => {
   const isTyping = useChatStore((state) => state.isTyping); // Ensure your store supports group-specific typing later
   const activeGroup = useChatStore((state) => state.activeGroup);
