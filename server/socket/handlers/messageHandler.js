@@ -5,19 +5,18 @@ module.exports = (io, socket) => {
   socket.on('sendMessage', async (payload, callback) => {
     try {
       const { groupId, content, type } = payload;
-      // Socket authentication middleware should populate socket.user
-      const senderId = socket.user._id; 
+      
+      // 🔥 High Impact: Standardize ID checking and add strict try/catch to prevent silent socket crashes
+      const senderId = socket.user?._id || socket.userId; 
+      if (!senderId) throw new Error('Unauthorized socket connection');
 
-      // 1. Save via service layer
       const savedMessage = await messageService.saveMessage(senderId, groupId, content, type);
-
-      // 2. Broadcast to the specific group room
       io.to(groupId).emit('newMessage', savedMessage);
 
-      // 3. Acknowledge success to the sender
       if (callback) callback({ success: true, data: savedMessage });
     } catch (error) {
       logger.error(`Socket sendMessage error: ${error.message}`);
+      // Send error back to client so it can trigger the rollback timeout early if needed
       if (callback) callback({ success: false, error: 'Failed to send message' });
     }
   });

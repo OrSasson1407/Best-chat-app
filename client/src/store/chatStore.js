@@ -1,60 +1,90 @@
 ﻿import { create } from 'zustand';
+import { set, get, del, keys } from 'idb-keyval';
+import { triggerHaptic } from '../utils/haptics';
 
-/**
- * Advanced Zustand Store with Optimistic UI rendering.
- */
-const useChatStore = create((set, get) => ({
+const useChatStore = create((setStore, getStore) => ({
   messages: [],
   groups: [],
   activeGroup: null,
-  isTyping: false,
+  offlineQueueCount: 0,
+  pendingTimeouts: {}, // Track timeouts to clear them if successful
 
-  setActiveGroup: (groupId) => set({ activeGroup: groupId }),
+  setActiveGroup: (groupId) => setStore({ activeGroup: groupId }),
+  setMessages: (newMessages) => setStore({ messages: newMessages }),
 
-  // Set messages fetched from the decoupled HTTP backend
-  setMessages: (newMessages) => set({ messages: newMessages }),
+  loadOfflineQueueCount: async () => {
+    const dbKeys = await keys();
+    const msgKeys = dbKeys.filter(k => k.toString().startsWith('msg-'));
+    setStore({ offlineQueueCount: msgKeys.length });
+  },
 
-  // Optimistic UI update: Instantly show message before server ack
-  sendMessageOptimistic: (groupId, content, senderId) => {
+  sendMessageOptimistic: async (groupId, content, senderId) => {
     const tempId = `temp-${Date.now()}`;
+    const isOnline = navigator.onLine;
+
     const optimisticMessage = {
       _id: tempId,
       groupId,
       content,
-      senderId: { _id: senderId }, // Mock populated user
-      status: 'sending',
+      senderId: { _id: senderId },
+      status: isOnline ? 'sending' : 'queued',
       createdAt: new Date().toISOString(),
     };
 
-    set((state) => ({
-      messages: [...state.messages, optimisticMessage]
-    }));
+    setStore((state) => ({ messages: [...state.messages, optimisticMessage] }));
 
-    return tempId; // Return temp ID so the socket can replace it later
+    if (!isOnline) {
+      await set(`msg-${tempId}`, { groupId, content, senderId, tempId });
+      setStore((state) => ({ offlineQueueCount: state.offlineQueueCount + 1 }));
+      triggerHaptic('error'); 
+    } else {
+      // 🔥 High Impact: 10-second timeout auto-rollback if socket ack fails
+      const timeoutId = setTimeout(() => {
+        getStore().rollbackOptimisticMessage(tempId);
+        // You could trigger a global toast here: "Message failed to send"
+      }, 10000);
+      
+      setStore(state => ({
+        pendingTimeouts: { ...state.pendingTimeouts, [tempId]: timeoutId }
+      }));
+    }
+
+    return tempId;
   },
 
-  // Called when Socket acknowledges the real message
-  confirmMessageSent: (tempId, realMessage) => {
-    set((state) => ({
+  confirmMessageSent: async (tempId, realMessage) => {
+    await del(`msg-${tempId}`);
+    
+    // Clear the rollback timeout
+    const { pendingTimeouts } = getStore();
+    if (pendingTimeouts[tempId]) {
+      clearTimeout(pendingTimeouts[tempId]);
+      const newTimeouts = { ...pendingTimeouts };
+      delete newTimeouts[tempId];
+      setStore({ pendingTimeouts: newTimeouts });
+    }
+
+    setStore((state) => ({
       messages: state.messages.map((msg) =>
         msg._id === tempId ? { ...realMessage, status: 'sent' } : msg
-      )
+      ),
+      offlineQueueCount: Math.max(0, state.offlineQueueCount - 1)
     }));
   },
 
-  // Called when receiving a message from someone else via Socket
   receiveRealTimeMessage: (message) => {
-    const { activeGroup, messages } = get();
-    // Only append if it belongs to the currently open chat
-    if (message.groupId === activeGroup) {
-      set({ messages: [...messages, message] });
+    const { activeGroup, messages } = getStore();
+    triggerHaptic('message');
+    if (message.groupId === activeGroup && !messages.find(m => m._id === message._id)) {
+      setStore({ messages: [...messages, message] });
     }
   },
 
-  // Rollback function in case the socket/API fails
   rollbackOptimisticMessage: (tempId) => {
-    set((state) => ({
-      messages: state.messages.filter((msg) => msg._id !== tempId)
+    setStore((state) => ({
+      messages: state.messages.map((msg) => 
+        msg._id === tempId ? { ...msg, status: 'failed' } : msg
+      )
     }));
   }
 }));

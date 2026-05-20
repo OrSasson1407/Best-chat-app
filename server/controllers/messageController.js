@@ -3,18 +3,23 @@
 const getMessages = async (req, res, next) => {
   try {
     const { groupId } = req.params;
-    const page = parseInt(req.query.page, 10) || 1;
+    // Accept a cursor string instead of a page number
+    const cursor = req.query.cursor || null; 
     const limit = parseInt(req.query.limit, 10) || 50;
 
     if (!groupId) {
       return res.status(400).json({ success: false, message: 'Group ID is required' });
     }
 
-    const messages = await messageService.getMessagesByGroup(groupId, page, limit);
+    const messages = await messageService.getMessagesByGroup(groupId, cursor, limit);
+    
+    // The next cursor is the _id of the last message in the array
+    const nextCursor = messages.length === limit ? messages[messages.length - 1]._id : null;
     
     return res.status(200).json({
       success: true,
       count: messages.length,
+      nextCursor,
       data: messages
     });
   } catch (error) {
@@ -42,7 +47,4 @@ const sendMessage = async (req, res, next) => {
   }
 };
 
-module.exports = {
-  getMessages,
-  sendMessage
-};
+module.exports = { getMessages, sendMessage };

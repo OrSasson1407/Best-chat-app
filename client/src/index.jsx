@@ -1,3 +1,6 @@
+﻿
+import axios from 'axios';
+axios.defaults.withCredentials = true;
 // client/src/index.js
 import process from 'process';
 import React from "react";
