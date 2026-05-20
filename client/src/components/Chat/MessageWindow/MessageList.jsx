@@ -1,29 +1,29 @@
-﻿import React, { useRef, useEffect, useCallback, useState } from 'react';
+import React, { useRef, useEffect, useCallback, useState } from 'react';
 import { Virtuoso } from 'react-virtuoso';
 import MessageItem from './MessageItem';
 import TypingIndicator from './TypingIndicator';
 import useChatStore from '../../../../store/chatStore';
 
+// ?? High Impact: Extracted Virtuoso Footer component (Memoized)
+const TypingFooter = React.memo(({ context }) => {
+  return <TypingIndicator groupId={context.activeGroupId} />;
+});
+
 const MessageList = ({ activeGroupId }) => {
   const messages = useChatStore((state) => state.messages);
-  // Assuming auth data is available or passed down; adjust based on your actual auth store
   const currentUserId = "current-user-id"; 
   
   const [showScrollButton, setShowScrollButton] = useState(false);
   const virtuosoRef = useRef(null);
 
-  // 🔥 High Impact: Storing context in a ref prevents the itemRenderer from changing identity 
-  // and forcing Virtuoso to remount all visible rows when non-message state changes.
-  const contextRef = useRef({ currentUserId });
+  const contextRef = useRef({ currentUserId, activeGroupId });
   useEffect(() => {
-    contextRef.current = { currentUserId };
-  }, [currentUserId]);
+    contextRef.current = { currentUserId, activeGroupId };
+  }, [currentUserId, activeGroupId]);
 
   const itemRenderer = useCallback((index, message) => {
-    // Safely check against populated object or string ID
     const senderIdStr = typeof message.senderId === 'object' ? message.senderId._id : message.senderId;
     const isOwnMessage = senderIdStr === contextRef.current.currentUserId;
-    
     return <MessageItem message={message} isOwnMessage={isOwnMessage} />;
   }, []);
 
@@ -43,22 +43,20 @@ const MessageList = ({ activeGroupId }) => {
           ref={virtuosoRef}
           data={messages}
           itemContent={itemRenderer}
-          // 🔥 High Impact: Pre-renders rows 300px above and below viewport
-          increaseViewportBy={300} 
+          context={{ activeGroupId }}
+          components={{ Footer: TypingFooter }}
+          increaseViewportBy={{ top: 400, bottom: 400 }}
+          overscan={20}
           initialTopMostItemIndex={messages.length > 0 ? messages.length - 1 : 0}
           followOutput="smooth"
           className="w-full h-full p-4"
+          style={{ willChange: 'transform' }}
         />
       </div>
 
-      <TypingIndicator groupId={activeGroupId} />
-
-      {/* 🔥 High Impact: Dropped framer-motion AnimatePresence for a pure CSS transition */}
       <button
         onClick={scrollToBottom}
-        className={`absolute bottom-12 right-6 p-3 bg-blue-500 text-white rounded-full shadow-lg transition-all duration-300 ease-in-out ${
-          showScrollButton ? 'opacity-100 translate-y-0 cursor-pointer pointer-events-auto' : 'opacity-0 translate-y-4 pointer-events-none'
-        }`}
+        className={bsolute bottom-12 right-6 p-3 bg-blue-500 text-white rounded-full shadow-lg transition-all duration-300 ease-in-out }
         aria-label="Scroll to bottom"
       >
         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
