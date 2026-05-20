@@ -1,4 +1,4 @@
-﻿const express = require('express');
+const express = require('express');
 const http = require('http');
 const cookieParser = require('cookie-parser');
 const connectDB = require('./config/db');
@@ -10,9 +10,9 @@ const server = http.createServer(app);
 
 // Middleware
 app.use(express.json());
-app.use(cookieParser()); // 🔥 High Impact: Parses the new secure HttpOnly cookies
+app.use(cookieParser()); // ?? High Impact: Parses the new secure HttpOnly cookies
 
-// 🔥 High Impact: /health endpoint for Render.com Keep-Alive crons (prevents sleep)
+// ?? High Impact: /health endpoint for Render.com Keep-Alive crons (prevents sleep)
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', uptime: process.uptime() });
 });
@@ -28,7 +28,7 @@ const startServer = async () => {
     // Connect to MongoDB
     await connectDB();
 
-    // 🔥 High Impact: Pre-warm the Mongoose connection pool so the first user request is fast
+    // ?? High Impact: Pre-warm the Mongoose connection pool so the first user request is fast
     const User = require('./models/User');
     await User.findOne().lean().exec(); 
     logger.info('Database pre-warmed.');
@@ -38,8 +38,14 @@ const startServer = async () => {
     });
   } catch (error) {
     logger.error(`Startup failed: ${error.message}`);
-    process.exit(1);
+    process.exit(1); // We don't want this crashing our tests!
   }
 };
 
-startServer();
+// ?? FIX: Prevent server from auto-starting during Jest tests
+if (process.env.NODE_ENV !== 'test') {
+  startServer();
+}
+
+// Export the app for Supertest to use
+module.exports = { app, server };
